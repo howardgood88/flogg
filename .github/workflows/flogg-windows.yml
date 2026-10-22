@@ -133,7 +133,8 @@ jobs:
           if (-not $tbb) { throw "tbb12.dll not found" }
           Copy-Item $tbb.FullName $release
 
-          windeployqt --release --no-translations --no-system-d3d-compiler --no-opengl-sw `
+          windeployqt --release --no-translations --no-compiler-runtime `
+            --no-system-d3d-compiler --no-system-dxc-compiler --no-opengl-sw `
             "$release\flogg.exe" "$release\flogg_portable.exe"
           if ($LASTEXITCODE -ne 0) { throw "windeployqt failed" }
 
