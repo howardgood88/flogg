@@ -1,0 +1,162 @@
+name: "Windows build"
+
+on:
+  push:
+    branches: [ flogg, main, master ]
+    tags: [ 'v*' ]
+    paths-ignore:
+      - '**.md'
+      - 'bench/**'
+      - 'website/**'
+  pull_request:
+    paths-ignore:
+      - '**.md'
+      - 'bench/**'
+      - 'website/**'
+  workflow_dispatch:
+
+# A newer push to the same branch cancels the running build
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-x64:
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    runs-on: windows-2022
+    timeout-minutes: 120
+    permissions:
+      contents: write # only used to attach the packages to a release on a v* tag
+
+    env:
+      QT_VERSION: 6.7.3
+      BOOST_VERSION: 1.86.0
+      BUILD_ROOT: build_root
+
+    steps:
+      # The karchive patch is applied with git apply, keep LF line endings everywhere
+      - name: Disable line ending conversion
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@v4
+
+      - name: Set version
+        shell: bash
+        run: |
+          # CMake reads the build version from KLOGG_VERSION
+          echo "KLOGG_VERSION=24.11.0.${{ github.run_number }}" >> $GITHUB_ENV
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            echo "PACKAGE_VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_ENV
+          else
+            echo "PACKAGE_VERSION=24.11.0.${{ github.run_number }}" >> $GITHUB_ENV
+          fi
+
+      - name: Install Ninja
+        uses: seanmiddleditch/gha-setup-ninja@v5
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          arch: win64_msvc2019_64
+          modules: qt5compat
+          archives: qtbase qtimageformats qtsvg qttools qttranslations icu
+          cache: true
+
+      # Hyperscan needs the boost headers
+      - name: Restore Boost cache
+        id: cache-boost
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/boost
+          key: boost-${{ env.BOOST_VERSION }}
+
+      - name: Install Boost
+        if: steps.cache-boost.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          version_underscore=${BOOST_VERSION//./_}
+          curl --fail --location --silent --show-error --output boost.7z \
+            "https://archives.boost.io/release/${BOOST_VERSION}/source/boost_${version_underscore}.7z"
+          7z x boost.7z -bd -y > /dev/null
+          mv "boost_${version_underscore}" boost
+          rm boost.7z
+
+      - name: Set Boost root
+        shell: bash
+        run: echo "BOOST_ROOT=${GITHUB_WORKSPACE//\\//}/boost" >> $GITHUB_ENV
+
+      - name: Restore third party sources cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/cpm_cache
+          key: cpm-${{ hashFiles('3rdparty/CMakeLists.txt', '3rdparty/patches/**') }}
+
+      - name: Prepare MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Configure
+        shell: bash
+        run: >
+          cmake -S . -B "$BUILD_ROOT" -G Ninja
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DKLOGG_GENERIC_CPU=ON
+          -DKLOGG_USE_SENTRY=OFF
+          -DKLOGG_OVERRIDE_MALLOC=OFF
+          -DWARNINGS_AS_ERRORS=OFF
+          -DCPM_SOURCE_CACHE="${GITHUB_WORKSPACE//\\//}/cpm_cache"
+
+      - name: Build
+        run: cmake --build ${{ env.BUILD_ROOT }} --target ci_build
+
+      - name: Test
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: ctest --test-dir ${{ env.BUILD_ROOT }} --output-on-failure
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $output = "$env:BUILD_ROOT\output"
+          $release = "release\flogg"
+          New-Item -ItemType Directory -Force $release | Out-Null
+
+          foreach ($name in "flogg", "flogg_portable", "flogg_grep") {
+            Copy-Item "$output\$name.exe" $release
+          }
+
+          # oneTBB is built as a dll in a compiler specific folder
+          $tbb = Get-ChildItem $env:BUILD_ROOT -Recurse -Filter tbb12.dll | Select-Object -First 1
+          if (-not $tbb) { throw "tbb12.dll not found" }
+          Copy-Item $tbb.FullName $release
+
+          windeployqt --release --no-translations --no-system-d3d-compiler --no-opengl-sw `
+            "$release\flogg.exe" "$release\flogg_portable.exe"
+          if ($LASTEXITCODE -ne 0) { throw "windeployqt failed" }
+
+          $crt = Join-Path $env:VCToolsRedistDir "x64\Microsoft.VC143.CRT"
+          Copy-Item "$crt\*.dll" $release
+
+          foreach ($doc in "COPYING", "NOTICE", "README.md") {
+            Copy-Item $doc $release
+          }
+
+          $zip = "flogg-$env:PACKAGE_VERSION-windows-x64.zip"
+          7z a -tzip $zip ".\release\flogg\*" | Out-Null
+          7z a -tzip "flogg-$env:PACKAGE_VERSION-windows-x64-pdb.zip" "$output\*.pdb" | Out-Null
+
+      - name: Upload packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: flogg-windows-x64
+          path: flogg-*-windows-x64*.zip
+          if-no-files-found: error
+
+      - name: Attach packages to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: flogg-*-windows-x64*.zip
