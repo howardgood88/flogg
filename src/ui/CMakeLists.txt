@@ -3,15 +3,9 @@ add_library(
   ${CMAKE_CURRENT_SOURCE_DIR}/include/abstractlogview.h
   ${CMAKE_CURRENT_SOURCE_DIR}/include/crawlerwidget.h
   ${CMAKE_CURRENT_SOURCE_DIR}/include/filteredview.h
-  ${CMAKE_CURRENT_SOURCE_DIR}/include/highlightersdialog.h
   ${CMAKE_CURRENT_SOURCE_DIR}/include/highlighteredit.h
-  ${CMAKE_CURRENT_SOURCE_DIR}/include/highlightersetedit.h
   ${CMAKE_CURRENT_SOURCE_DIR}/include/highlighterset.h
-  ${CMAKE_CURRENT_SOURCE_DIR}/include/highlightersmenu.h
   ${CMAKE_CURRENT_SOURCE_DIR}/include/highlightedmatch.h
-  ${CMAKE_CURRENT_SOURCE_DIR}/include/predefinedfilters.h
-  ${CMAKE_CURRENT_SOURCE_DIR}/include/predefinedfilterscombobox.h
-  ${CMAKE_CURRENT_SOURCE_DIR}/include/predefinedfiltersdialog.h
   ${CMAKE_CURRENT_SOURCE_DIR}/include/infoline.h
   ${CMAKE_CURRENT_SOURCE_DIR}/include/pathline.h
   ${CMAKE_CURRENT_SOURCE_DIR}/include/logmainview.h
@@ -46,22 +40,16 @@ add_library(
   ${CMAKE_CURRENT_SOURCE_DIR}/include/decompressor.h
   ${CMAKE_CURRENT_SOURCE_DIR}/include/fontutils.h
   ${CMAKE_CURRENT_SOURCE_DIR}/include/colorlabelsmanager.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/include/filtertree.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/include/filterpanel.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/include/filtereditdialog.h
   ${CMAKE_CURRENT_SOURCE_DIR}/include/highlighteredit.ui
-  ${CMAKE_CURRENT_SOURCE_DIR}/include/highlightersetedit.ui
-  ${CMAKE_CURRENT_SOURCE_DIR}/include/highlightersdialog.ui
-  ${CMAKE_CURRENT_SOURCE_DIR}/include/predefinedfiltersdialog.ui
   ${CMAKE_CURRENT_SOURCE_DIR}/include/optionsdialog.ui
   ${CMAKE_CURRENT_SOURCE_DIR}/src/abstractlogview.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/src/crawlerwidget.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/src/filteredview.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/src/highlightersdialog.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/src/highlighteredit.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/src/highlightersmenu.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/src/highlightersetedit.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/src/highlighterset.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/src/predefinedfilters.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/src/predefinedfilterscombobox.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/src/predefinedfiltersdialog.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/src/infoline.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/src/pathline.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/src/logmainview.cpp
@@ -92,6 +80,9 @@ add_library(
   ${CMAKE_CURRENT_SOURCE_DIR}/src/downloader.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/src/decompressor.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/src/colorlabelsmanager.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/filtertree.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/filterpanel.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/filtereditdialog.cpp
 )
 
 set_target_properties(klogg_ui PROPERTIES AUTOUIC ON)
@@ -113,7 +104,6 @@ target_link_libraries(
   PUBLIC project_options
          project_warnings
          klogg_logdata
-         klogg_versioncheck
          klogg_karchive
          Qt${QT_VERSION_MAJOR}::Widgets
          Qt${QT_VERSION_MAJOR}::Xml

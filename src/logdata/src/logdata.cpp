@@ -426,12 +426,12 @@ klogg::vector<QString> LogData::getLinesFromFile( LineNumber firstLine, LinesCou
 
     } catch ( const std::bad_alloc& e ) {
         LOG_ERROR << "not enough memory " << e.what();
-        processedLines.emplace_back( "KLOGG WARNING: not enough memory" );
+        processedLines.emplace_back( "FLOGG WARNING: not enough memory" );
     }
 
     processedLines.reserve( number.get() - processedLines.size() );
     while ( processedLines.size() < number.get() ) {
-        processedLines.emplace_back( "KLOGG WARNING: failed to read some lines before this one" );
+        processedLines.emplace_back( "FLOGG WARNING: failed to read some lines before this one" );
     }
 
     return processedLines;
@@ -472,12 +472,12 @@ klogg::vector<QString> LogData::RawLines::decodeLines() const
 
             constexpr auto maxlength = std::numeric_limits<int>::max() / 2;
             if ( length >= maxlength ) {
-                decodedLines.emplace_back( "KLOGG WARNING: this line is too long" );
+                decodedLines.emplace_back( "FLOGG WARNING: this line is too long" );
                 break;
             }
 
             if ( lineStart + length > klogg::ssize( buffer ) ) {
-                decodedLines.emplace_back( "KLOGG WARNING: file read failed" );
+                decodedLines.emplace_back( "FLOGG WARNING: file read failed" );
                 LOG_WARNING << "not enough data in buffer";
                 break;
             }
@@ -495,12 +495,12 @@ klogg::vector<QString> LogData::RawLines::decodeLines() const
         }
     } catch ( const std::bad_alloc& ) {
         LOG_ERROR << "not enough memory";
-        decodedLines.emplace_back( "KLOGG WARNING: not enough memory" );
+        decodedLines.emplace_back( "FLOGG WARNING: not enough memory" );
     }
 
     decodedLines.reserve( this->endOfLines.size() - decodedLines.size() );
     while ( decodedLines.size() < this->endOfLines.size() ) {
-        decodedLines.emplace_back( "KLOGG WARNING: failed to decode some lines before this one" );
+        decodedLines.emplace_back( "FLOGG WARNING: failed to decode some lines before this one" );
     }
 
     return decodedLines;
@@ -568,7 +568,7 @@ klogg::vector<std::string_view> LogData::RawLines::buildUtf8View() const
     } catch ( const std::exception& e ) {
         LOG_ERROR << "failed to transform lines to utf8 " << e.what();
         const auto lastLineOffset = utf8Data_.size();
-        // utf8Data_.append( "KLOGG WARNING: not enough memory, try decrease search buffer" );
+        // utf8Data_.append( "FLOGG WARNING: not enough memory, try decrease search buffer" );
         lines.reserve( this->endOfLines.size() - lines.size() );
         while ( lines.size() < this->endOfLines.size() ) {
             lines.emplace_back( utf8Data_.data() + lastLineOffset,

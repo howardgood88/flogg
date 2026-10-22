@@ -71,6 +71,11 @@ void LogMainView::useNewFiltering( LogFilteredData* filteredData )
     forceRefresh();
 }
 
+uint32_t LogMainView::bookmarkSlots( LineNumber lineNumber ) const
+{
+    return filteredData_ ? filteredData_->getBookmarkSlots( lineNumber ) : 0;
+}
+
 AbstractLogData::LineType LogMainView::lineType( LineNumber lineNumber ) const
 {
     if ( filteredData_ ) {

@@ -1,0 +1,48 @@
+diff --git a/karchive/src/kar.cpp b/karchive/src/kar.cpp
+index e17854e..a2312dc 100644
+--- a/karchive/src/kar.cpp
++++ b/karchive/src/kar.cpp
+@@ -102,7 +102,7 @@ bool KAr::openArchive(QIODevice::OpenMode mode)
+         return true;
+     }
+     if (mode != QIODevice::ReadOnly && mode != QIODevice::ReadWrite) {
+-        setErrorString(tr("Unsupported mode %1").arg(mode));
++        setErrorString(tr("Unsupported mode %1").arg(mode.toInt()));
+         return false;
+     }
+ 
+diff --git a/karchive/src/karchive.cpp b/karchive/src/karchive.cpp
+index 089f4a8..8b8641d 100644
+--- a/karchive/src/karchive.cpp
++++ b/karchive/src/karchive.cpp
+@@ -166,7 +166,7 @@ bool KArchive::open(QIODevice::OpenMode mode)
+     }
+ 
+     if (!d->dev->isOpen() && !d->dev->open(mode)) {
+-        setErrorString(tr("Could not set device mode to %1").arg(mode));
++        setErrorString(tr("Could not set device mode to %1").arg(mode.toInt()));
+         return false;
+     }
+ 
+@@ -214,7 +214,7 @@ bool KArchive::createDevice(QIODevice::OpenMode mode)
+         }
+         break; // continued below
+     default:
+-        setErrorString(tr("Unsupported mode %1").arg(d->mode));
++        setErrorString(tr("Unsupported mode %1").arg(d->mode.toInt()));
+         return false;
+     }
+     return true;
+diff --git a/karchive/src/krcc.cpp b/karchive/src/krcc.cpp
+index a5a904e..628021b 100644
+--- a/karchive/src/krcc.cpp
++++ b/karchive/src/krcc.cpp
+@@ -124,7 +124,7 @@ bool KRcc::openArchive(QIODevice::OpenMode mode)
+         return true;
+     }
+     if (mode != QIODevice::ReadOnly && mode != QIODevice::ReadWrite) {
+-        setErrorString(tr("Unsupported mode %1").arg(mode));
++        setErrorString(tr("Unsupported mode %1").arg(mode.toInt()));
+         return false;
+     }
+ 

@@ -67,7 +67,7 @@ QString sentryDatabasePath()
     auto basePath = QStandardPaths::writableLocation( QStandardPaths::AppDataLocation );
 #endif
 
-    return basePath.append( "/klogg_dump" );
+    return basePath.append( "/flogg_dump" );
 }
 
 void logSentry( sentry_level_t level, const char* message, va_list args, void* userdata )

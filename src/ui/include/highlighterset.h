@@ -92,10 +92,6 @@ class Highlighter {
     const QColor& backColor() const;
     void setBackColor( const QColor& backColor );
 
-    // Reads/writes the current config in the QSettings object passed
-    void saveToStorage( QSettings& settings ) const;
-    void retrieveFromStorage( QSettings& settings );
-
     RegularExpressionPattern expressionPattern() const;
 
     void compile() const;
@@ -118,31 +114,29 @@ class Highlighter {
 
 enum class HighlighterMatchType { NoMatch, WordMatch, LineMatch };
 
-// Represents an ordered set of filters to be applied to each line displayed.
+// Represents an ordered set of highlighters to be applied to each line displayed,
+// the first highlighter has the highest priority.
 class HighlighterSet {
   public:
-    static const char* persistableName()
-    {
-        return "HighlighterSet";
-    }
-
-    static HighlighterSet createNewSet( const QString& name );
+    static HighlighterSet fromHighlighters( const QString& name,
+                                            const QList<Highlighter>& highlighters );
 
     HighlighterSet() = default;
 
     QString name() const;
-    QString id() const;
 
     // Returns weither the passed line match a filter of the set,
     // if so, it returns the fore/back colors the line should use.
     HighlighterMatchType matchLine( const QString& line,
                                     HighlightedMatchRanges& matches ) const;
 
-    bool isEmpty() const;
+    // Same as above, reusing a matcher created once for many lines
+    // (creating a matcher clones the hyperscan scratch space).
+    std::unique_ptr<MultiPatternMatcher> createMatcher() const;
+    HighlighterMatchType matchLine( const QString& line, HighlightedMatchRanges& matches,
+                                    const MultiPatternMatcher& matcher ) const;
 
-    // Reads/writes the current config in the QSettings object passed
-    void saveToStorage( QSettings& settings ) const;
-    void retrieveFromStorage( QSettings& settings );
+    bool isEmpty() const;
 
     void compile() const;
 
@@ -150,17 +144,8 @@ class HighlighterSet {
     explicit HighlighterSet( const QString& name );
 
   private:
-    static constexpr int HighlighterSet_VERSION = 3;
-    static constexpr int FilterSet_VERSION = 2;
-
     QString name_;
-    QString id_;
     QList<Highlighter> highlighterList_;
-
-    // To simplify this class interface, HighlightersDialog can access our
-    // internal structure directly.
-    friend class HighlighterSetEdit;
-    friend class HighlighterSetCollection;
 
     mutable std::shared_ptr<MultiRegularExpression> compiledExpression_;
 };
@@ -171,25 +156,13 @@ struct QuickHighlighter {
     bool useInCycle;
 };
 
+// Color labels configuration (the user defined colouring rules are in the filter panel)
 class HighlighterSetCollection final : public Persistable<HighlighterSetCollection> {
   public:
     static const char* persistableName()
     {
         return "HighlighterSetCollection";
     }
-
-    QList<HighlighterSet> highlighterSets() const;
-    void setHighlighterSets( const QList<HighlighterSet>& highlighters );
-
-    const HighlighterSet& currentActiveSet() const;
-
-    bool hasSet( const QString& setId ) const;
-    bool hasSetByName( const QString& name ) const;
-
-    QStringList activeSetIds() const;
-    void activateSet( const QString& setId );
-    void deactivateSet( const QString& setId );
-    void deactivateAll();
 
     QList<QuickHighlighter> quickHighlighters() const;
     void setQuickHighlighters( const QList<QuickHighlighter>& quickHighlighters );
@@ -201,18 +174,7 @@ class HighlighterSetCollection final : public Persistable<HighlighterSetCollecti
   private:
     static constexpr int HighlighterSetCollection_VERSION = 2;
 
-    void updateCombinedSet();
-
-  private:
-    QList<HighlighterSet> highlighters_;
-    QStringList activeSets_;
-    HighlighterSet combinedActiveSet_;
-
     QList<QuickHighlighter> quickHighlighters_;
-
-    // To simplify this class interface, HighlightersDialog can access our
-    // internal structure directly.
-    friend class HighlightersDialog;
 };
 
 #endif

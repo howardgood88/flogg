@@ -251,14 +251,6 @@ class Configuration final : public Persistable<Configuration> {
     }
 
     // Accessors
-    bool versionCheckingEnabled() const
-    {
-        return enableVersionChecking_;
-    }
-    void setVersionCheckingEnabled( bool enabled )
-    {
-        enableVersionChecking_ = enabled;
-    }
 
     // View settings
     bool isOverviewVisible() const
@@ -417,32 +409,6 @@ class Configuration final : public Persistable<Configuration> {
         scaleFactorRounding_ = rounding;
     }
 
-    bool mainSearchHighlight() const
-    {
-        return enableMainSearchHighlight_;
-    }
-    void setEnableMainSearchHighlight( bool enable )
-    {
-        enableMainSearchHighlight_ = enable;
-    }
-
-    bool variateMainSearchHighlight() const
-    {
-        return enableMainSearchHighlightVariance_;
-    }
-    void setVariateMainSearchHighlight( bool enable )
-    {
-        enableMainSearchHighlightVariance_ = enable;
-    }
-
-    QColor mainSearchBackColor() const
-    {
-        return mainSearchBackColor_;
-    }
-    void setMainSearchBackColor( QColor color )
-    {
-        mainSearchBackColor_ = color;
-    }
 
     QColor qfBackColor() const
     {
@@ -560,7 +526,7 @@ class Configuration final : public Persistable<Configuration> {
     // View settings
     bool overviewVisible_ = true;
     bool lineNumbersVisibleInMain_ = false;
-    bool lineNumbersVisibleInFiltered_ = true;
+    bool lineNumbersVisibleInFiltered_ = false;
     bool minimizeToTray_ = false;
     QString style_;
 
@@ -583,7 +549,6 @@ class Configuration final : public Persistable<Configuration> {
     bool enableLogging_ = false;
     int loggingLevel_ = 4;
 
-    bool enableVersionChecking_ = true;
 
     bool extractArchives_ = true;
     bool extractArchivesAlways_ = false;
@@ -599,9 +564,6 @@ class Configuration final : public Persistable<Configuration> {
     RegexpEngine regexpEngine_ = RegexpEngine::Hyperscan;
 
     QColor qfBackColor_ = Qt::yellow;
-    QColor mainSearchBackColor_ = Qt::lightGray;
-    bool enableMainSearchHighlight_ = false;
-    bool enableMainSearchHighlightVariance_ = false;
 
     bool allowFollowOnScroll_ = true;
     bool autoRunSearchOnPatternChange_ = false;

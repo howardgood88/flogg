@@ -70,6 +70,12 @@ FilteredView::Visibility FilteredView::visibility() const
 }
 
 // For the filtered view, a line is always matching!
+uint32_t FilteredView::bookmarkSlots( LineNumber lineNumber ) const
+{
+    return logFilteredData_->getBookmarkSlots(
+        logFilteredData_->getMatchingLineNumber( lineNumber ) );
+}
+
 AbstractLogData::LineType FilteredView::lineType( LineNumber lineNumber ) const
 {
     // line in filteredview corresponds to index

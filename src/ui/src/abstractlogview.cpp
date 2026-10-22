@@ -66,6 +66,7 @@
 #include <QGestureEvent>
 #include <QInputDialog>
 #include <QMenu>
+#include <QActionGroup>
 #include <QPaintEvent>
 #include <QPainter>
 #include <QPalette>
@@ -87,7 +88,6 @@
 #include "clipboard.h"
 #include "configuration.h"
 #include "highlighterset.h"
-#include "highlightersmenu.h"
 #include "log.h"
 #include "overview.h"
 #include "quickfind.h"
@@ -564,10 +564,6 @@ void AbstractLogView::mousePressEvent( QMouseEvent* mouseEvent )
             replaceSearchAction_->setEnabled( false );
         }
 
-        highlightersMenu_->createHighlightersMenu();
-        highlightersMenu_->populateHighlightersMenu();
-        highlightersMenu_->setApplyChange( [ this ]() { Q_EMIT highlightersChange(); } );
-
         auto colorLablesActionGroup = new QActionGroup( this );
         connect( colorLablesActionGroup, &QActionGroup::triggered, this,
                  &AbstractLogView::setColorLabel );
@@ -624,7 +620,6 @@ void AbstractLogView::mousePressEvent( QMouseEvent* mouseEvent )
         // Display the popup (blocking)
         popupMenu_->exec( QCursor::pos( activeScreen( this ) ) );
 
-        highlightersMenu_->clearHighlightersMenu();
         colorLablesActionGroup->deleteLater();
     }
 
@@ -1278,6 +1273,23 @@ void AbstractLogView::setQuickHighlighters(
 {
     quickHighlighters_ = quickHighlighters;
     forceRefresh();
+}
+
+void AbstractLogView::setFilterHighlighterSet(
+    std::shared_ptr<const HighlighterSet> highlighterSet )
+{
+    filterHighlighterSet_ = std::move( highlighterSet );
+    forceRefresh();
+}
+
+void AbstractLogView::searchUsingMatcher( const QuickFindMatcher& matcher, bool backward )
+{
+    if ( backward ) {
+        quickFind_->searchBackward( selection_, matcher );
+    }
+    else {
+        quickFind_->searchForward( selection_, matcher );
+    }
 }
 
 void AbstractLogView::followSet( bool checked )
@@ -2049,6 +2061,13 @@ void AbstractLogView::createMenu()
     connect( addToSearchAction_, &QAction::triggered, this,
              [ this ]( auto ) { this->addToSearch(); } );
 
+    addToFiltersAction_ = new QAction( tr( "Add as &filter..." ), this );
+    addToFiltersAction_->setStatusTip( tr( "Create a filter from the selection" ) );
+    connect( addToFiltersAction_, &QAction::triggered, this, [ this ]( auto ) {
+        Q_EMIT addToFilters( selection_.isPortion() ? selection_.getSelectedText( logData_ )
+                                                    : QString{} );
+    } );
+
     excludeFromSearchAction_ = new QAction( tr( "&Exclude from search" ), this );
     excludeFromSearchAction_->setStatusTip( tr( "Excludes the selection from search" ) );
     connect( excludeFromSearchAction_, &QAction::triggered, this,
@@ -2087,8 +2106,6 @@ void AbstractLogView::createMenu()
              [ this ]( auto ) { Q_EMIT replaceScratchpadWithSelection(); } );
 
     popupMenu_ = new QMenu( this );
-    highlightersMenu_ = new HighlightersMenu( tr( "Highlighters" ) );
-    popupMenu_->addMenu( highlightersMenu_ );
     colorLabelsMenu_ = popupMenu_->addMenu( tr( "Color labels" ) );
 
     popupMenu_->addSeparator();
@@ -2105,6 +2122,7 @@ void AbstractLogView::createMenu()
     popupMenu_->addAction( replaceSearchAction_ );
     popupMenu_->addAction( addToSearchAction_ );
     popupMenu_->addAction( excludeFromSearchAction_ );
+    popupMenu_->addAction( addToFiltersAction_ );
     popupMenu_->addSeparator();
     popupMenu_->addAction( setSearchStartAction_ );
     popupMenu_->addAction( setSearchEndAction_ );
@@ -2216,7 +2234,10 @@ void AbstractLogView::drawTextArea( QPaintDevice* paintDevice )
         = static_cast<int>( std::floor( paintDevice->width() / viewport()->devicePixelRatio() ) );
 
     const QPalette& palette = viewport()->palette();
-    const HighlighterSet& highlighterSet = HighlighterSetCollection::get().currentActiveSet();
+    static const HighlighterSet noHighlighters;
+    const HighlighterSet& highlighterSet
+        = filterHighlighterSet_ ? *filterHighlighterSet_ : noHighlighters;
+    const auto highlighterMatcher = highlighterSet.createMatcher();
     const auto& quickHighlighters = HighlighterSetCollection::get().quickHighlighters();
     QColor foreColor, backColor;
 
@@ -2229,6 +2250,8 @@ void AbstractLogView::drawTextArea( QPaintDevice* paintDevice )
     static constexpr int BulletAreaWidth = 11;
     static constexpr int ContentMarginWidth = 1;
     static constexpr int LineNumberPadding = 3;
+    // One fixed column per numbered bookmark, like TextAnalysisTool
+    static constexpr int NbBookmarkSlots = 8;
 
     // First check the lines to be drawn are within range (might not be the case if
     // the file has just changed)
@@ -2257,6 +2280,15 @@ void AbstractLogView::drawTextArea( QPaintDevice* paintDevice )
 
     // This is also the bullet zone width, used for marking clicks
     bulletZoneWidthPx_ = contentStartPosX;
+
+    // Draw the bookmarks area
+    const int bookmarkSlotWidth = charWidth_;
+    const int bookmarkAreaStartX = contentStartPosX;
+    const int bookmarkAreaWidth = NbBookmarkSlots * bookmarkSlotWidth;
+    painter->fillRect( bookmarkAreaStartX, 0, bookmarkAreaWidth, paintDeviceHeight, Qt::darkGray );
+    painter->drawLine( bookmarkAreaStartX + bookmarkAreaWidth, 0,
+                       bookmarkAreaStartX + bookmarkAreaWidth, paintDeviceHeight );
+    contentStartPosX += bookmarkAreaWidth + SeparatorWidth;
 
     // Update the length of line numbers
     const int nbDigitsInLineNumber = countDigits( maxDisplayLineNumber().get() );
@@ -2306,24 +2338,6 @@ void AbstractLogView::drawTextArea( QPaintDevice* paintDevice )
     // Lines to write
     const auto logLines = logData_->getLines( firstLine_, nbLines );
 
-    const auto highlightPatternMatches = Configuration::get().mainSearchHighlight();
-    const auto variateHighlightPatternMatches = Configuration::get().variateMainSearchHighlight();
-
-    std::optional<Highlighter> patternHighlight;
-    if ( highlightPatternMatches && !searchPattern_.isBoolean && !searchPattern_.isExclude
-         && !searchPattern_.pattern.isEmpty() ) {
-        const auto mainSearchBackColor = Configuration::get().mainSearchBackColor();
-        patternHighlight = Highlighter{};
-        patternHighlight->setHighlightOnlyMatch( true );
-        patternHighlight->setVariateColors( variateHighlightPatternMatches );
-        patternHighlight->setPattern( searchPattern_.pattern );
-        patternHighlight->setIgnoreCase( !searchPattern_.isCaseSensitive );
-        patternHighlight->setUseRegex( !searchPattern_.isPlainText );
-
-        patternHighlight->setBackColor( mainSearchBackColor );
-        patternHighlight->setForeColor( Qt::black );
-    }
-
     klogg::vector<Highlighter> additionalHighlighters;
     for ( auto i = 0u; i < quickHighlighters_.size(); ++i ) {
         const auto quickHighlighterIndex = static_cast<int>( i );
@@ -2370,18 +2384,21 @@ void AbstractLogView::drawTextArea( QPaintDevice* paintDevice )
                 foreColor = palette.brush( QPalette::Disabled, QPalette::Text ).color();
             }
             else {
-                const auto highlightType = highlighterSet.matchLine( logLine, highlighterMatches );
+                const auto highlightType
+                    = highlighterMatcher
+                          ? highlighterSet.matchLine( logLine, highlighterMatches,
+                                                      *highlighterMatcher )
+                          : HighlighterMatchType::NoMatch;
 
                 if ( highlightType == HighlighterMatchType::LineMatch ) {
-                    // color applies to whole line
-                    foreColor = highlighterMatches.front().foreColor();
-                    backColor = highlighterMatches.front().backColor();
-                }
-
-                if ( patternHighlight ) {
-                    klogg::vector<HighlightedMatch> patternMatches;
-                    patternHighlight->matchLine( logLine, patternMatches );
-                    highlighterMatches.addMatches( patternMatches );
+                    // color applies to whole line, a filter may define only one of the colors
+                    const auto& lineMatch = highlighterMatches.front();
+                    if ( lineMatch.foreColor().isValid() ) {
+                        foreColor = lineMatch.foreColor();
+                    }
+                    if ( lineMatch.backColor().isValid() ) {
+                        backColor = lineMatch.backColor();
+                    }
                 }
 
                 // highlighterMatches.reserve( additionalHighlighters.size() );
@@ -2393,7 +2410,7 @@ void AbstractLogView::drawTextArea( QPaintDevice* paintDevice )
             }
         }
 
-        const auto untabifyHighlight = [ &logLine ]( const auto& match ) {
+        const auto untabifyHighlight = [ &logLine, &foreColor, &backColor ]( const auto& match ) {
             const auto prefix = QStringView{ logLine }.left( match.startColumn().get() );
             const auto matchPart
                 = QStringView{ logLine }.mid( match.startColumn().get(), match.size().get() );
@@ -2415,7 +2432,9 @@ void AbstractLogView::drawTextArea( QPaintDevice* paintDevice )
                       matchPart.size() ) };
 
             return HighlightedMatch{ match.startColumn() + startDelta, match.size() + lengthDelta,
-                                     match.foreColor(), match.backColor() };
+                                     match.foreColor().isValid() ? match.foreColor() : foreColor,
+                                     match.backColor().isValid() ? match.backColor()
+                                                                 : backColor };
         };
 
         klogg::vector<HighlightedMatch> sortedHighlights = highlighterMatches.matches();
@@ -2525,6 +2544,24 @@ void AbstractLogView::drawTextArea( QPaintDevice* paintDevice )
 
         using LineTypeFlags = AbstractLogData::LineTypeFlags;
         const auto currentLineType = lineType( lineNumber );
+        if ( const auto slots = bookmarkSlots( lineNumber ) ) {
+            // Each bookmark number in its own column
+            painter->save();
+            painter->setPen( Qt::white );
+            auto bookmarkFont = painter->font();
+            bookmarkFont.setBold( true );
+            painter->setFont( bookmarkFont );
+            for ( int slot = 0; slot < NbBookmarkSlots; ++slot ) {
+                if ( slots & ( 1u << slot ) ) {
+                    const QRect slotRect( bookmarkAreaStartX + slot * bookmarkSlotWidth, yPos,
+                                          bookmarkSlotWidth, fontHeight );
+                    painter->fillRect( slotRect, markBrush );
+                    painter->drawText( slotRect, Qt::AlignCenter, QString::number( slot + 1 ) );
+                }
+            }
+            painter->restore();
+        }
+
         if ( currentLineType.testFlag( LineTypeFlags::Mark ) ) {
             // A pretty arrow if the line is marked
             const QPointF points[ 7 ] = {

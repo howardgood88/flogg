@@ -53,8 +53,10 @@
 constexpr uint8_t AppSettingsVersion = 1;
 constexpr uint8_t SessionSettingsVersion = 2;
 
-constexpr const char ApplicationSessionFile[] = "klogg";
-constexpr const char SessionSettingsFile[] = "klogg_session";
+// flogg keeps its own settings so that it can be used next to klogg
+constexpr const char SettingsOrganization[] = "flogg";
+constexpr const char ApplicationSessionFile[] = "flogg";
+constexpr const char SessionSettingsFile[] = "flogg_session";
 constexpr const char PortableExtension[] = ".conf";
 
 namespace {
@@ -115,10 +117,10 @@ void PersistentInfo::PrepareOsSettings()
     const auto format = QSettings::NativeFormat;
 #endif
 
-    appSettings_ = std::make_unique<QSettings>( format, QSettings::UserScope, "klogg",
-                                                ApplicationSessionFile );
-    sessionSettings_
-        = std::make_unique<QSettings>( format, QSettings::UserScope, "klogg", SessionSettingsFile );
+    appSettings_ = std::make_unique<QSettings>( format, QSettings::UserScope,
+                                                SettingsOrganization, ApplicationSessionFile );
+    sessionSettings_ = std::make_unique<QSettings>( format, QSettings::UserScope,
+                                                    SettingsOrganization, SessionSettingsFile );
 
 #ifndef Q_OS_MAC
     const auto sessionSettingsPath = makeSessionSettingsPath( appSettings_->fileName() );

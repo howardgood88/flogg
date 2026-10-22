@@ -59,6 +59,7 @@
 #include <QClipboard>
 #include <QCloseEvent>
 #include <QDialogButtonBox>
+#include <QDockWidget>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QInputDialog>
@@ -89,15 +90,14 @@
 #include "downloader.h"
 #include "encodings.h"
 #include "favoritefiles.h"
-#include "highlightersdialog.h"
-#include "highlightersmenu.h"
 #include "issuereporter.h"
 #include "klogg_version.h"
 #include "logger.h"
 #include "mainwindowtext.h"
 #include "openfilehelper.h"
 #include "optionsdialog.h"
-#include "predefinedfiltersdialog.h"
+#include "filterpanel.h"
+#include "persistentinfo.h"
 #include "progress.h"
 #include "readablesize.h"
 #include "recentfiles.h"
@@ -127,7 +127,7 @@ MainWindow::MainWindow( WindowSession session )
     , signalMux_()
     , quickFindMux_( session_.getQuickFindPattern() )
     , mainTabWidget_()
-    , tempDir_( QDir::temp().filePath( "klogg_temp_" ) )
+    , tempDir_( QDir::temp().filePath( "flogg_temp_" ) )
 {
     createActions();
     createMenus();
@@ -166,11 +166,12 @@ MainWindow::MainWindow( WindowSession session )
     signalMux_.connect(
         SIGNAL( newSelection( LineNumber, LinesCount, LineColumn, LineLength ) ), this,
         SLOT( lineNumberHandler( LineNumber, LinesCount, LineColumn, LineLength ) ) );
-    signalMux_.connect( SIGNAL( saveCurrentSearchAsPredefinedFilter( QString ) ), this,
-                        SLOT( newPredefinedFilterHandler( QString ) ) );
 
     signalMux_.connect( SIGNAL( sendToScratchpad( QString ) ), this,
                         SLOT( sendToScratchpad( QString ) ) );
+    signalMux_.connect( SIGNAL( addToFilters( QString ) ), this, SLOT( addToFilters( QString ) ) );
+    signalMux_.connect( SIGNAL( filterHitsChanged( FilterHits ) ), this,
+                        SLOT( updateFilterHits( FilterHits ) ) );
 
     signalMux_.connect( SIGNAL( replaceDataInScratchpad( QString ) ), this,
                         SLOT( replaceDataInScratchpad( QString ) ) );
@@ -191,7 +192,7 @@ MainWindow::MainWindow( WindowSession session )
     mainTabWidget_.setTabsClosable( true );
 
     scratchPad_.setWindowIcon( mainIcon_ );
-    scratchPad_.setWindowTitle( tr( "klogg - scratchpad" ) );
+    scratchPad_.setWindowTitle( tr( "flogg - scratchpad" ) );
 
     connect( &mainTabWidget_, &TabbedCrawlerWidget::tabCloseRequested, this,
              [ this ]( int index ) { this->closeTab( index, ActionInitiator::User ); } );
@@ -230,6 +231,8 @@ MainWindow::MainWindow( WindowSession session )
     central_widget->setLayout( main_layout );
 
     setCentralWidget( central_widget );
+
+    setupFilterPanel();
 
     updateTitleBar( "" );
     loadIcons();
@@ -299,7 +302,6 @@ void MainWindow::reTranslateUI()
     viewMenu->setTitle( transMenu( menu::viewTitle ) );
     openedFilesMenu->setTitle( transMenu( menu::openedFilesTitle ) );
     toolsMenu->setTitle( transMenu( menu::toolsTitle ) );
-    highlightersMenu->setTitle( transMenu( menu::highlightersTitle ) );
     favoritesMenu->setTitle( transMenu( menu::favoritesTitle ) );
     helpMenu->setTitle( transMenu( menu::helpTitle ) );
 
@@ -340,8 +342,6 @@ void MainWindow::reTranslateUI()
     findAction->setText( transAction( action::findText ) );
     findAction->setStatusTip( transAction( action::findStatusTip ) );
 
-    clearLogAction->setText( transAction( action::clearLogText ) );
-    clearLogAction->setStatusTip( transAction( action::clearLogStatusTip ) );
 
     openContainingFolderAction->setText( transAction( action::openContainingFolderText ) );
     openContainingFolderAction->setStatusTip(
@@ -373,8 +373,6 @@ void MainWindow::reTranslateUI()
     optionsAction->setText( transAction( action::optionsText ) );
     optionsAction->setStatusTip( transAction( action::optionsStatusTip ) );
 
-    editHighlightersAction->setText( transAction( action::editHighlightersText ) );
-    editHighlightersAction->setStatusTip( transAction( action::editHighlightersStatusTip ) );
 
     showDocumentationAction->setText( transAction( action::showDocumentationText ) );
     showDocumentationAction->setStatusTip( transAction( action::showDocumentationStatusTip ) );
@@ -385,14 +383,8 @@ void MainWindow::reTranslateUI()
     aboutQtAction->setText( transAction( action::aboutQtText ) );
     aboutQtAction->setStatusTip( transAction( action::aboutQtStatusTip ) );
 
-    reportIssueAction->setText( transAction( action::reportIssueText ) );
-    reportIssueAction->setStatusTip( transAction( action::reportIssueStatusTip ) );
 
-    joinDiscordAction->setText( transAction( action::joinDiscordText ) );
-    joinDiscordAction->setStatusTip( transAction( action::joinDiscordStatusTip ) );
 
-    joinTelegramAction->setText( transAction( action::joinTelegramText ) );
-    joinTelegramAction->setStatusTip( transAction( action::joinTelegramStatusTip ) );
 
     generateDumpAction->setText( transAction( action::generateDumpText ) );
     generateDumpAction->setStatusTip( transAction( action::generateDumpStatusTip ) );
@@ -410,9 +402,6 @@ void MainWindow::reTranslateUI()
 
     selectOpenFileAction->setText( transAction( action::selectOpenFileText ) );
 
-    predefinedFiltersDialogAction->setText( transAction( action::predefinedFiltersDialogText ) );
-    predefinedFiltersDialogAction->setStatusTip(
-        transAction( action::predefinedFiltersDialogStatusTip ) );
 
     // trayIcon
     trayIcon_->setToolTip( QApplication::translate( "klogg::mainwindow::trayicon",
@@ -515,9 +504,6 @@ void MainWindow::createActions()
     findAction->setStatusTip( tr( action::findStatusTip ) );
     connect( findAction, &QAction::triggered, this, [ this ]( auto ) { this->find(); } );
 
-    clearLogAction = new QAction( tr( action::clearLogText ), this );
-    clearLogAction->setStatusTip( tr( action::clearLogStatusTip ) );
-    connect( clearLogAction, &QAction::triggered, this, [ this ]( auto ) { this->clearLog(); } );
 
     openContainingFolderAction = new QAction( tr( action::openContainingFolderText ), this );
     openContainingFolderAction->setStatusTip( tr( action::openContainingFolderStatusTip ) );
@@ -585,12 +571,6 @@ void MainWindow::createActions()
     optionsAction->setStatusTip( tr( action::optionsStatusTip ) );
     connect( optionsAction, &QAction::triggered, this, [ this ]( auto ) { this->options(); } );
 
-    editHighlightersAction = new QAction( tr( action::editHighlightersText ), this );
-    editHighlightersAction->setMenuRole( QAction::NoRole );
-    editHighlightersAction->setStatusTip( tr( action::editHighlightersStatusTip ) );
-    connect( editHighlightersAction, &QAction::triggered, this,
-             [ this ]( auto ) { this->editHighlighters(); } );
-
     showDocumentationAction = new QAction( tr( action::showDocumentationText ), this );
     showDocumentationAction->setStatusTip( tr( action::showDocumentationStatusTip ) );
     connect( showDocumentationAction, &QAction::triggered, this,
@@ -603,25 +583,6 @@ void MainWindow::createActions()
     aboutQtAction = new QAction( tr( action::aboutQtText ), this );
     aboutQtAction->setStatusTip( tr( action::aboutQtStatusTip ) );
     connect( aboutQtAction, &QAction::triggered, this, [ this ]( auto ) { this->aboutQt(); } );
-
-    reportIssueAction = new QAction( tr( action::reportIssueText ), this );
-    reportIssueAction->setStatusTip( tr( action::reportIssueStatusTip ) );
-    connect( reportIssueAction, &QAction::triggered, this,
-             []( auto ) { IssueReporter::reportIssue( IssueTemplate::Bug ); } );
-
-    joinDiscordAction = new QAction( tr( action::joinDiscordText ), this );
-    joinDiscordAction->setStatusTip( tr( action::joinDiscordStatusTip ) );
-    connect( joinDiscordAction, &QAction::triggered, this, []( auto ) {
-        QUrl url( "https://discord.gg/DruNyQftzB" );
-        QDesktopServices::openUrl( url );
-    } );
-
-    joinTelegramAction = new QAction( tr( action::joinTelegramText ), this );
-    joinTelegramAction->setStatusTip( tr( action::joinTelegramStatusTip ) );
-    connect( joinTelegramAction, &QAction::triggered, this, []( auto ) {
-        QUrl url( "https://t.me/joinchat/JeIBxstIfp4xZTk6" );
-        QDesktopServices::openUrl( url );
-    } );
 
     generateDumpAction = new QAction( tr( action::generateDumpText ), this );
     generateDumpAction->setStatusTip( tr( action::generateDumpStatusTip ) );
@@ -659,10 +620,6 @@ void MainWindow::createActions()
     connect( selectOpenFileAction, &QAction::triggered, this,
              [ this ]( auto ) { this->selectOpenedFile(); } );
 
-    predefinedFiltersDialogAction = new QAction( tr( action::predefinedFiltersDialogText ), this );
-    predefinedFiltersDialogAction->setStatusTip( tr( action::predefinedFiltersDialogStatusTip ) );
-    connect( predefinedFiltersDialogAction, &QAction::triggered, this,
-             [ this ]( auto ) { this->editPredefinedFilters(); } );
 
     updateShortcuts();
 }
@@ -711,7 +668,6 @@ void MainWindow::updateShortcuts()
     setShortcuts( copyAction, ShortcutAction::MainWindowCopy );
     setShortcuts( selectAllAction, ShortcutAction::MainWindowSelectAll );
     setShortcuts( findAction, ShortcutAction::MainWindowOpenQf );
-    setShortcuts( clearLogAction, ShortcutAction::MainWindowClearFile );
     setShortcuts( openContainingFolderAction, ShortcutAction::MainWindowOpenContainingFolder );
     setShortcuts( openInEditorAction, ShortcutAction::MainWindowOpenInEditor );
     setShortcuts( copyPathToClipboardAction, ShortcutAction::MainWindowCopyPathToClipboard );
@@ -779,7 +735,6 @@ void MainWindow::createMenus()
     editMenu->addAction( openContainingFolderAction );
     editMenu->addSeparator();
     editMenu->addAction( openInEditorAction );
-    editMenu->addAction( clearLogAction );
     editMenu->setEnabled( false );
 
     viewMenu = menuBar()->addMenu( tr( menu::viewTitle ) );
@@ -798,18 +753,6 @@ void MainWindow::createMenus()
 
     toolsMenu = menuBar()->addMenu( tr( menu::toolsTitle ) );
 
-    highlightersMenu = new HighlightersMenu( tr( menu::highlightersTitle ), menuBar() );
-    menuBar()->addMenu( highlightersMenu );
-    highlightersMenu->setApplyChange( [ this ]() {
-        auto crawler = currentCrawlerWidget();
-        if ( crawler != nullptr ) {
-            crawler->applyConfiguration();
-        }
-    } );
-
-    toolsMenu->addAction( predefinedFiltersDialogAction );
-
-    toolsMenu->addSeparator();
     toolsMenu->addAction( showScratchPadAction );
 
     menuBar()->addMenu( EncodingMenu::generate( encodingGroup ) );
@@ -820,10 +763,6 @@ void MainWindow::createMenus()
 
     helpMenu = menuBar()->addMenu( tr( menu::helpTitle ) );
     helpMenu->addAction( showDocumentationAction );
-    helpMenu->addSeparator();
-    helpMenu->addAction( reportIssueAction );
-    helpMenu->addAction( joinDiscordAction );
-    helpMenu->addAction( joinTelegramAction );
     helpMenu->addSeparator();
     helpMenu->addAction( generateDumpAction );
     helpMenu->addSeparator();
@@ -979,11 +918,11 @@ void MainWindow::openRemoteFile( const QUrl& url )
             loadFile( tempFile->fileName() );
         }
         else {
-            QMessageBox::critical( this, tr( "Klogg - File download" ), downloader.lastError() );
+            QMessageBox::critical( this, tr( "flogg - File download" ), downloader.lastError() );
         }
     }
     else {
-        QMessageBox::critical( this, tr( "Klogg - File download" ),
+        QMessageBox::critical( this, tr( "flogg - File download" ),
                                tr( "Failed to create temp file" ) );
     }
 }
@@ -1009,7 +948,7 @@ void MainWindow::openFileFromRecent( QAction* action )
     }
     else {
         const auto userAction = QMessageBox::question(
-            this, tr( "klogg - remove from recent" ),
+            this, tr( "flogg - remove from recent" ),
             tr( "Could not read file %1. Remove it from recent files?" ).arg( filename ),
             QMessageBox::Yes | QMessageBox::No, QMessageBox::No );
 
@@ -1031,7 +970,7 @@ void MainWindow::openFileFromFavorites( QAction* action )
     }
     else {
         const auto userAction = QMessageBox::question(
-            this, tr( "klogg - remove from favorites" ),
+            this, tr( "flogg - remove from favorites" ),
             tr( "Could not read file %1. Remove it from favorites?" ).arg( filename ),
             QMessageBox::Yes | QMessageBox::No, QMessageBox::No );
 
@@ -1099,18 +1038,6 @@ void MainWindow::find()
     displayQuickFindBar( QuickFindMux::Forward );
 }
 
-void MainWindow::clearLog()
-{
-    const auto current_file = session_.getFilename( currentCrawlerWidget() );
-    if ( QMessageBox::warning(
-             this, tr( "klogg - clear file" ),
-             tr( "Clear file %1? File content will be removed from disk, this is irreversible" )
-                 .arg( current_file ) )
-         == QMessageBox::Yes ) {
-        QFile::resize( current_file, 0 );
-    }
-}
-
 void MainWindow::copyFullPath()
 {
     const auto current_file = session_.getFilename( currentCrawlerWidget() );
@@ -1136,7 +1063,7 @@ void MainWindow::tryOpenClipboard( int tryTimes )
         QTimer::singleShot( 50, [ tryTimes, this ]() { tryOpenClipboard( tryTimes - 1 ); } );
     }
     else {
-        auto tempFile = new QTemporaryFile( tempDir_.filePath( "klogg_clipboard" ), this );
+        auto tempFile = new QTemporaryFile( tempDir_.filePath( "flogg_clipboard" ), this );
         if ( tempFile->open() ) {
             tempFile->write( text.toUtf8() );
             tempFile->flush();
@@ -1165,30 +1092,6 @@ void MainWindow::openUrl()
     }
 }
 
-// Opens the 'Highlighters' dialog box
-void MainWindow::editHighlighters()
-{
-    HighlightersDialog dialog( this );
-    signalMux_.connect( &dialog, SIGNAL( optionsChanged() ), SLOT( applyConfiguration() ) );
-
-    connect( &dialog, &HighlightersDialog::optionsChanged,
-             [ this ]() { updateHighlightersMenu(); } );
-
-    dialog.exec();
-    signalMux_.disconnect( &dialog, SIGNAL( optionsChanged() ), SLOT( applyConfiguration() ) );
-}
-
-// Opens dialog to configure predefined filters
-void MainWindow::editPredefinedFilters( const QString& newFilter )
-{
-    PredefinedFiltersDialog dialog( newFilter, this );
-
-    signalMux_.connect( &dialog, SIGNAL( optionsChanged() ), SLOT( applyConfiguration() ) );
-
-    dialog.exec();
-    signalMux_.disconnect( &dialog, SIGNAL( optionsChanged() ), SLOT( applyConfiguration() ) );
-}
-
 // Opens the 'Options' modal dialog box
 void MainWindow::options()
 {
@@ -1214,12 +1117,13 @@ void MainWindow::options()
 void MainWindow::about()
 {
     QMessageBox::about(
-        this, tr( "About klogg" ),
-        tr( "<h2>klogg %1</h2>"
+        this, tr( "About flogg" ),
+        tr( "<h2>flogg %1</h2>"
             "<p>A fast, advanced log explorer.</p>"
             "<p>Built %2 from %3</p>"
+            "<p>This is a fork of klogg</p>"
             "<p><a href=\"https://github.com/variar/klogg\">https://github.com/variar/klogg</a></p>"
-            "<p>This is fork of glogg</p>"
+            "<p>klogg is a fork of glogg</p>"
             "<p><a href=\"http://glogg.bonnefon.org/\">http://glogg.bonnefon.org/</a></p>"
             "<p>Using icons from <a href=\"https://icons8.com\">icons8.com</a> project</p>"
             "<p>Copyright &copy; 2020 Nicolas Bonnefon, Anton Filimonov and other contributors</p>"
@@ -1243,7 +1147,7 @@ void MainWindow::documentation()
         tb->setHtml( text );
         tb->setWindowFlags( Qt::Window );
         tb->setAttribute( Qt::WA_DeleteOnClose );
-        tb->setWindowTitle( tr( "klogg documentation" ) );
+        tb->setWindowTitle( tr( "flogg documentation" ) );
         tb->resize( this->width() / 2, this->height() );
         tb->show();
     }
@@ -1364,11 +1268,6 @@ void MainWindow::lineNumberHandler( LineNumber startLine, LinesCount nLines, Lin
     }
 }
 
-void MainWindow::newPredefinedFilterHandler( QString newFilter )
-{
-    editPredefinedFilters( newFilter );
-}
-
 void MainWindow::updateLoadingProgress( int progress )
 {
     LOG_DEBUG << "Loading progress: " << progress;
@@ -1469,6 +1368,7 @@ void MainWindow::currentTabChanged( int index )
 
         updateMenuBarFromDocument( crawler_widget );
         updateTitleBar( session_.getFilename( crawler_widget ) );
+        applyFiltersToCurrentCrawler();
         updateFavoritesMenu();
 
         editMenu->setEnabled( true );
@@ -1582,7 +1482,6 @@ void MainWindow::changeEvent( QEvent* event )
             loadIcons();
             updateOpenedFilesMenu();
             updateFavoritesMenu();
-            updateHighlightersMenu();
         } );
     }
     else if ( event->type() == QEvent::LanguageChange ) {
@@ -1645,7 +1544,7 @@ bool MainWindow::extractAndLoadFile( const QString& fileName )
 
     if ( !config.extractArchivesAlways() ) {
         const auto userChoice
-            = QMessageBox::question( this, tr( "klogg" ), tr( "Extract archive to temp folder?" ) );
+            = QMessageBox::question( this, tr( "flogg" ), tr( "Extract archive to temp folder?" ) );
         if ( userChoice == QMessageBox::No ) {
             return false;
         }
@@ -1684,7 +1583,7 @@ bool MainWindow::extractAndLoadFile( const QString& fileName )
         }
         else {
             QMessageBox::warning(
-                this, tr( "klogg" ),
+                this, tr( "flogg" ),
                 tr( "Failed to decompress %1" ).arg( QDir::toNativeSeparators( fileName ) ) );
         }
     }
@@ -1709,7 +1608,7 @@ bool MainWindow::extractAndLoadFile( const QString& fileName )
         }
         else {
             QMessageBox::warning(
-                this, tr( "klogg" ),
+                this, tr( "flogg" ),
                 tr( "Failed to extract %1" ).arg( QDir::toNativeSeparators( fileName ) ) );
         }
     }
@@ -1832,7 +1731,7 @@ void MainWindow::updateTitleBar( const QString& file_name )
         indexPart = QString( " #%1" ).arg( session_.windowIndex() + 1 );
     }
 
-    setWindowTitle( tr( "%1 - %2%3" ).arg( shownName, tr( "klogg" ), indexPart ) + tr( " (build " )
+    setWindowTitle( tr( "%1 - %2%3" ).arg( shownName, tr( "flogg" ), indexPart ) + tr( " (build " )
                     + kloggVersion() + ")" );
 }
 
@@ -1959,14 +1858,6 @@ void MainWindow::updateOpenedFilesMenu()
     }
 
     selectOpenFileAction->setDisabled( files.empty() );
-}
-
-void MainWindow::updateHighlightersMenu()
-{
-    highlightersMenu->clearHighlightersMenu();
-    highlightersMenu->createHighlightersMenu();
-    highlightersMenu->addAction( editHighlightersAction, true );
-    highlightersMenu->populateHighlightersMenu();
 }
 
 void MainWindow::updateFavoritesMenu()
@@ -2102,7 +1993,7 @@ void MainWindow::selectOpenedFile()
                     []( const auto& f ) { return f.nativeFullPath(); } );
 
     auto selectFileDialog = std::make_unique<QDialog>( this );
-    selectFileDialog->setWindowTitle( tr( "klogg -- switch to file" ) );
+    selectFileDialog->setWindowTitle( tr( "flogg -- switch to file" ) );
     selectFileDialog->setMinimumWidth( 800 );
     selectFileDialog->setMinimumHeight( 600 );
 
@@ -2194,6 +2085,71 @@ void MainWindow::writeSettings()
         widget_list.emplace_back( view, 0UL, view->context() );
     }
     session_.save( widget_list, saveGeometry() );
+
+    PersistentInfo::getSettings( app_settings{} ).setValue( "filterPanel/windowState",
+                                                            saveState() );
+}
+
+void MainWindow::setupFilterPanel()
+{
+    filterPanel_ = new FilterPanel;
+
+    filterDock_ = new QDockWidget( tr( "Filters" ), this );
+    filterDock_->setObjectName( "filterDock" );
+    filterDock_->setWidget( filterPanel_ );
+    addDockWidget( Qt::RightDockWidgetArea, filterDock_ );
+
+    const auto windowState
+        = PersistentInfo::getSettings( app_settings{} ).value( "filterPanel/windowState" );
+    if ( windowState.isValid() ) {
+        restoreState( windowState.toByteArray() );
+    }
+
+    viewMenu->addSeparator();
+    viewMenu->addAction( filterDock_->toggleViewAction() );
+
+    connect( filterPanel_, &FilterPanel::filtersChanged, this,
+             &MainWindow::applyFiltersToCurrentCrawler );
+
+    connect( filterPanel_, &FilterPanel::searchFragmentRequested, this,
+             [ this ]( const std::vector<FilterNode>& filters, FilterSearchMode mode ) {
+                 if ( auto* crawler = currentCrawlerWidget() ) {
+                     crawler->addFiltersToSearch( filters, mode );
+                 }
+             } );
+
+    connect( filterPanel_, &FilterPanel::findRequested, this,
+             [ this ]( const std::vector<FilterNode>& filters, bool backward ) {
+                 if ( auto* crawler = currentCrawlerWidget() ) {
+                     crawler->findFilterMatch( filters, backward );
+                 }
+             } );
+}
+
+// Filters are applied lazily: background tabs get them when they become current
+void MainWindow::applyFiltersToCurrentCrawler()
+{
+    auto* crawler = currentCrawlerWidget();
+    if ( !crawler || !filterPanel_ ) {
+        return;
+    }
+
+    const auto snapshot = filterPanel_->snapshot();
+    if ( crawler->filtersRevision() != snapshot->revision ) {
+        crawler->setFilters( snapshot );
+    }
+    filterPanel_->setHitCounts( crawler->filterHits() );
+}
+
+void MainWindow::updateFilterHits( FilterHits hits )
+{
+    filterPanel_->setHitCounts( hits );
+}
+
+void MainWindow::addToFilters( QString text )
+{
+    filterDock_->show();
+    filterPanel_->addFilterFromText( text );
 }
 
 // Read settings from permanent storage
@@ -2214,7 +2170,6 @@ void MainWindow::readSettings()
     updateFavoritesMenu();
 
     HighlighterSetCollection::getSynced();
-    updateHighlightersMenu();
 }
 
 void MainWindow::displayQuickFindBar( QuickFindMux::QFDirection direction )
@@ -2254,8 +2209,8 @@ void MainWindow::logScreenInfo( QScreen* screen )
 void MainWindow::generateDump()
 {
     const auto userAction = QMessageBox::warning(
-        this, tr( "klogg - generate crash dump" ),
-        tr( "This will shutdown klogg and generate diagnostic crash dump. Continue?" ),
+        this, tr( "flogg - generate crash dump" ),
+        tr( "This will shutdown flogg and generate diagnostic crash dump. Continue?" ),
         QMessageBox::Yes | QMessageBox::No, QMessageBox::No );
 
     if ( userAction == QMessageBox::Yes ) {

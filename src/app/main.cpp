@@ -196,8 +196,6 @@ int main( int argc, char* argv[] )
         if ( startNewSession ) {
             app.clearInactiveSessions();
         }
-
-        app.startBackgroundTasks();
     }
 
     return app.exec();

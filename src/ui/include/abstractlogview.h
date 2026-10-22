@@ -43,6 +43,7 @@
 #include <array>
 #include <cstddef>
 #include <functional>
+#include <optional>
 #include <qchar.h>
 #include <string_view>
 #include <utility>
@@ -71,7 +72,7 @@
 class QMenu;
 class QAction;
 class QShortcut;
-class HighlightersMenu;
+class HighlighterSet;
 
 // Utility class representing a buffer for number entered on the keyboard
 // The buffer keep at most 7 digits, and reset itself after a timeout.
@@ -156,6 +157,16 @@ class AbstractLogView : public QAbstractScrollArea, public SearchableWidgetInter
     using QuickHighlighters = QStringList;
     void setQuickHighlighters( const std::vector<QuickHighlighters>& wordHighlighters );
 
+    // Colouring rules built from the filter panel
+    void setFilterHighlighterSet( std::shared_ptr<const HighlighterSet> highlighterSet );
+
+    // Selects the next (or previous) line matching the passed matcher
+    void searchUsingMatcher( const QuickFindMatcher& matcher, bool backward );
+
+    // Returns the current "position" of the view as a line number,
+    // it is either the selected line or the middle of the view.
+    LineNumber getViewPosition() const;
+
     void registerShortcuts();
 
   protected:
@@ -176,6 +187,12 @@ class AbstractLogView : public QAbstractScrollArea, public SearchableWidgetInter
     // (used for coloured bullets)
     virtual AbstractLogData::LineType lineType( LineNumber lineNumber ) const = 0;
 
+    // Numbered bookmarks set on the line, bit N for bookmark N + 1
+    virtual uint32_t bookmarkSlots( LineNumber ) const
+    {
+        return 0;
+    }
+
     // Line number to display for line at the given index
     virtual LineNumber displayLineNumber( LineNumber lineNumber ) const;
     virtual LineNumber lineIndex( LineNumber lineNumber ) const;
@@ -189,9 +206,6 @@ class AbstractLogView : public QAbstractScrollArea, public SearchableWidgetInter
     // Set the Overview and OverviewWidget
     void setOverview( Overview* overview, OverviewWidget* overviewWidget );
 
-    // Returns the current "position" of the view as a line number,
-    // it is either the selected line or the middle of the view.
-    LineNumber getViewPosition() const;
 
     virtual void doRegisterShortcuts();
     void registerShortcut( const std::string& action, std::function<void()> func );
@@ -216,6 +230,8 @@ class AbstractLogView : public QAbstractScrollArea, public SearchableWidgetInter
     // Sent up when the user wants to replace the search with the selection
     void replaceSearch( const QString& selection );
     void excludeFromSearch( const QString& selection );
+    // Sent up when the user wants to create a filter from the selection
+    void addToFilters( const QString& selection );
     // Sent up when the mouse is hovered over a line's margin
     void mouseHoveredOverLine( LineNumber line );
     // Sent up when the mouse leaves a line's margin
@@ -240,7 +256,6 @@ class AbstractLogView : public QAbstractScrollArea, public SearchableWidgetInter
     void addColorLabel( size_t label );
     void addNextColorLabel();
     void clearColorLabels();
-    void highlightersChange();
 
   public Q_SLOTS:
     // Makes the widget select and display the passed line.
@@ -360,6 +375,8 @@ class AbstractLogView : public QAbstractScrollArea, public SearchableWidgetInter
 
     std::vector<QuickHighlighters> quickHighlighters_ = std::vector<QuickHighlighters>{ 9 };
 
+    std::shared_ptr<const HighlighterSet> filterHighlighterSet_;
+
     // Position of the view, those are crucial to control drawing
     // firstLine gives the position of the view,
     // lastLineAligned == true make the bottom of the last line aligned
@@ -399,13 +416,13 @@ class AbstractLogView : public QAbstractScrollArea, public SearchableWidgetInter
     QAction* addToSearchAction_;
     QAction* replaceSearchAction_;
     QAction* excludeFromSearchAction_;
+    QAction* addToFiltersAction_;
     QAction* setSearchStartAction_;
     QAction* setSearchEndAction_;
     QAction* clearSearchLimitAction_;
     QAction* setSelectionStartAction_;
     QAction* setSelectionEndAction_;
     QAction* saveDefaultSplitterSizesAction_;
-    HighlightersMenu* highlightersMenu_;
     QMenu* colorLabelsMenu_;
 
     std::map<QString, QShortcut*> shortcuts_;

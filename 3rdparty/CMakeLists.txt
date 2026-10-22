@@ -121,6 +121,23 @@ cpmaddpackage(
   EXCLUDE_FROM_ALL
   YES
 )
+if(KF5Archive_ADDED AND ${QT_VERSION_MAJOR} EQUAL 6)
+  # QString::arg no longer accepts QFlags since Qt 6.9
+  set(KARCHIVE_QT_ARG_PATCH ${CMAKE_CURRENT_SOURCE_DIR}/patches/karchive-qt6.9-arg.patch)
+  execute_process(
+    COMMAND git apply --reverse --check ${KARCHIVE_QT_ARG_PATCH}
+    WORKING_DIRECTORY ${KF5Archive_SOURCE_DIR}
+    RESULT_VARIABLE KARCHIVE_PATCH_ALREADY_APPLIED
+    OUTPUT_QUIET ERROR_QUIET
+  )
+  if(NOT KARCHIVE_PATCH_ALREADY_APPLIED EQUAL 0)
+    execute_process(
+      COMMAND git apply ${KARCHIVE_QT_ARG_PATCH}
+      WORKING_DIRECTORY ${KF5Archive_SOURCE_DIR}
+    )
+  endif()
+endif()
+
 if(NOT KF5Archive_ADDED)
   find_package(KF5Archive)
   add_library(klogg_karchive INTERFACE)

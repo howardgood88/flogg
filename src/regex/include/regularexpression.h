@@ -91,6 +91,11 @@ class MultiRegularExpression {
     bool isValid() const;
     QString errorString() const;
 
+    bool isFullyAccelerated() const
+    {
+        return hsExpression_.isFullyAccelerated();
+    }
+
   private:
     klogg::vector<RegularExpressionPattern> patterns_;
 
@@ -108,6 +113,10 @@ class MultiPatternMatcher {
     ~MultiPatternMatcher();
 
     klogg::vector<std::pair<RegularExpressionPattern, bool>> match( std::string_view line ) const;
+
+    // One char per pattern, non zero when the pattern matches (no copies of the patterns,
+    // meant for scanning many lines)
+    MatchedPatterns matchAll( std::string_view line ) const;
 
   private:
     MatcherVariant matcher_;

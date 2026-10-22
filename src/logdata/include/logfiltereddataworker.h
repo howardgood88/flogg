@@ -126,6 +126,32 @@ private:
     LinesCount nbMatches_{ 0 };
 };
 
+// Results of a search of several patterns at once: one result array per pattern
+struct MultiSearchResults {
+    uint64_t generation = 0;
+    klogg::vector<SearchResultArray> newMatches;
+    klogg::vector<LineLength> maxLengths;
+    LinesCount processedLines;
+};
+
+class MultiSearchData {
+  public:
+    void reset( uint64_t generation, size_t nbPatterns );
+
+    // Returns the matches found since the last call
+    MultiSearchResults takeCurrentResults() const;
+
+    void addAll( const klogg::vector<SearchResultArray>& matches,
+                 const klogg::vector<LineLength>& maxLengths, LinesCount processedLines );
+
+  private:
+    mutable Mutex dataMutex_;
+    uint64_t generation_ = 0;
+    mutable klogg::vector<SearchResultArray> newMatches_;
+    klogg::vector<LineLength> maxLengths_;
+    LinesCount processedLines_{ 0 };
+};
+
 class SearchOperation : public QObject {
     Q_OBJECT
 public:
@@ -183,6 +209,30 @@ private:
     LineNumber initialPosition_;
 };
 
+class MultiSearchOperation : public QObject {
+    Q_OBJECT
+  public:
+    MultiSearchOperation( const LogData& sourceLogData, AtomicFlag& interruptRequested,
+                          const klogg::vector<RegularExpressionPattern>& patterns,
+                          LineNumber startLine, LineNumber endLine, uint64_t generation );
+
+    void run( MultiSearchData& result );
+
+  Q_SIGNALS:
+    void searchProgressed( LinesCount nbMatches, int percent, LineNumber initialLine );
+    void searchFinished();
+
+  private:
+    void doSearch( MultiSearchData& result );
+
+    AtomicFlag& interruptRequested_;
+    const klogg::vector<RegularExpressionPattern> patterns_;
+    const LogData& sourceLogData_;
+    LineNumber startLine_;
+    LineNumber endLine_;
+    uint64_t generation_;
+};
+
 class LogFilteredDataWorker : public QObject {
     Q_OBJECT
 
@@ -204,10 +254,16 @@ public:
                        LineNumber endLine, LineNumber position );
 
     // Interrupts the search if one is in progress
+    // Searches all the patterns in one pass over the lines, returns the generation
+    // the results will be tagged with
+    uint64_t searchMultiple( const klogg::vector<RegularExpressionPattern>& patterns,
+                             LineNumber startLine, LineNumber endLine );
+
     void interrupt();
 
     // get the current indexing data
     SearchResults getSearchResults() const;
+    MultiSearchResults getMultiSearchResults() const;
 
 Q_SIGNALS:
     // Sent during the indexing process to signal progress
@@ -229,6 +285,8 @@ private:
 
     // Shared indexing data
     SearchData searchData_;
+    MultiSearchData multiSearchData_;
+    uint64_t multiSearchGeneration_ = 0;
 };
 
 #endif

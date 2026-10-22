@@ -130,28 +130,6 @@ void Configuration::retrieveFromStorage( QSettings& settings )
         = settings.value( "quickfind.incremental", DefaultConfiguration.quickfindIncremental_ )
               .toBool();
 
-    enableMainSearchHighlight_
-        = settings
-              .value( "regexpType.mainHighlight", DefaultConfiguration.enableMainSearchHighlight_ )
-              .toBool();
-
-    enableMainSearchHighlightVariance_
-        = settings
-              .value( "regexpType.mainHighlightVariate",
-                      DefaultConfiguration.enableMainSearchHighlightVariance_ )
-              .toBool();
-
-    mainSearchBackColor_
-#if QT_VERSION <= QT_VERSION_CHECK( 6, 4, 0 )
-        .setNamedColor(
-#else
-        .fromString(
-#endif
-            settings
-                .value( "regexpType.mainBackColor",
-                        DefaultConfiguration.mainSearchBackColor_.name( QColor::HexArgb ) )
-                .toString() );
-
     qfBackColor_
 #if QT_VERSION <= QT_VERSION_CHECK( 6, 4, 0 )
         .setNamedColor(
@@ -211,10 +189,6 @@ void Configuration::retrieveFromStorage( QSettings& settings )
         = settings.value( "logging.enableLogging", DefaultConfiguration.enableLogging_ ).toBool();
     loggingLevel_
         = settings.value( "logging.verbosity", DefaultConfiguration.loggingLevel_ ).toInt();
-
-    enableVersionChecking_
-        = settings.value( "versionchecker.enabled", DefaultConfiguration.enableVersionChecking_ )
-              .toBool();
 
     extractArchives_
         = settings.value( "archives.extract", DefaultConfiguration.extractArchives_ ).toBool();
@@ -364,9 +338,6 @@ void Configuration::saveToStorage( QSettings& settings ) const
     settings.setValue( "regexpType.engine", static_cast<int>( regexpEngine_ ) );
 
     settings.setValue( "regexpType.main", static_cast<int>( mainRegexpType_ ) );
-    settings.setValue( "regexpType.mainBackColor", mainSearchBackColor_.name( QColor::HexArgb ) );
-    settings.setValue( "regexpType.mainHighlight", enableMainSearchHighlight_ );
-    settings.setValue( "regexpType.mainHighlightVariate", enableMainSearchHighlightVariance_ );
     settings.setValue( "regexpType.autoRunSearch", autoRunSearchOnPatternChange_ );
 
     settings.setValue( "regexpType.quickfind", static_cast<int>( quickfindRegexpType_ ) );
@@ -388,7 +359,6 @@ void Configuration::saveToStorage( QSettings& settings ) const
     settings.setValue( "logging.enableLogging", enableLogging_ );
     settings.setValue( "logging.verbosity", loggingLevel_ );
 
-    settings.setValue( "versionchecker.enabled", enableVersionChecking_ );
 
     settings.setValue( "archives.extract", extractArchives_ );
     settings.setValue( "archives.extractAlways", extractArchivesAlways_ );

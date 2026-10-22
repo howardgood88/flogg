@@ -61,40 +61,40 @@ set(MAIN_LIBS
     kdsingleapp
 )
 
-add_executable(klogg ${OS_BUNDLE} ${MAIN_SOURCES} ${KLOGG_UI_SOURCES})
-add_executable(klogg_portable ${OS_BUNDLE} ${MAIN_SOURCES} ${KLOGG_UI_SOURCES})
-add_executable(klogg_grep ${MAIN_SOURCES} ${KLOGG_GREP_SOURCES})
+add_executable(flogg ${OS_BUNDLE} ${MAIN_SOURCES} ${KLOGG_UI_SOURCES})
+add_executable(flogg_portable ${OS_BUNDLE} ${MAIN_SOURCES} ${KLOGG_UI_SOURCES})
+add_executable(flogg_grep ${MAIN_SOURCES} ${KLOGG_GREP_SOURCES})
 
-add_dependencies(ci_build klogg klogg_grep)
+add_dependencies(ci_build flogg flogg_grep)
 
 if(WIN32)
-  add_dependencies(ci_build klogg_portable)
+  add_dependencies(ci_build flogg_portable)
 endif()
 
-set_target_properties(klogg PROPERTIES AUTORCC ON)
-set_target_properties(klogg PROPERTIES AUTOMOC ON)
-set_target_properties(klogg_portable PROPERTIES AUTORCC ON)
-set_target_properties(klogg_portable PROPERTIES AUTOMOC ON)
-set_target_properties(klogg_grep PROPERTIES AUTORCC ON)
-set_target_properties(klogg_grep PROPERTIES AUTOMOC ON)
+set_target_properties(flogg PROPERTIES AUTORCC ON)
+set_target_properties(flogg PROPERTIES AUTOMOC ON)
+set_target_properties(flogg_portable PROPERTIES AUTORCC ON)
+set_target_properties(flogg_portable PROPERTIES AUTOMOC ON)
+set_target_properties(flogg_grep PROPERTIES AUTORCC ON)
+set_target_properties(flogg_grep PROPERTIES AUTOMOC ON)
 
 if(KLOGG_USE_LTO)
-  set_property(TARGET klogg PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
-  set_property(TARGET klogg_portable PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
-  set_property(TARGET klogg_grep PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+  set_property(TARGET flogg PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+  set_property(TARGET flogg_portable PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+  set_property(TARGET flogg_grep PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
 endif()
 
-target_link_libraries(klogg PUBLIC ${MAIN_LIBS} klogg_ui)
-target_link_libraries(klogg_portable PUBLIC ${MAIN_LIBS} klogg_ui)
-target_link_libraries(klogg_grep PUBLIC ${MAIN_LIBS})
+target_link_libraries(flogg PUBLIC ${MAIN_LIBS} klogg_ui)
+target_link_libraries(flogg_portable PUBLIC ${MAIN_LIBS} klogg_ui)
+target_link_libraries(flogg_grep PUBLIC ${MAIN_LIBS})
 
-target_compile_definitions(klogg_portable PUBLIC -DKLOGG_PORTABLE)
+target_compile_definitions(flogg_portable PUBLIC -DKLOGG_PORTABLE)
 
 if(WIN32)
 
-  target_sources(klogg PRIVATE ${ProductVersionResourceFiles})
-  target_sources(klogg_portable PRIVATE ${ProductVersionResourceFiles})
-  target_sources(klogg_grep PRIVATE ${ProductVersionResourceFiles})
+  target_sources(flogg PRIVATE ${ProductVersionResourceFiles})
+  target_sources(flogg_portable PRIVATE ${ProductVersionResourceFiles})
+  target_sources(flogg_grep PRIVATE ${ProductVersionResourceFiles})
 
 elseif(APPLE)
   set_source_files_properties(${ICON_FILE} PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
@@ -117,7 +117,7 @@ elseif(APPLE)
 endif()
 
 install(
-  TARGETS klogg
+  TARGETS flogg
   DESTINATION ${CMAKE_INSTALL_BINDIR}
   BUNDLE DESTINATION .
 )
@@ -125,25 +125,25 @@ install(
 if(WIN32)
   if(TARGET tbb)
     add_custom_command(
-      TARGET klogg
+      TARGET flogg
       POST_BUILD
-      COMMAND cmake -E copy $<TARGET_FILE:tbb> $<TARGET_FILE_DIR:klogg>
+      COMMAND cmake -E copy $<TARGET_FILE:tbb> $<TARGET_FILE_DIR:flogg>
       WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
       COMMENT "Copy tbb"
     )
   endif()
   if(TARGET tbbmalloc_proxy)
     add_custom_command(
-      TARGET klogg
+      TARGET flogg
       POST_BUILD
-      COMMAND cmake -E copy $<TARGET_FILE:tbbmalloc> $<TARGET_FILE_DIR:klogg>
+      COMMAND cmake -E copy $<TARGET_FILE:tbbmalloc> $<TARGET_FILE_DIR:flogg>
       WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
       COMMENT "Copy tbbmalloc"
     )
     add_custom_command(
-      TARGET klogg
+      TARGET flogg
       POST_BUILD
-      COMMAND cmake -E copy $<TARGET_FILE:tbbmalloc_proxy> $<TARGET_FILE_DIR:klogg>
+      COMMAND cmake -E copy $<TARGET_FILE:tbbmalloc_proxy> $<TARGET_FILE_DIR:flogg>
       WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
       COMMENT "Copy tbbmalloc_proxy"
     )
@@ -155,107 +155,107 @@ if(KLOGG_USE_SENTRY)
     if(APPLE)
       find_program(DSYMUTIL dsymutil)
       add_custom_command(
-        TARGET klogg
+        TARGET flogg
         POST_BUILD
-        COMMAND ${DSYMUTIL} --out=${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/klogg.dSym $<TARGET_FILE:klogg>
+        COMMAND ${DSYMUTIL} --out=${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/flogg.dSym $<TARGET_FILE:flogg>
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-        COMMENT "Generating symbols for $<TARGET_FILE:klogg>"
+        COMMENT "Generating symbols for $<TARGET_FILE:flogg>"
       )
 
       add_custom_command(
-        TARGET klogg_portable
+        TARGET flogg_portable
         POST_BUILD
-        COMMAND ${DSYMUTIL} --out=${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/klogg_portable.dSym $<TARGET_FILE:klogg_portable>
+        COMMAND ${DSYMUTIL} --out=${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/flogg_portable.dSym $<TARGET_FILE:flogg_portable>
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-        COMMENT "Generating symbols for $<TARGET_FILE:klogg_portable>"
+        COMMENT "Generating symbols for $<TARGET_FILE:flogg_portable>"
       )
     else()
       find_program(OBJCOPY objcopy)
       add_custom_command(
-        TARGET klogg
+        TARGET flogg
         POST_BUILD
-        COMMAND ${OBJCOPY} --only-keep-debug --compress-debug-sections=zlib $<TARGET_FILE:klogg>
-                ${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/klogg.debug
+        COMMAND ${OBJCOPY} --only-keep-debug --compress-debug-sections=zlib $<TARGET_FILE:flogg>
+                ${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/flogg.debug
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-        COMMENT "Generating symbols for $<TARGET_FILE:klogg>"
+        COMMENT "Generating symbols for $<TARGET_FILE:flogg>"
       )
       add_custom_command(
-        TARGET klogg
+        TARGET flogg
         POST_BUILD
-        COMMAND ${OBJCOPY} --strip-debug --strip-unneeded $<TARGET_FILE:klogg>
+        COMMAND ${OBJCOPY} --strip-debug --strip-unneeded $<TARGET_FILE:flogg>
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-        COMMENT "Stripping $<TARGET_FILE:klogg>"
+        COMMENT "Stripping $<TARGET_FILE:flogg>"
       )
       add_custom_command(
-        TARGET klogg
+        TARGET flogg
         POST_BUILD
-        COMMAND ${OBJCOPY} --add-gnu-debuglink=${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/klogg.debug $<TARGET_FILE:klogg>
+        COMMAND ${OBJCOPY} --add-gnu-debuglink=${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/flogg.debug $<TARGET_FILE:flogg>
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-        COMMENT "Linking symbols for $<TARGET_FILE:klogg>"
+        COMMENT "Linking symbols for $<TARGET_FILE:flogg>"
       )
 
       add_custom_command(
-        TARGET klogg_portable
+        TARGET flogg_portable
         POST_BUILD
-        COMMAND ${OBJCOPY} --only-keep-debug $<TARGET_FILE:klogg_portable>
-                ${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/klogg_portable.debug
+        COMMAND ${OBJCOPY} --only-keep-debug $<TARGET_FILE:flogg_portable>
+                ${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/flogg_portable.debug
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-        COMMENT "Generating symbols for $<TARGET_FILE:klogg>"
+        COMMENT "Generating symbols for $<TARGET_FILE:flogg>"
       )
       add_custom_command(
-        TARGET klogg_portable
+        TARGET flogg_portable
         POST_BUILD
-        COMMAND ${OBJCOPY} --strip-debug --strip-unneeded $<TARGET_FILE:klogg_portable>
+        COMMAND ${OBJCOPY} --strip-debug --strip-unneeded $<TARGET_FILE:flogg_portable>
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-        COMMENT "Stripping $<TARGET_FILE:klogg_portable>"
+        COMMENT "Stripping $<TARGET_FILE:flogg_portable>"
       )
       add_custom_command(
-        TARGET klogg_portable
+        TARGET flogg_portable
         POST_BUILD
-        COMMAND ${OBJCOPY} --add-gnu-debuglink=${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/klogg_portable.debug
-                $<TARGET_FILE:klogg_portable>
+        COMMAND ${OBJCOPY} --add-gnu-debuglink=${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/flogg_portable.debug
+                $<TARGET_FILE:flogg_portable>
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-        COMMENT "Linking symbols for $<TARGET_FILE:klogg_portable>"
+        COMMENT "Linking symbols for $<TARGET_FILE:flogg_portable>"
       )
     endif()
 
     add_custom_command(
-      TARGET klogg
+      TARGET flogg
       POST_BUILD
-      COMMAND cmake -E copy $<TARGET_FILE:crashpad_handler> $<TARGET_FILE_DIR:klogg>/klogg_crashpad_handler
+      COMMAND cmake -E copy $<TARGET_FILE:crashpad_handler> $<TARGET_FILE_DIR:flogg>/klogg_crashpad_handler
       WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
       COMMENT "Copy crash_handler"
     )
 
     add_custom_command(
-      TARGET klogg
+      TARGET flogg
       POST_BUILD
-      COMMAND cmake -E copy ${SYMS_TOOLS}/minidump_dump $<TARGET_FILE_DIR:klogg>/klogg_minidump_dump
+      COMMAND cmake -E copy ${SYMS_TOOLS}/minidump_dump $<TARGET_FILE_DIR:flogg>/klogg_minidump_dump
       WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
       COMMENT "Copy stackwalk"
     )
   else()
     add_custom_command(
-      TARGET klogg
+      TARGET flogg
       POST_BUILD
-      COMMAND cmake -E copy $<TARGET_FILE:crashpad_handler> $<TARGET_FILE_DIR:klogg>/klogg_crashpad_handler.exe
+      COMMAND cmake -E copy $<TARGET_FILE:crashpad_handler> $<TARGET_FILE_DIR:flogg>/klogg_crashpad_handler.exe
       WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
       COMMENT "Copy crash_handler"
     )
 
     if(CMAKE_SIZEOF_VOID_P EQUAL 8)
       add_custom_command(
-        TARGET klogg
+        TARGET flogg
         POST_BUILD
-        COMMAND cmake -E copy ${SYMS_TOOLS}/minidump_dump_x64.exe $<TARGET_FILE_DIR:klogg>/klogg_minidump_dump.exe
+        COMMAND cmake -E copy ${SYMS_TOOLS}/minidump_dump_x64.exe $<TARGET_FILE_DIR:flogg>/klogg_minidump_dump.exe
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
         COMMENT "Copy stackwalk"
       )
     else()
       add_custom_command(
-        TARGET klogg
+        TARGET flogg
         POST_BUILD
-        COMMAND cmake -E copy ${SYMS_TOOLS}/minidump_dump_x86.exe $<TARGET_FILE_DIR:klogg>/klogg_minidump_dump.exe
+        COMMAND cmake -E copy ${SYMS_TOOLS}/minidump_dump_x86.exe $<TARGET_FILE_DIR:flogg>/klogg_minidump_dump.exe
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
         COMMENT "Copy stackwalk"
       )
@@ -263,11 +263,11 @@ if(KLOGG_USE_SENTRY)
   endif()
 
   if(APPLE)
-    install(PROGRAMS $<TARGET_FILE_DIR:klogg>/klogg_minidump_dump $<TARGET_FILE_DIR:klogg>/klogg_crashpad_handler
-            DESTINATION $<TARGET_BUNDLE_CONTENT_DIR:klogg>/MacOS
+    install(PROGRAMS $<TARGET_FILE_DIR:flogg>/klogg_minidump_dump $<TARGET_FILE_DIR:flogg>/klogg_crashpad_handler
+            DESTINATION $<TARGET_BUNDLE_CONTENT_DIR:flogg>/MacOS
     )
   elseif(NOT WIN32)
-    install(PROGRAMS $<TARGET_FILE_DIR:klogg>/klogg_minidump_dump $<TARGET_FILE_DIR:klogg>/klogg_crashpad_handler
+    install(PROGRAMS $<TARGET_FILE_DIR:flogg>/klogg_minidump_dump $<TARGET_FILE_DIR:flogg>/klogg_crashpad_handler
             DESTINATION ${CMAKE_INSTALL_BINDIR}
     )
   endif()

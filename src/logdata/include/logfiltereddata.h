@@ -39,13 +39,18 @@
 #ifndef LOGFILTEREDDATA_H
 #define LOGFILTEREDDATA_H
 
+#include <array>
+#include <map>
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
+#include <vector>
 #include <tuple>
 #include <unordered_map>
 
 #include <QByteArray>
+#include <QElapsedTimer>
 #include <QList>
 #include <QObject>
 #include <QStringList>
@@ -80,6 +85,26 @@ class LogFilteredData : public AbstractLogData {
                     LineNumber endLine );
     // Shortcut for runSearch on all file
     void runSearch( const RegularExpressionPattern& regExp );
+
+    struct FilterSpec {
+        RegularExpressionPattern pattern;
+        bool exclude = false;
+    };
+
+    // Shows the lines matched by any include filter and by none of the exclude filters.
+    // Matches are cached per pattern, so changing the set of filters only rescans
+    // the patterns that were not searched yet.
+    void runFilterSearch( const std::vector<FilterSpec>& filters, LineNumber startLine,
+                          LineNumber endLine );
+
+    // Number of lines matching the pattern, empty if the pattern is not completely searched
+    std::optional<LinesCount> getFilterMatchCount( const RegularExpressionPattern& pattern ) const;
+
+    // Next (or previous) line after (before) the passed one matching any of the patterns,
+    // empty if one of the patterns is not completely searched.
+    std::optional<OptionalLineNumber>
+    findFilterMatch( const std::vector<RegularExpressionPattern>& patterns, LineNumber line,
+                     bool backward ) const;
 
     // Add to the existing search, starting at the line when the search was
     // last stopped. Used when the file on disk has been added too.
@@ -121,6 +146,17 @@ class LogFilteredData : public AbstractLogData {
     void toggleMark( LineNumber line );
     // Completely clear the marks list.
     void clearMarks();
+
+    // Numbered bookmarks: each number can be set on any number of lines and a line
+    // can hold several numbers. A bookmarked line is also marked.
+    static constexpr size_t NbBookmarks = 8;
+    // Sets the bookmark on the line, or removes it if it is already there
+    void toggleBookmark( size_t slot, LineNumber line );
+    // Next (or previous) line holding the bookmark after (or before) the passed line,
+    // wrapping around the file
+    OptionalLineNumber findBookmark( size_t slot, LineNumber from, bool backward ) const;
+    // Bookmarks set on the line, bit N for bookmark N + 1
+    uint32_t getBookmarkSlots( LineNumber line ) const;
     // Get all marked lines
     QList<LineNumber> getMarks() const;
 
@@ -247,6 +283,40 @@ class LogFilteredData : public AbstractLogData {
 
     // update maxLengthMarks_ when a Marks was changed.
     void updateMaxLengthMarks( OptionalLineNumber added_line, OptionalLineNumber removed_line );
+
+    void removeBookmarksOnLine( LineNumber line );
+
+    struct BookmarkedLine {
+        uint32_t slots = 0;
+        // The line was not marked before its first bookmark was set
+        bool addedMark = false;
+    };
+    std::map<LineNumber, BookmarkedLine> bookmarks_;
+
+    struct FilterResult {
+        SearchResultArray matchingLines;
+        LineLength maxLength;
+        // Lines before this one have been searched
+        LineNumber processedEnd;
+        uint64_t lastUse = 0;
+    };
+
+    static QString makeFilterKey( const RegularExpressionPattern& pattern );
+    void startMissingFilterSearch();
+    void handleMultiSearchProgressed( int progress, LineNumber initialLine );
+    void composeFilterResults();
+    void trimFilterResults();
+
+    bool filterMode_ = false;
+    std::vector<FilterSpec> currentFilters_;
+    std::unordered_map<QString, FilterResult> filterResults_;
+    klogg::vector<QString> scanningFilterKeys_;
+    uint64_t scanningGeneration_ = 0;
+    uint64_t filterUseCounter_ = 0;
+    // Combining the filters is not incremental, it is throttled while searching
+    QElapsedTimer lastFilterCompose_;
+    LineNumber filterStartLine_;
+    LineNumber filterEndLine_;
 };
 
 Q_DECLARE_OPERATORS_FOR_FLAGS( LogFilteredData::Visibility )

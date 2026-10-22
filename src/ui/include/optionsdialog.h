@@ -47,6 +47,7 @@
 #include <QPushButton>
 
 #include "configuration.h"
+#include "highlighterset.h"
 
 #include "ui_optionsdialog.h"
 
@@ -88,13 +89,13 @@ class OptionsDialog : public QDialog, public Ui::OptionsDialog {
     // Called when a ok/cancel/apply button is clicked.
     void onButtonBoxClicked( QAbstractButton* button );
 
-    void changeMainColor();
     void changeQfColor();
 
     void checkShortcutsOnDuplicate() const;
 
   private:
     void setupTabs();
+    void setupColorLabels();
     void setupFontList();
     void setupRegexp();
     void setupPolling();
@@ -117,8 +118,8 @@ class OptionsDialog : public QDialog, public Ui::OptionsDialog {
 
     void updateDialogFromConfig();
 
-    QColor mainSearchColor_;
     QColor qfSearchColor_;
+    QList<QuickHighlighter> colorLabels_;
 };
 
 #endif

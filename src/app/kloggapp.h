@@ -53,7 +53,6 @@
 
 #include "mainwindow.h"
 #include "messagereceiver.h"
-#include "versionchecker.h"
 
 class KloggApp : public QApplication {
 
@@ -89,13 +88,6 @@ class KloggApp : public QApplication {
 
             QObject::connect( &messageReceiver_, &MessageReceiver::loadFile, this,
                               &KloggApp::loadFileNonInteractive );
-
-            // Version checker notification
-            connect( &versionChecker_, &VersionChecker::newVersionFound,
-                     [ this ]( const QString& new_version, const QString& url,
-                               const QStringList& changes ) {
-                         newVersionNotification( new_version, url, changes );
-                     } );
         }
     }
 
@@ -208,12 +200,6 @@ class KloggApp : public QApplication {
         activeWindows_.top()->loadFileNonInteractive( file );
     }
 
-    void startBackgroundTasks()
-    {
-        LOG_DEBUG << "startBackgroundTasks";
-        versionChecker_.startCheck();
-    }
-
 #ifdef Q_OS_MAC
     bool event( QEvent* event ) override
     {
@@ -284,28 +270,6 @@ class KloggApp : public QApplication {
         QTimer::singleShot( 100, this, &QCoreApplication::quit );
     }
 
-    void newVersionNotification( const QString& new_version, const QString& url,
-                                 const QStringList& changes )
-    {
-        LOG_DEBUG << "newVersionNotification( " << new_version << " from " << url << " )";
-
-        QString message = QString( "<p> A new version of klogg (%1) is available for download </p>"
-                                   "<a href=\"%2\">%2</a>" )
-                              .arg( new_version, url );
-
-        if ( !changes.empty() ) {
-            message.append( "<p>Important changes:</p><ul>" );
-            for ( const auto& change : changes ) {
-                message.append( QString( "<li>%1</li>" ).arg( change ) );
-            }
-            message.append( "</ul>" );
-        }
-
-        QMessageBox msgBox;
-        msgBox.setText( message );
-        msgBox.exec();
-    }
-
     size_t nextWindowIndex() const
     {
         if ( mainWindows_.empty() ) {
@@ -331,7 +295,6 @@ class KloggApp : public QApplication {
     std::list<std::pair<WindowSession, MainWindow*>> mainWindows_;
     std::stack<QPointer<MainWindow>> activeWindows_;
 
-    VersionChecker versionChecker_;
 };
 
 #endif // KLOGG_KLOGGAPP_H

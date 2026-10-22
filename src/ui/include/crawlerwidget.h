@@ -58,11 +58,11 @@
 #include "iconloader.h"
 #include "linetypes.h"
 #include "loadingstatus.h"
+#include "filterpanel.h"
 #include "logdata.h"
 #include "logfiltereddata.h"
 #include "logmainview.h"
 #include "overview.h"
-#include "predefinedfilterscombobox.h"
 #include "signalmux.h"
 #include "viewinterface.h"
 
@@ -111,6 +111,22 @@ class CrawlerWidget : public QSplitter,
     bool isTextWrapEnabled() const;
 
     void registerShortcuts();
+
+    // Applies the filters of the filter panel: colouring of both views and,
+    // in filter mode, the content of the filtered view.
+    void setFilters( std::shared_ptr<const FilterSnapshot> filters );
+    uint64_t filtersRevision() const;
+
+    void addFiltersToSearch( const std::vector<FilterNode>& filters, FilterSearchMode mode );
+
+    // Hit counts of the current filters (when in filter mode)
+    FilterHits filterHits() const;
+    void findFilterMatch( const std::vector<FilterNode>& filters, bool backward );
+
+    // Numbered bookmarks on the selected line of the active view
+    void toggleBookmark( size_t slot );
+    // Next (or previous) line with the bookmark, wrapping around the file
+    void jumpToBookmark( size_t slot, bool backward );
 
   public Q_SLOTS:
     // Stop the asynchoronous loading of the file if one is in progress
@@ -166,9 +182,9 @@ class CrawlerWidget : public QSplitter,
     // Sent up when the current line number is updated
     void newSelection( LineNumber startLine, LinesCount nLines, LineColumn startCol,
                        LineLength nSymbols );
-    // Sent up when user wants to save new predefined filter from current search
-    void saveCurrentSearchAsPredefinedFilter( QString newFilter );
-
+    // Sent up when the user wants to create a filter from a text
+    void addToFilters( QString );
+    void filterHitsChanged( FilterHits hits );
     void sendToScratchpad( QString );
     void replaceDataInScratchpad( QString );
 
@@ -246,9 +262,8 @@ class CrawlerWidget : public QSplitter,
     void clearSearchHistory();
     void editSearchHistory();
 
-    // Save current search as predefined filter
-    void saveAsPredefinedFilter();
-    void setSearchPatternFromPredefinedFilters( const QList<PredefinedFilter>& filters );
+    // Create a filter from the current search
+    void saveSearchAsFilter();
 
     // Search Context Menu
     void showSearchContextMenu();
@@ -271,6 +286,9 @@ class CrawlerWidget : public QSplitter,
     void filteredViewDestroyed(QObject* view);
 
   private:
+    // Line of the file selected in the active view
+    LineNumber currentLogLine() const;
+
     // State machine holding the state of the search, used to allow/disallow
     // auto-refresh and inform the user via the info line.
     class SearchState {
@@ -326,16 +344,18 @@ class CrawlerWidget : public QSplitter,
     void setup();
     void setShortcuts();
     void replaceCurrentSearch( const QString& searchText );
+    void replaceCurrentSearch( const RegularExpressionPattern& regexpPattern );
+    // Runs again the search of the current mode (filters or search line)
+    void rerunCurrentSearch();
+    void runFilterSearch();
+    void setFilterMode( bool filterMode );
+    QString searchTextAsRegexBoolean() const;
     void updateSearchCombo();
     AbstractLogView* activeView() const;
     void printSearchInfoMessage( LinesCount nbMatches = 0_lcount );
     void changeDataStatus( DataStatus status );
     void updateEncoding();
     void changeTopViewSize( int32_t delta );
-    void updatePredefinedFiltersWidget();
-
-    // Reload predefined filters after changing settings
-    void reloadPredefinedFilters() const;
 
     QString escapeSearchPattern( const QString& searchPattern, bool isRegex = false ) const;
     QString& combinePatterns( QString& currentPattern, const QString& newPattern ) const;
@@ -376,7 +396,6 @@ class CrawlerWidget : public QSplitter,
     QComboBox* visibilityBox_;
     QStandardItemModel* visibilityModel_;
 
-    PredefinedFiltersComboBox* predefinedFilters_;
 
     QComboBox* searchLineEdit_;
     QMenu* searchLineContextMenu_;
@@ -394,6 +413,7 @@ class CrawlerWidget : public QSplitter,
     QToolButton* inverseButton_;
     QToolButton* booleanButton_;
     QToolButton* searchRefreshButton_;
+    QToolButton* filterModeButton_;
 
     std::map<QString, QShortcut*> shortcuts_;
 
@@ -431,6 +451,11 @@ class CrawlerWidget : public QSplitter,
     QString encodingText_;
 
     ColorLabelsManager colorLabelsManager_;
+
+    // In filter mode the filtered view shows the result of the filter panel,
+    // otherwise the result of the search line.
+    bool filterMode_ = true;
+    std::shared_ptr<const FilterSnapshot> filters_;
 };
 
 #endif

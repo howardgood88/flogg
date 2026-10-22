@@ -22,6 +22,7 @@
 
 #include <QApplication>
 #include <QMetaType>
+#include <QStandardPaths>
 #include <QtConcurrent>
 
 #include <configuration.h>
@@ -70,6 +71,9 @@ class TestRunner : public QObject {
 int main( int argc, char* argv[] )
 {
     QApplication a( argc, argv );
+
+    // Keep the filter panel away from the user's filters file
+    QStandardPaths::setTestModeEnabled( true );
 
     logging::enableLogging();
 

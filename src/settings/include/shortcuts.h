@@ -64,7 +64,6 @@ struct ShortcutAction {
     static constexpr auto MainWindowOpenQfForward = "mainwindow.open_qf_forward";
     static constexpr auto MainWindowOpenQfBackward = "mainwindow.open_qf_backward";
     static constexpr auto MainWindowFocusSearchInput = "qf.focus_search";
-    static constexpr auto MainWindowClearFile = "mainwindow.clear_file";
     static constexpr auto MainWindowFollowFile = "mainwindow.follow_file";
     static constexpr auto MainWindowTextWrap = "mainwindow.text_wrap";
     static constexpr auto MainWindowReload = "mainwindow.reload";
@@ -114,6 +113,31 @@ struct ShortcutAction {
 
     static constexpr auto LogViewClearColorLabels = "logview.clear_color_labels";
     static constexpr auto LogViewAddNextColorLabel = "logview.add_next_color_label";
+
+    static constexpr auto LogViewSetBookmark1 = "logview.set_bookmark_1";
+    static constexpr auto LogViewSetBookmark2 = "logview.set_bookmark_2";
+    static constexpr auto LogViewSetBookmark3 = "logview.set_bookmark_3";
+    static constexpr auto LogViewSetBookmark4 = "logview.set_bookmark_4";
+    static constexpr auto LogViewSetBookmark5 = "logview.set_bookmark_5";
+    static constexpr auto LogViewSetBookmark6 = "logview.set_bookmark_6";
+    static constexpr auto LogViewSetBookmark7 = "logview.set_bookmark_7";
+    static constexpr auto LogViewSetBookmark8 = "logview.set_bookmark_8";
+    static constexpr auto LogViewJumpToBookmark1 = "logview.jump_to_bookmark_1";
+    static constexpr auto LogViewJumpToBookmark2 = "logview.jump_to_bookmark_2";
+    static constexpr auto LogViewJumpToBookmark3 = "logview.jump_to_bookmark_3";
+    static constexpr auto LogViewJumpToBookmark4 = "logview.jump_to_bookmark_4";
+    static constexpr auto LogViewJumpToBookmark5 = "logview.jump_to_bookmark_5";
+    static constexpr auto LogViewJumpToBookmark6 = "logview.jump_to_bookmark_6";
+    static constexpr auto LogViewJumpToBookmark7 = "logview.jump_to_bookmark_7";
+    static constexpr auto LogViewJumpToBookmark8 = "logview.jump_to_bookmark_8";
+    static constexpr auto LogViewJumpToPreviousBookmark1 = "logview.jump_to_previous_bookmark_1";
+    static constexpr auto LogViewJumpToPreviousBookmark2 = "logview.jump_to_previous_bookmark_2";
+    static constexpr auto LogViewJumpToPreviousBookmark3 = "logview.jump_to_previous_bookmark_3";
+    static constexpr auto LogViewJumpToPreviousBookmark4 = "logview.jump_to_previous_bookmark_4";
+    static constexpr auto LogViewJumpToPreviousBookmark5 = "logview.jump_to_previous_bookmark_5";
+    static constexpr auto LogViewJumpToPreviousBookmark6 = "logview.jump_to_previous_bookmark_6";
+    static constexpr auto LogViewJumpToPreviousBookmark7 = "logview.jump_to_previous_bookmark_7";
+    static constexpr auto LogViewJumpToPreviousBookmark8 = "logview.jump_to_previous_bookmark_8";
 
     static constexpr auto LogViewSendSelectionToScratchpad = "logview.send_selection_to_scratchpad";
     static constexpr auto LogViewReplaceScratchpadWithSelection

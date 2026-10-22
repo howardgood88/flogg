@@ -148,6 +148,17 @@ struct CrawlerWidget::access_by<CrawlerWidgetPrivate> {
     {
         crawler->grab();
     }
+
+    void toggleBookmark( size_t slot, LineNumber line )
+    {
+        crawler->logFilteredData_->toggleBookmark( slot, line );
+        crawler->logMainView_->updateData();
+    }
+
+    QImage grabMainView()
+    {
+        return crawler->logMainView_->grab().toImage();
+    }
 };
 
 using CrawlerWidgetVisitor = CrawlerWidget::access_by<CrawlerWidgetPrivate>;
@@ -265,4 +276,36 @@ SCENARIO( "Crawler widget search", "[ui]" )
             }
         }
     }
+}
+
+// Hidden, saves a picture of the bookmarks area: FLOGG_RENDER_DIR=<dir> klogg_itests "[.render]"
+SCENARIO( "Crawler widget bookmarks rendering", "[.render]" )
+{
+    const auto renderDir = qEnvironmentVariable( "FLOGG_RENDER_DIR" );
+    if ( renderDir.isEmpty() ) {
+        WARN( "FLOGG_RENDER_DIR is not set" );
+        return;
+    }
+
+    QTemporaryFile file{ "crawler_test_XXXXXX" };
+    REQUIRE( generateDataFiles( file ) );
+
+    Session session;
+    CrawlerWidgetVisitor crawlerVisitor;
+    crawlerVisitor.crawler.reset( static_cast<CrawlerWidget*>(
+        session.open( file.fileName(), []() { return new CrawlerWidget(); } ) ) );
+    crawlerVisitor.crawler->resize( 900, 600 );
+
+    waitUiState( [ & ]() { return crawlerVisitor.isLoadingFinished(); } );
+
+    crawlerVisitor.toggleBookmark( 0, 1_lnum );
+    crawlerVisitor.toggleBookmark( 0, 4_lnum );
+    crawlerVisitor.toggleBookmark( 2, 4_lnum );
+    crawlerVisitor.toggleBookmark( 7, 4_lnum );
+    crawlerVisitor.toggleBookmark( 1, 6_lnum );
+    for ( size_t slot = 0; slot < LogFilteredData::NbBookmarks; ++slot ) {
+        crawlerVisitor.toggleBookmark( slot, 8_lnum );
+    }
+
+    REQUIRE( crawlerVisitor.grabMainView().save( renderDir + "/bookmarks.png" ) );
 }

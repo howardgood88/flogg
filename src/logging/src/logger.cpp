@@ -103,7 +103,7 @@ class Logger {
 
         if ( isEnabled && !logFile_ ) {
             auto logFileName
-                = QString( "klogg_%1_%2.log" )
+                = QString( "flogg_%1_%2.log" )
                       .arg( QDateTime::currentDateTime().toString( "yyyy-MM-dd_HH-mm-ss" ) )
                       .arg( QCoreApplication::applicationPid() );
 

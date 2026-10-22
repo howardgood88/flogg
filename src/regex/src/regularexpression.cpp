@@ -262,3 +262,8 @@ MultiPatternMatcher::match( std::string_view line ) const
 
     return matchedPatterns;
 }
+
+MatchedPatterns MultiPatternMatcher::matchAll( std::string_view line ) const
+{
+    return std::visit( [ &line ]( const auto& m ) { return m.match( line ); }, matcher_ );
+}

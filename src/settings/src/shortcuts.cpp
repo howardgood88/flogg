@@ -203,13 +203,6 @@ const ShortcutAction::ShortcutList& ShortcutAction::defaultShortcutList()
             },
         },
         {
-            MainWindowClearFile,
-            {
-                QApplication::tr( "Clear file" ),
-                QStringList{ getKeyBindings( QKeySequence::Cut ) },
-            },
-        },
-        {
             MainWindowOpenContainingFolder,
             {
                 QApplication::tr( "Open containing folder" ),
@@ -602,6 +595,174 @@ const ShortcutAction::ShortcutList& ShortcutAction::defaultShortcutList()
             {
                 QApplication::tr( "Clear all color labels" ),
                 QStringList{ "Ctrl+Shift+0" },
+            },
+        },
+        {
+            LogViewSetBookmark1,
+            {
+                QApplication::tr( "Set/remove bookmark 1" ),
+                QStringList{ "Ctrl+1" },
+            },
+        },
+        {
+            LogViewSetBookmark2,
+            {
+                QApplication::tr( "Set/remove bookmark 2" ),
+                QStringList{ "Ctrl+2" },
+            },
+        },
+        {
+            LogViewSetBookmark3,
+            {
+                QApplication::tr( "Set/remove bookmark 3" ),
+                QStringList{ "Ctrl+3" },
+            },
+        },
+        {
+            LogViewSetBookmark4,
+            {
+                QApplication::tr( "Set/remove bookmark 4" ),
+                QStringList{ "Ctrl+4" },
+            },
+        },
+        {
+            LogViewSetBookmark5,
+            {
+                QApplication::tr( "Set/remove bookmark 5" ),
+                QStringList{ "Ctrl+5" },
+            },
+        },
+        {
+            LogViewSetBookmark6,
+            {
+                QApplication::tr( "Set/remove bookmark 6" ),
+                QStringList{ "Ctrl+6" },
+            },
+        },
+        {
+            LogViewSetBookmark7,
+            {
+                QApplication::tr( "Set/remove bookmark 7" ),
+                QStringList{ "Ctrl+7" },
+            },
+        },
+        {
+            LogViewSetBookmark8,
+            {
+                QApplication::tr( "Set/remove bookmark 8" ),
+                QStringList{ "Ctrl+8" },
+            },
+        },
+        {
+            LogViewJumpToBookmark1,
+            {
+                QApplication::tr( "Jump to next line with bookmark 1" ),
+                QStringList{ "Alt+1" },
+            },
+        },
+        {
+            LogViewJumpToBookmark2,
+            {
+                QApplication::tr( "Jump to next line with bookmark 2" ),
+                QStringList{ "Alt+2" },
+            },
+        },
+        {
+            LogViewJumpToBookmark3,
+            {
+                QApplication::tr( "Jump to next line with bookmark 3" ),
+                QStringList{ "Alt+3" },
+            },
+        },
+        {
+            LogViewJumpToBookmark4,
+            {
+                QApplication::tr( "Jump to next line with bookmark 4" ),
+                QStringList{ "Alt+4" },
+            },
+        },
+        {
+            LogViewJumpToBookmark5,
+            {
+                QApplication::tr( "Jump to next line with bookmark 5" ),
+                QStringList{ "Alt+5" },
+            },
+        },
+        {
+            LogViewJumpToBookmark6,
+            {
+                QApplication::tr( "Jump to next line with bookmark 6" ),
+                QStringList{ "Alt+6" },
+            },
+        },
+        {
+            LogViewJumpToBookmark7,
+            {
+                QApplication::tr( "Jump to next line with bookmark 7" ),
+                QStringList{ "Alt+7" },
+            },
+        },
+        {
+            LogViewJumpToBookmark8,
+            {
+                QApplication::tr( "Jump to next line with bookmark 8" ),
+                QStringList{ "Alt+8" },
+            },
+        },
+        {
+            LogViewJumpToPreviousBookmark1,
+            {
+                QApplication::tr( "Jump to previous line with bookmark 1" ),
+                QStringList{ "Alt+Shift+1" },
+            },
+        },
+        {
+            LogViewJumpToPreviousBookmark2,
+            {
+                QApplication::tr( "Jump to previous line with bookmark 2" ),
+                QStringList{ "Alt+Shift+2" },
+            },
+        },
+        {
+            LogViewJumpToPreviousBookmark3,
+            {
+                QApplication::tr( "Jump to previous line with bookmark 3" ),
+                QStringList{ "Alt+Shift+3" },
+            },
+        },
+        {
+            LogViewJumpToPreviousBookmark4,
+            {
+                QApplication::tr( "Jump to previous line with bookmark 4" ),
+                QStringList{ "Alt+Shift+4" },
+            },
+        },
+        {
+            LogViewJumpToPreviousBookmark5,
+            {
+                QApplication::tr( "Jump to previous line with bookmark 5" ),
+                QStringList{ "Alt+Shift+5" },
+            },
+        },
+        {
+            LogViewJumpToPreviousBookmark6,
+            {
+                QApplication::tr( "Jump to previous line with bookmark 6" ),
+                QStringList{ "Alt+Shift+6" },
+            },
+        },
+        {
+            LogViewJumpToPreviousBookmark7,
+            {
+                QApplication::tr( "Jump to previous line with bookmark 7" ),
+                QStringList{ "Alt+Shift+7" },
+            },
+        },
+        {
+            LogViewJumpToPreviousBookmark8,
+            {
+                QApplication::tr( "Jump to previous line with bookmark 8" ),
+                QStringList{ "Alt+Shift+8" },
             },
         },
         {

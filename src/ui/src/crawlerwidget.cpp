@@ -209,11 +209,6 @@ bool CrawlerWidget::isTextWrapEnabled() const
     return logMainView_->isTextWrapEnabled();
 }
 
-void CrawlerWidget::reloadPredefinedFilters() const
-{
-    predefinedFilters_->populatePredefinedFilters();
-}
-
 QString CrawlerWidget::encodingText() const
 {
     return encodingText_;
@@ -374,6 +369,15 @@ std::shared_ptr<const ViewContextInterface> CrawlerWidget::doGetViewContext() co
 
 void CrawlerWidget::startNewSearch()
 {
+    // An empty search goes back to the filters of the filter panel
+    if ( searchLineEdit_->currentText().isEmpty() ) {
+        setFilterMode( true );
+        runFilterSearch();
+        return;
+    }
+
+    setFilterMode( false );
+
     if ( keepSearchResultsButton_->isChecked() ) {
         keepSearchResultsButton_->setChecked( false );
 
@@ -411,12 +415,6 @@ void CrawlerWidget::startNewSearch()
     replaceCurrentSearch( searchLineEdit_->currentText() );
 }
 
-void CrawlerWidget::updatePredefinedFiltersWidget()
-{
-    predefinedFilters_->updateSearchPattern( searchLineEdit_->currentText(),
-                                             booleanButton_->isChecked() );
-}
-
 void CrawlerWidget::stopSearch()
 {
     logFilteredData_->interruptSearch();
@@ -444,7 +442,7 @@ void CrawlerWidget::editSearchHistory()
 
     auto history = savedSearches_->recentSearches().join( QChar::LineFeed );
     bool ok;
-    QString newHistory = QInputDialog::getMultiLineText( this, tr( "klogg" ),
+    QString newHistory = QInputDialog::getMultiLineText( this, tr( "flogg" ),
                                                          tr( "Search history:" ), history, &ok );
 
     if ( ok ) {
@@ -464,11 +462,9 @@ void CrawlerWidget::editSearchHistory()
     updateSearchCombo();
 }
 
-void CrawlerWidget::saveAsPredefinedFilter()
+void CrawlerWidget::saveSearchAsFilter()
 {
-    const auto currentText = searchLineEdit_->currentText();
-
-    Q_EMIT saveCurrentSearchAsPredefinedFilter( currentText );
+    Q_EMIT addToFilters( searchLineEdit_->currentText() );
 }
 
 void CrawlerWidget::showSearchContextMenu()
@@ -488,6 +484,7 @@ void CrawlerWidget::updateFilteredView( LinesCount nbMatches, int progress,
     if ( progress == 100 ) {
         // Searching done
         printSearchInfoMessage( nbMatches );
+        Q_EMIT filterHitsChanged( filterHits() );
         searchInfoLine_->hideGauge();
         // De-activate the stop button
         stopButton_->setEnabled( false );
@@ -663,8 +660,6 @@ void CrawlerWidget::applyConfiguration()
     if ( isFollowEnabled() ) {
         changeDataStatus( DataStatus::OLD_DATA );
     }
-
-    reloadPredefinedFilters();
 }
 
 void CrawlerWidget::enteringQuickFind()
@@ -709,7 +704,7 @@ void CrawlerWidget::loadingFinishedHandler( LoadingStatus status )
         searchEndLine_ = LineNumber( logData_->getNbLine().get() );
         if ( searchState_.isFileTruncated() )
             // We need to restart the search
-            replaceCurrentSearch( searchLineEdit_->currentText() );
+            rerunCurrentSearch();
         else
             logFilteredData_->updateSearch( searchStartLine_, searchEndLine_ );
     }
@@ -729,6 +724,10 @@ void CrawlerWidget::loadingFinishedHandler( LoadingStatus status )
             logFilteredData_->addMark( m );
         }
         logMainView_->setFocus();
+
+        if ( filterMode_ ) {
+            runFilterSearch();
+        }
     }
 
     loadingInProgress_ = false;
@@ -824,7 +823,6 @@ void CrawlerWidget::useRegexpChangeHandler( bool )
 void CrawlerWidget::searchTextChangeHandler( QString )
 {
     resetStateOnSearchPatternChanges();
-    updatePredefinedFiltersWidget();
 }
 
 void CrawlerWidget::changeFilteredViewVisibility( int index )
@@ -838,15 +836,6 @@ void CrawlerWidget::changeFilteredViewVisibility( int index )
         const auto lineIndex = logFilteredData_->getLineIndexNumber( currentLineNumber_ );
         filteredView_->selectAndDisplayLine( lineIndex );
     }
-}
-
-void CrawlerWidget::setSearchPatternFromPredefinedFilters( const QList<PredefinedFilter>& filters )
-{
-    QString searchPattern;
-    for ( const auto& filter : filters ) {
-        combinePatterns( searchPattern, escapeSearchPattern( filter.pattern, filter.useRegex ) );
-    }
-    setSearchPattern( searchPattern );
 }
 
 QString CrawlerWidget::escapeSearchPattern( const QString& pattern, bool isRegex ) const
@@ -914,7 +903,6 @@ void CrawlerWidget::replaceSearch( const QString& searchString )
 void CrawlerWidget::setSearchPattern( const QString& searchPattern )
 {
     searchLineEdit_->setEditText( searchPattern );
-    updatePredefinedFiltersWidget();
     // Set the focus to lineEdit so that the user can press 'Return' immediately
     searchLineEdit_->lineEdit()->setFocus();
 
@@ -1068,6 +1056,16 @@ void CrawlerWidget::setup()
     booleanButton_->setFocusPolicy( Qt::NoFocus );
     booleanButton_->setContentsMargins( 2, 2, 2, 2 );
 
+    filterModeButton_ = new QToolButton();
+    filterModeButton_->setText( tr( "Filters" ) );
+    filterModeButton_->setToolTip(
+        tr( "Show lines selected by the filter panel (an empty search also switches back to "
+            "the filters)" ) );
+    filterModeButton_->setCheckable( true );
+    filterModeButton_->setChecked( filterMode_ );
+    filterModeButton_->setFocusPolicy( Qt::NoFocus );
+    filterModeButton_->setContentsMargins( 2, 2, 2, 2 );
+
     searchRefreshButton_ = new QToolButton();
     searchRefreshButton_->setToolTip( tr( "Auto-refresh" ) );
     searchRefreshButton_->setCheckable( true );
@@ -1087,11 +1085,11 @@ void CrawlerWidget::setup()
 
     QAction* clearSearchHistoryAction = new QAction( tr( "Clear search history" ), this );
     QAction* editSearchHistoryAction = new QAction( tr( "Edit search history" ), this );
-    QAction* saveAsPredefinedFilterAction = new QAction( tr( "Save as Filter" ), this );
+    QAction* saveAsFilterAction = new QAction( tr( "Add as filter..." ), this );
 
     searchLineContextMenu_ = searchLineEdit_->lineEdit()->createStandardContextMenu();
     searchLineContextMenu_->addSeparator();
-    searchLineContextMenu_->addAction( saveAsPredefinedFilterAction );
+    searchLineContextMenu_->addAction( saveAsFilterAction );
     searchLineContextMenu_->addSeparator();
     searchLineContextMenu_->addAction( editSearchHistoryAction );
     searchLineContextMenu_->addAction( clearSearchHistoryAction );
@@ -1122,18 +1120,16 @@ void CrawlerWidget::setup()
     stopButton_->setVisible( false );
     stopButton_->setContentsMargins( 2, 2, 2, 2 );
 
-    predefinedFilters_ = new PredefinedFiltersComboBox( this );
-
     auto* searchLineLayout = new QHBoxLayout;
     searchLineLayout->setContentsMargins( 2, 2, 2, 2 );
 
+    searchLineLayout->addWidget( filterModeButton_ );
     searchLineLayout->addWidget( visibilityBox_ );
     searchLineLayout->addWidget( matchCaseButton_ );
     searchLineLayout->addWidget( useRegexpButton_ );
     searchLineLayout->addWidget( inverseButton_ );
     searchLineLayout->addWidget( booleanButton_ );
     searchLineLayout->addWidget( searchRefreshButton_ );
-    searchLineLayout->addWidget( predefinedFilters_ );
     searchLineLayout->addWidget( searchLineEdit_ );
     searchLineLayout->addWidget( clearButton_ );
     searchLineLayout->addWidget( searchButton_ );
@@ -1182,21 +1178,18 @@ void CrawlerWidget::setup()
     connect( searchLineEdit_->lineEdit(), &QLineEdit::textEdited, this,
              &CrawlerWidget::searchTextChangeHandler );
 
-    connect( searchLineEdit_, QOverload<int>::of( &QComboBox::currentIndexChanged ), this,
-             [ this ]( auto ) { updatePredefinedFiltersWidget(); } );
-
-    connect( predefinedFilters_, &PredefinedFiltersComboBox::filterChanged, this,
-             &CrawlerWidget::setSearchPatternFromPredefinedFilters );
-
     connect( searchLineEdit_, &QWidget::customContextMenuRequested, this,
              &CrawlerWidget::showSearchContextMenu );
-    connect( saveAsPredefinedFilterAction, &QAction::triggered, this,
-             &CrawlerWidget::saveAsPredefinedFilter );
+    connect( saveAsFilterAction, &QAction::triggered, this, &CrawlerWidget::saveSearchAsFilter );
     connect( clearSearchHistoryAction, &QAction::triggered, this,
              &CrawlerWidget::clearSearchHistory );
     connect( editSearchHistoryAction, &QAction::triggered, this,
              &CrawlerWidget::editSearchHistory );
     connect( searchButton_, &QToolButton::clicked, this, &CrawlerWidget::startNewSearch );
+    connect( filterModeButton_, &QToolButton::clicked, this, [ this ]( bool checked ) {
+        setFilterMode( checked );
+        rerunCurrentSearch();
+    } );
     connect( stopButton_, &QToolButton::clicked, this, &CrawlerWidget::stopSearch );
     connect( clearButton_, &QToolButton::clicked, searchLineEdit_, &QComboBox::clearEditText );
 
@@ -1211,14 +1204,13 @@ void CrawlerWidget::setup()
 
     connect( logMainView_, &LogMainView::markLines, this, &CrawlerWidget::markLinesFromMain );
 
-    connect( logMainView_, &LogMainView::highlightersChange, this,
-             &CrawlerWidget::applyConfiguration );
 
     connect( logMainView_, QOverload<const QString&>::of( &LogMainView::addToSearch ), this,
              &CrawlerWidget::addToSearch );
 
     connect( logMainView_, QOverload<const QString&>::of( &LogMainView::excludeFromSearch ), this,
              &CrawlerWidget::excludeFromSearch );
+    connect( logMainView_, &LogMainView::addToFilters, this, &CrawlerWidget::addToFilters );
 
     connect( logMainView_, QOverload<const QString&>::of( &LogMainView::replaceSearch ), this,
              &CrawlerWidget::replaceSearch );
@@ -1297,7 +1289,6 @@ void CrawlerWidget::setup()
     if ( defaultEncodingMib >= 0 ) {
         encodingMib_ = defaultEncodingMib;
     }
-    updatePredefinedFiltersWidget();
 }
 
 void CrawlerWidget::changeFilteredView( int tabIndex )
@@ -1364,13 +1355,15 @@ void CrawlerWidget::changeFontSize( bool increase )
 
 void CrawlerWidget::connectAllFilteredViewSlots( FilteredView* view )
 {
+    view->setFilterHighlighterSet( filters_ ? filters_->highlighters : nullptr );
+    connect( view, &FilteredView::addToFilters, this, &CrawlerWidget::addToFilters );
+
     connect( view, &FilteredView::newSelection, view, [ view ]( auto ) { view->update(); } );
 
     connect( view, &FilteredView::newSelection, this, &CrawlerWidget::jumpToMatchingLine );
 
     connect( view, &FilteredView::markLines, this, &CrawlerWidget::markLinesFromFiltered );
 
-    connect( view, &FilteredView::highlightersChange, this, &CrawlerWidget::applyConfiguration );
 
     connect( view, QOverload<const QString&>::of( &FilteredView::addToSearch ), this,
              &CrawlerWidget::addToSearch );
@@ -1539,6 +1532,44 @@ void CrawlerWidget::registerShortcuts()
         configuredShortcuts, shortcuts_, this, Qt::WidgetWithChildrenShortcut,
         ShortcutAction::LogViewClearColorLabels, [ this ]() { clearColorLabels(); } );
 
+    const std::array<std::string, LogFilteredData::NbBookmarks> setBookmarkActions = {
+        ShortcutAction::LogViewSetBookmark1, ShortcutAction::LogViewSetBookmark2,
+        ShortcutAction::LogViewSetBookmark3, ShortcutAction::LogViewSetBookmark4,
+        ShortcutAction::LogViewSetBookmark5, ShortcutAction::LogViewSetBookmark6,
+        ShortcutAction::LogViewSetBookmark7, ShortcutAction::LogViewSetBookmark8,
+    };
+    const std::array<std::string, LogFilteredData::NbBookmarks> jumpToBookmarkActions = {
+        ShortcutAction::LogViewJumpToBookmark1, ShortcutAction::LogViewJumpToBookmark2,
+        ShortcutAction::LogViewJumpToBookmark3, ShortcutAction::LogViewJumpToBookmark4,
+        ShortcutAction::LogViewJumpToBookmark5, ShortcutAction::LogViewJumpToBookmark6,
+        ShortcutAction::LogViewJumpToBookmark7, ShortcutAction::LogViewJumpToBookmark8,
+    };
+    const std::array<std::string, LogFilteredData::NbBookmarks> jumpToPreviousBookmarkActions = {
+        ShortcutAction::LogViewJumpToPreviousBookmark1,
+        ShortcutAction::LogViewJumpToPreviousBookmark2,
+        ShortcutAction::LogViewJumpToPreviousBookmark3,
+        ShortcutAction::LogViewJumpToPreviousBookmark4,
+        ShortcutAction::LogViewJumpToPreviousBookmark5,
+        ShortcutAction::LogViewJumpToPreviousBookmark6,
+        ShortcutAction::LogViewJumpToPreviousBookmark7,
+        ShortcutAction::LogViewJumpToPreviousBookmark8,
+    };
+
+    for ( auto slot = 0u; slot < LogFilteredData::NbBookmarks; ++slot ) {
+        ShortcutAction::registerShortcut( configuredShortcuts, shortcuts_, this,
+                                          Qt::WidgetWithChildrenShortcut,
+                                          setBookmarkActions[ slot ],
+                                          [ this, slot ]() { toggleBookmark( slot ); } );
+        ShortcutAction::registerShortcut( configuredShortcuts, shortcuts_, this,
+                                          Qt::WidgetWithChildrenShortcut,
+                                          jumpToBookmarkActions[ slot ],
+                                          [ this, slot ]() { jumpToBookmark( slot, false ); } );
+        ShortcutAction::registerShortcut( configuredShortcuts, shortcuts_, this,
+                                          Qt::WidgetWithChildrenShortcut,
+                                          jumpToPreviousBookmarkActions[ slot ],
+                                          [ this, slot ]() { jumpToBookmark( slot, true ); } );
+    }
+
     logMainView_->registerShortcuts();
     filteredView_->registerShortcuts();
 }
@@ -1560,6 +1591,14 @@ void CrawlerWidget::loadIcons()
 // used one and destroy the old one.
 void CrawlerWidget::replaceCurrentSearch( const QString& searchText )
 {
+    replaceCurrentSearch( RegularExpressionPattern(
+        searchText, matchCaseButton_->isChecked(), inverseButton_->isChecked(),
+        booleanButton_->isChecked(), !useRegexpButton_->isChecked() ) );
+}
+
+void CrawlerWidget::replaceCurrentSearch( const RegularExpressionPattern& regexpPattern )
+{
+    const auto& searchText = regexpPattern.pattern;
     LOG_INFO << "replacing current search with " << searchText;
     // Interrupt the search if it's ongoing
     logFilteredData_->interruptSearch();
@@ -1590,13 +1629,14 @@ void CrawlerWidget::replaceCurrentSearch( const QString& searchText )
 
     if ( !searchText.isEmpty() ) {
 
-        // Constructs the regexp
-        auto regexpPattern = RegularExpressionPattern(
-            searchText, matchCaseButton_->isChecked(), inverseButton_->isChecked(),
-            booleanButton_->isChecked(), !useRegexpButton_->isChecked() );
-
-        RegularExpression hsExpression{ regexpPattern };
-        auto isValidExpression = hsExpression.isValid();
+        // Filters are validated one by one when edited and searched one by one, compiling
+        // the combined expression on every toggle would only slow the panel down
+        const auto isFilterSearch = filterMode_ && filters_ && !filters_->filters.empty();
+        std::optional<RegularExpression> hsExpression;
+        if ( !isFilterSearch ) {
+            hsExpression.emplace( regexpPattern );
+        }
+        const auto isValidExpression = isFilterSearch || hsExpression->isValid();
 
         if ( isValidExpression ) {
             // Activate the stop button
@@ -1605,7 +1645,19 @@ void CrawlerWidget::replaceCurrentSearch( const QString& searchText )
             clearButton_->hide();
             searchButton_->hide();
             // Start a new asynchronous search
-            logFilteredData_->runSearch( regexpPattern, searchStartLine_, searchEndLine_ );
+            if ( isFilterSearch ) {
+                // The combined expression is only used for validation and the views,
+                // the filters are searched (and cached) one by one
+                std::vector<LogFilteredData::FilterSpec> filterSpecs;
+                for ( const auto& filter : filters_->filters ) {
+                    filterSpecs.push_back( { filters::toPattern( filter ), filter.exclude } );
+                }
+                logFilteredData_->runFilterSearch( filterSpecs, searchStartLine_,
+                                                   searchEndLine_ );
+            }
+            else {
+                logFilteredData_->runSearch( regexpPattern, searchStartLine_, searchEndLine_ );
+            }
             // Accept auto-refresh of the search
             searchState_.startSearch();
             searchInfoLine_->hide();
@@ -1619,7 +1671,7 @@ void CrawlerWidget::replaceCurrentSearch( const QString& searchText )
             searchState_.resetState();
 
             // Inform the user
-            QString errorString = hsExpression.errorString();
+            QString errorString = hsExpression->errorString();
             QString errorMessage = tr( "Error in expression" );
             // const int offset = regexp.patternErrorOffset();
             // if ( offset != -1 ) {
@@ -1932,4 +1984,247 @@ QString CrawlerWidgetContext::toString() const
     properies[ "M" ] = toVariantList( marks_ );
 
     return QJsonDocument::fromVariant( properies ).toJson( QJsonDocument::Compact );
+}
+
+void CrawlerWidget::setFilters( std::shared_ptr<const FilterSnapshot> filters )
+{
+    filters_ = std::move( filters );
+
+    logMainView_->setFilterHighlighterSet( filters_->highlighters );
+    for ( const auto& view : filteredViewsData_ ) {
+        view.first->setFilterHighlighterSet( filters_->highlighters );
+    }
+
+    // The search is started when the file is loaded
+    if ( filterMode_ && firstLoadDone_ ) {
+        runFilterSearch();
+    }
+}
+
+FilterHits CrawlerWidget::filterHits() const
+{
+    FilterHits hits;
+    if ( !filterMode_ || !filters_ ) {
+        return hits;
+    }
+
+    for ( const auto& filter : filters_->filters ) {
+        const auto count = logFilteredData_->getFilterMatchCount( filters::toPattern( filter ) );
+        if ( count ) {
+            hits[ filter.id ] = static_cast<qint64>( count->get() );
+        }
+    }
+    return hits;
+}
+
+uint64_t CrawlerWidget::filtersRevision() const
+{
+    return filters_ ? filters_->revision : 0;
+}
+
+void CrawlerWidget::setFilterMode( bool filterMode )
+{
+    filterMode_ = filterMode;
+    filterModeButton_->setChecked( filterMode );
+}
+
+void CrawlerWidget::rerunCurrentSearch()
+{
+    if ( filterMode_ ) {
+        runFilterSearch();
+    }
+    else {
+        replaceCurrentSearch( searchLineEdit_->currentText() );
+    }
+}
+
+void CrawlerWidget::runFilterSearch()
+{
+    tabbedFilteredView_->setTabText( tabbedFilteredView_->currentIndex(), tr( "Filters" ) );
+    replaceCurrentSearch( filters_ ? filters_->searchPattern : RegularExpressionPattern{} );
+}
+
+QString CrawlerWidget::searchTextAsRegexBoolean() const
+{
+    auto text = searchLineEdit_->currentText();
+    if ( text.isEmpty() ) {
+        return text;
+    }
+
+    const auto isRegex = useRegexpButton_->isChecked();
+    const auto toRegexSubPattern = [ isRegex ]( QString pattern ) {
+        if ( !isRegex ) {
+            pattern = QRegularExpression::escape( pattern );
+        }
+        // See filters::toBooleanSubPattern for the reason of the group
+        pattern = "(?:" + pattern + ")";
+        pattern.replace( "\"", "\\\"" );
+        return "\"" + pattern + "\"";
+    };
+
+    if ( !booleanButton_->isChecked() ) {
+        return toRegexSubPattern( text );
+    }
+
+    if ( isRegex ) {
+        return text;
+    }
+
+    // Plain text sub-patterns of a boolean expression have to be escaped
+    // as the expression is going to be switched to regex mode
+    QString result;
+    qsizetype position = 0;
+    while ( position < text.size() ) {
+        const auto start = text.indexOf( '"', position );
+        if ( start < 0 ) {
+            result.append( text.mid( position ) );
+            break;
+        }
+
+        auto end = start + 1;
+        while ( end < text.size() && !( text[ end ] == '"' && text[ end - 1 ] != '\\' ) ) {
+            ++end;
+        }
+
+        result.append( text.mid( position, start - position ) );
+        auto subPattern = text.mid( start + 1, end - start - 1 );
+        subPattern.replace( "\\\"", "\"" );
+        result.append( toRegexSubPattern( subPattern ) );
+        position = end + 1;
+    }
+
+    return result;
+}
+
+void CrawlerWidget::addFiltersToSearch( const std::vector<FilterNode>& filters,
+                                        FilterSearchMode mode )
+{
+    std::vector<const FilterNode*> includes;
+    std::vector<const FilterNode*> excludes;
+    for ( const auto& filter : filters ) {
+        const auto exclude = mode == FilterSearchMode::Exclude || filter.exclude;
+        ( exclude ? excludes : includes ).push_back( &filter );
+    }
+
+    const auto joinSubPatterns = []( const std::vector<const FilterNode*>& subFilters ) {
+        QStringList subPatterns;
+        for ( const auto* filter : subFilters ) {
+            subPatterns.append( filters::toBooleanSubPattern( *filter ) );
+        }
+        return subPatterns.join( " or " );
+    };
+
+    auto expression
+        = mode == FilterSearchMode::Replace ? QString{} : searchTextAsRegexBoolean();
+
+    if ( !includes.empty() ) {
+        expression = expression.isEmpty()
+                         ? joinSubPatterns( includes )
+                         : "(" + expression + ") or " + joinSubPatterns( includes );
+    }
+
+    if ( !excludes.empty() ) {
+        const auto excluded = "not(" + joinSubPatterns( excludes ) + ")";
+        expression
+            = expression.isEmpty() ? excluded : "(" + expression + ") and " + excluded;
+    }
+
+    // Sub-patterns carry their own case sensitivity
+    useRegexpButton_->setChecked( true );
+    booleanButton_->setChecked( true );
+    inverseButton_->setChecked( false );
+
+    setSearchPattern( expression );
+}
+
+void CrawlerWidget::findFilterMatch( const std::vector<FilterNode>& filters, bool backward )
+{
+    std::vector<const FilterNode*> filterPointers;
+    for ( const auto& filter : filters ) {
+        filterPointers.push_back( &filter );
+    }
+
+    const QRegularExpression regex( filters::toAnyOfRegex( filterPointers ),
+                                    QRegularExpression::UseUnicodePropertiesOption );
+    if ( !regex.isValid() ) {
+        LOG_WARNING << "Invalid filter regex: " << regex.errorString();
+        return;
+    }
+
+    const auto inFilteredView = filteredView_->hasFocus();
+
+    std::vector<RegularExpressionPattern> patterns;
+    for ( const auto& filter : filters ) {
+        patterns.push_back( filters::toPattern( filter ) );
+    }
+
+    // Use the cached results of the filters when available, no need to read the file
+    const auto fromLine = inFilteredView ? logFilteredData_->getMatchingLineNumber(
+                                               filteredView_->getViewPosition() )
+                                         : logMainView_->getViewPosition();
+    const auto cachedMatch = logFilteredData_->findFilterMatch( patterns, fromLine, backward );
+    if ( cachedMatch ) {
+        if ( !cachedMatch->has_value() ) {
+            searchInfoLine_->setText( backward ? tr( "No previous match of the filter" )
+                                               : tr( "No next match of the filter" ) );
+            searchInfoLine_->show();
+            return;
+        }
+
+        const auto line = **cachedMatch;
+        const auto filteredIndex = logFilteredData_->getLineIndexNumber( line );
+        if ( inFilteredView
+             && logFilteredData_->getMatchingLineNumber( filteredIndex ) == line ) {
+            filteredView_->selectAndDisplayLine( filteredIndex );
+        }
+        else {
+            logMainView_->selectAndDisplayLine( line );
+        }
+        return;
+    }
+
+    AbstractLogView* view = logMainView_;
+    if ( inFilteredView ) {
+        view = filteredView_;
+    }
+    view->searchUsingMatcher( QuickFindMatcher( true, regex ), backward );
+}
+
+LineNumber CrawlerWidget::currentLogLine() const
+{
+    return filteredView_->hasFocus()
+               ? logFilteredData_->getMatchingLineNumber( filteredView_->getViewPosition() )
+               : logMainView_->getViewPosition();
+}
+
+void CrawlerWidget::toggleBookmark( size_t slot )
+{
+    logFilteredData_->toggleBookmark( slot, currentLogLine() );
+
+    // Bookmarks are marks: refresh both views and the overview
+    filteredView_->updateData();
+    logMainView_->updateData();
+    overview_.updateData( logData_->getNbLine() );
+    update();
+}
+
+void CrawlerWidget::jumpToBookmark( size_t slot, bool backward )
+{
+    const auto line = logFilteredData_->findBookmark( slot, currentLogLine(), backward );
+    if ( !line ) {
+        searchInfoLine_->setText( tr( "Bookmark %1 is not set" ).arg( slot + 1 ) );
+        searchInfoLine_->show();
+        return;
+    }
+
+    if ( filteredView_->hasFocus() ) {
+        const auto index = logFilteredData_->getLineIndexNumber( *line );
+        if ( logFilteredData_->getMatchingLineNumber( index ) == *line ) {
+            filteredView_->selectAndDisplayLine( index );
+            return;
+        }
+    }
+
+    logMainView_->selectAndDisplayLine( *line );
+    logMainView_->setFocus();
 }

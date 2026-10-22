@@ -94,13 +94,13 @@ SCENARIO( "Main window tests", "[ui]" )
         {
             runInUiThread( [&mainWindow] {
                 LOG_INFO << "Load file";
-                mainWindow->loadInitialFile( "klogg.conf", false );
+                mainWindow->loadInitialFile( "flogg.conf", false );
             } );
 
             THEN( "Path line has file name" )
             {
                 REQUIRE(
-                    waitUiState( [&] { return filePathLabel->text().contains( "klogg.conf" ); } ) );
+                    waitUiState( [&] { return filePathLabel->text().contains( "flogg.conf" ); } ) );
 
                 AND_THEN( "Has one tab" )
                 {

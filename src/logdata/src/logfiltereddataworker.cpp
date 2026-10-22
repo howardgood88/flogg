@@ -37,9 +37,13 @@
  */
 
 #include <chrono>
+#include <array>
+#include <map>
+#include <optional>
 #include <cmath>
 #include <exception>
 #include <qsemaphore.h>
+#include <QScopeGuard>
 #include <utility>
 
 #include <robin_hood.h>
@@ -122,7 +126,132 @@ PartialSearchResults filterLines( const PatternMatcher& matcher, const LogData::
     return results;
 }
 
+struct PartialMultiSearchResults {
+    klogg::vector<SearchResultArray> matchingLines;
+    klogg::vector<LineLength> maxLengths;
+
+    LineNumber chunkStart;
+    LinesCount processedLines;
+};
+
+struct MultiSearchBlockData {
+    MultiSearchBlockData( LineNumber start, LogData::RawLines blockLines )
+        : chunkStart( start )
+        , lines( std::move( blockLines ) )
+    {
+    }
+
+    LineNumber chunkStart;
+    LogData::RawLines lines;
+
+    PartialMultiSearchResults searchResults;
+};
+
+// A matcher for a subset of the searched patterns
+struct PatternGroupMatcher {
+    const MultiPatternMatcher* matcher;
+    const klogg::vector<size_t>* patternIndexes;
+};
+
+PartialMultiSearchResults filterLinesMulti( const klogg::vector<PatternGroupMatcher>& matchers,
+                                            const LogData::RawLines& rawLines,
+                                            LineNumber chunkStart, size_t nbPatterns )
+{
+    PartialMultiSearchResults results;
+    results.chunkStart = chunkStart;
+    results.processedLines = LinesCount{ rawLines.endOfLines.size() };
+    results.matchingLines.resize( nbPatterns );
+    results.maxLengths.resize( nbPatterns );
+
+    const auto& lines = rawLines.buildUtf8View();
+
+    for ( auto offset = 0u; offset < lines.size(); ++offset ) {
+        const auto& line = lines[ offset ];
+        const auto lineNumber = ( chunkStart + LinesCount{ offset } ).get();
+        std::optional<LineLength> lineLength;
+
+        for ( const auto& group : matchers ) {
+            const auto matchedPatterns = group.matcher->matchAll( line );
+            const auto& indexes = *group.patternIndexes;
+            for ( size_t i = 0; i < matchedPatterns.size() && i < indexes.size(); ++i ) {
+                if ( !matchedPatterns[ i ] ) {
+                    continue;
+                }
+
+                if ( !lineLength ) {
+                    lineLength = getUntabifiedLength( line );
+                }
+                const auto pattern = indexes[ i ];
+                results.maxLengths[ pattern ] = qMax( results.maxLengths[ pattern ], *lineLength );
+                results.matchingLines[ pattern ].add( lineNumber );
+            }
+        }
+    }
+
+    return results;
+}
+
+// Number of lines read at once: at least the configured number of lines, and enough lines
+// for blocks of a few megabytes, every block has a fixed cost (seek, scheduling)
+LinesCount searchBlockLines( const LogData& logData )
+{
+    constexpr qint64 TargetBlockSize = 4 * 1024 * 1024;
+    constexpr qint64 MaxBlockLines = 1000000;
+
+    const auto configuredLines
+        = static_cast<qint64>( Configuration::get().searchReadBufferSizeLines() );
+    const auto nbLines = static_cast<qint64>( logData.getNbLine().get() );
+    const auto averageLineSize = nbLines > 0 ? qMax( qint64{ 1 }, logData.getFileSize() / nbLines )
+                                             : qint64{ 1 };
+
+    const auto blockLines
+        = qBound( configuredLines, TargetBlockSize / averageLineSize, MaxBlockLines );
+    return LinesCount( static_cast<LinesCount::UnderlyingType>( qMax( configuredLines,
+                                                                     blockLines ) ) );
+}
+
+// Blocks being read or matched at the same time
+int blocksInFlight( uint32_t matchingThreadsCount )
+{
+    return static_cast<int>( matchingThreadsCount * 2 );
+}
+
 } // namespace
+
+void MultiSearchData::reset( uint64_t generation, size_t nbPatterns )
+{
+    ScopedLock lock( dataMutex_ );
+    generation_ = generation;
+    newMatches_ = klogg::vector<SearchResultArray>( nbPatterns );
+    maxLengths_ = klogg::vector<LineLength>( nbPatterns );
+    processedLines_ = 0_lcount;
+}
+
+MultiSearchResults MultiSearchData::takeCurrentResults() const
+{
+    ScopedLock lock( dataMutex_ );
+
+    MultiSearchResults results;
+    results.generation = generation_;
+    results.newMatches = klogg::vector<SearchResultArray>( newMatches_.size() );
+    std::swap( results.newMatches, newMatches_ );
+    results.maxLengths = maxLengths_;
+    results.processedLines = processedLines_;
+    return results;
+}
+
+void MultiSearchData::addAll( const klogg::vector<SearchResultArray>& matches,
+                              const klogg::vector<LineLength>& maxLengths,
+                              LinesCount processedLines )
+{
+    ScopedLock lock( dataMutex_ );
+
+    for ( size_t i = 0; i < matches.size() && i < newMatches_.size(); ++i ) {
+        newMatches_[ i ] |= matches[ i ];
+        maxLengths_[ i ] = qMax( maxLengths_[ i ], maxLengths[ i ] );
+    }
+    processedLines_ = qMax( processedLines_, processedLines );
+}
 
 SearchResults SearchData::takeCurrentResults() const
 {
@@ -242,6 +371,43 @@ void LogFilteredDataWorker::updateSearch( const RegularExpressionPattern& regExp
     operationStarted.acquire();
 }
 
+uint64_t LogFilteredDataWorker::searchMultiple( const klogg::vector<RegularExpressionPattern>& patterns,
+                                                LineNumber startLine, LineNumber endLine )
+{
+    ScopedLock locker( operationsMutex_ );
+    operationsPool_.waitForDone();
+    interruptRequested_.clear();
+
+    const auto generation = ++multiSearchGeneration_;
+    multiSearchData_.reset( generation, patterns.size() );
+
+    LOG_INFO << "Multi pattern search requested, patterns " << patterns.size();
+    QSemaphore operationStarted;
+    operationsPool_.start(
+        createRunnable( [ this, &operationStarted, patterns, startLine, endLine, generation ] {
+            operationStarted.release();
+            ScopedLock operationLock( operationsMutex_ );
+            MultiSearchOperation operation( sourceLogData_, interruptRequested_, patterns,
+                                            startLine, endLine, generation );
+
+            connect( &operation, &MultiSearchOperation::searchProgressed, this,
+                     &LogFilteredDataWorker::searchProgressed );
+            connect( &operation, &MultiSearchOperation::searchFinished, this,
+                     &LogFilteredDataWorker::searchFinished, Qt::QueuedConnection );
+
+            operation.run( multiSearchData_ );
+            operation.disconnect( this );
+        } ) );
+    operationStarted.acquire();
+
+    return generation;
+}
+
+MultiSearchResults LogFilteredDataWorker::getMultiSearchResults() const
+{
+    return multiSearchData_.takeCurrentResults();
+}
+
 void LogFilteredDataWorker::interrupt()
 {
     LOG_INFO << "Search interruption requested";
@@ -299,14 +465,15 @@ void SearchOperation::doSearch( SearchData& searchData, LineNumber initialLine )
     }
 
     const auto endLine = qMin( LineNumber( nbSourceLines.get() ), endLine_ );
-    const auto nbLinesInChunk = LinesCount(
-        static_cast<LinesCount::UnderlyingType>( config.searchReadBufferSizeLines() ) );
+    const auto nbLinesInChunk = searchBlockLines( sourceLogData_ );
 
     std::chrono::microseconds fileReadingDuration{ 0 };
 
     using BlockDataType = SearchBlockData*;
-    auto blockPrefetcher
-        = tbb::flow::limiter_node<BlockDataType>( searchGraph, matchingThreadsCount * 3 );
+
+    // The reader waits on this semaphore instead of polling a limiter node with short sleeps,
+    // these can last much longer than asked (timer coalescing) and slowed down every block
+    QSemaphore blocksSlots( blocksInFlight( matchingThreadsCount ) );
 
     auto lineBlocksQueue = tbb::flow::buffer_node<BlockDataType>( searchGraph );
 
@@ -365,8 +532,10 @@ void SearchOperation::doSearch( SearchData& searchData, LineNumber initialLine )
     auto matchProcessor
         = tbb::flow::function_node<BlockDataType, tbb::flow::continue_msg, tbb::flow::rejecting>(
             searchGraph, 1, [ & ]( const BlockDataType& blockData ) {
+                const auto releaseSlot = qScopeGuard( [ &blocksSlots ] { blocksSlots.release(); } );
                 if ( interruptRequested_ ) {
                     LOG_INFO << "Match processor interrupted";
+                    delete blockData;
                     return tbb::flow::continue_msg{};
                 }
 
@@ -414,15 +583,12 @@ void SearchOperation::doSearch( SearchData& searchData, LineNumber initialLine )
                 return tbb::flow::continue_msg{};
             } );
 
-    tbb::flow::make_edge( blockPrefetcher, lineBlocksQueue );
-
     for ( auto& regexMatcher : regexMatchers ) {
         tbb::flow::make_edge( lineBlocksQueue, std::get<RegexMatcherNode>( regexMatcher ) );
         tbb::flow::make_edge( std::get<RegexMatcherNode>( regexMatcher ), resultsQueue );
     }
 
     tbb::flow::make_edge( resultsQueue, matchProcessor );
-    tbb::flow::make_edge( matchProcessor, blockPrefetcher.decrementer() );
 
     auto chunkStart = initialLine;
     while ( chunkStart < endLine && !interruptRequested_ ) {
@@ -451,9 +617,16 @@ void SearchOperation::doSearch( SearchData& searchData, LineNumber initialLine )
         chunkStart = chunkStart + nbLinesInChunk;
         fileReadingDuration += chunkReadTime;
 
-        while ( !blockPrefetcher.try_put( blockData ) && !interruptRequested_ ) {
-            std::this_thread::sleep_for( std::chrono::milliseconds( 1 ) );
+        bool hasSlot = false;
+        while ( !( hasSlot = blocksSlots.tryAcquire( 1, 50 ) ) && !interruptRequested_ ) {
         }
+
+        if ( !hasSlot ) {
+            delete blockData;
+            break;
+        }
+
+        lineBlocksQueue.try_put( blockData );
     }
 
     searchGraph.wait_for_all();
@@ -527,4 +700,216 @@ void UpdateSearchOperation::run( SearchData& searchData )
         } );
         searchData.clear();
     }
+}
+
+MultiSearchOperation::MultiSearchOperation( const LogData& sourceLogData,
+                                            AtomicFlag& interruptRequested,
+                                            const klogg::vector<RegularExpressionPattern>& patterns,
+                                            LineNumber startLine, LineNumber endLine,
+                                            uint64_t generation )
+    : interruptRequested_( interruptRequested )
+    , patterns_( patterns )
+    , sourceLogData_( sourceLogData )
+    , startLine_( startLine )
+    , endLine_( endLine )
+    , generation_( generation )
+{
+}
+
+void MultiSearchOperation::run( MultiSearchData& result )
+{
+    try {
+        doSearch( result );
+    } catch ( const std::exception& err ) {
+        const auto errorString = QString( "MultiSearchOperation failed: %1" ).arg( err.what() );
+        LOG_ERROR << errorString;
+        result.reset( generation_, patterns_.size() );
+        Q_EMIT searchProgressed( 0_lcount, 100, startLine_ );
+        Q_EMIT searchFinished();
+    }
+}
+
+// Same pipeline as SearchOperation::doSearch, each matcher looks for all the patterns
+void MultiSearchOperation::doSearch( MultiSearchData& searchData )
+{
+    using namespace std::chrono;
+
+    const auto nbSourceLines = sourceLogData_.getNbLine();
+    const auto endLine = qMin( LineNumber( nbSourceLines.get() ), endLine_ );
+    const auto initialLine = startLine_;
+
+    LOG_INFO << "Searching " << patterns_.size() << " patterns from line " << initialLine
+             << " to " << endLine;
+
+    const auto searchStartTime = high_resolution_clock::now();
+
+    const auto& config = Configuration::get();
+    const auto matchingThreadsCount = static_cast<uint32_t>( [ &config ]() {
+        if ( !config.useParallelSearch() ) {
+            return 1;
+        }
+        const auto configuredThreadPoolSize = config.searchThreadPoolSize();
+        return qMax( 1, configuredThreadPoolSize == 0 ? tbb::info::default_concurrency()
+                                                      : configuredThreadPoolSize );
+    }() );
+
+    const auto nbLinesInChunk = searchBlockLines( sourceLogData_ );
+
+    using BlockDataType = MultiSearchBlockData*;
+    using RegexMatcherNode
+        = tbb::flow::function_node<BlockDataType, BlockDataType, tbb::flow::rejecting>;
+
+    tbb::flow::graph searchGraph;
+
+    // Bounds the number of blocks being read or matched. The reader blocks on it instead of
+    // polling a limiter node: short sleeps can last much longer than asked (timer coalescing)
+    // and the polling made the search wait on every block.
+    QSemaphore blocksSlots( blocksInFlight( matchingThreadsCount ) );
+
+    auto lineBlocksQueue = tbb::flow::buffer_node<BlockDataType>( searchGraph );
+    auto resultsQueue = tbb::flow::buffer_node<BlockDataType>( searchGraph );
+
+    const auto nbPatterns = patterns_.size();
+
+    // Patterns hyperscan can't handle alone (back references, look-arounds...) need every
+    // candidate line to be checked again with Qt regex. They are kept in their own database
+    // so that the other patterns are not slowed down.
+    std::array<klogg::vector<size_t>, 2> groupIndexes;
+    auto& acceleratedIndexes = groupIndexes[ 0 ];
+    auto& slowIndexes = groupIndexes[ 1 ];
+    for ( size_t i = 0; i < nbPatterns; ++i ) {
+        const MultiRegularExpression single{ { patterns_[ i ] } };
+        ( single.isFullyAccelerated() ? acceleratedIndexes : slowIndexes ).push_back( i );
+    }
+    if ( !slowIndexes.empty() ) {
+        LOG_WARNING << slowIndexes.size() << " patterns are not fully supported by hyperscan";
+    }
+
+    klogg::vector<std::unique_ptr<MultiRegularExpression>> expressions;
+    klogg::vector<const klogg::vector<size_t>*> expressionIndexes;
+    for ( const auto& indexes : groupIndexes ) {
+        if ( indexes.empty() ) {
+            continue;
+        }
+        klogg::vector<RegularExpressionPattern> groupPatterns;
+        for ( const auto i : indexes ) {
+            groupPatterns.push_back( patterns_[ i ] );
+        }
+        expressions.push_back( std::make_unique<MultiRegularExpression>( groupPatterns ) );
+        expressionIndexes.push_back( &indexes );
+    }
+
+    klogg::vector<std::unique_ptr<MultiPatternMatcher>> matchers;
+    klogg::vector<klogg::vector<PatternGroupMatcher>> threadMatchers( matchingThreadsCount );
+    klogg::vector<RegexMatcherNode> matcherNodes;
+    matcherNodes.reserve( matchingThreadsCount );
+    for ( auto index = 0u; index < matchingThreadsCount; ++index ) {
+        for ( size_t group = 0; group < expressions.size(); ++group ) {
+            matchers.push_back( expressions[ group ]->createMatcher() );
+            threadMatchers[ index ].push_back(
+                { matchers.back().get(), expressionIndexes[ group ] } );
+        }
+
+        matcherNodes.emplace_back(
+            searchGraph, 1,
+            [ this, groups = &threadMatchers[ index ], nbPatterns ](
+                const BlockDataType& blockData ) {
+                if ( interruptRequested_ ) {
+                    blockData->searchResults.chunkStart = blockData->chunkStart;
+                    return blockData;
+                }
+
+                blockData->searchResults = filterLinesMulti( *groups, blockData->lines,
+                                                             blockData->chunkStart, nbPatterns );
+                return blockData;
+            } );
+    }
+
+    const auto totalLines = endLine - initialLine;
+    LinesCount totalProcessedLines = 0_lcount;
+    LinesCount nbMatches = 0_lcount;
+    auto reportedMatches = nbMatches;
+
+    // Blocks are matched in parallel and can complete out of order, only the lines
+    // before the first gap are reported as processed (results are cached per pattern).
+    std::map<LineNumber::UnderlyingType, LineNumber::UnderlyingType> completedChunks;
+    auto contiguousEnd = initialLine.get();
+    int reportedPercentage = 0;
+
+    auto matchProcessor
+        = tbb::flow::function_node<BlockDataType, tbb::flow::continue_msg, tbb::flow::rejecting>(
+            searchGraph, 1, [ & ]( const BlockDataType& blockData ) {
+                std::unique_ptr<MultiSearchBlockData> block( blockData );
+                const auto releaseSlot = qScopeGuard( [ &blocksSlots ] { blocksSlots.release(); } );
+                if ( interruptRequested_ ) {
+                    return tbb::flow::continue_msg{};
+                }
+
+                const auto& matchResults = block->searchResults;
+                if ( matchResults.processedLines.get() ) {
+                    for ( const auto& matches : matchResults.matchingLines ) {
+                        nbMatches += LinesCount( matches.cardinality() );
+                    }
+
+                    totalProcessedLines += matchResults.processedLines;
+
+                    completedChunks[ matchResults.chunkStart.get() ]
+                        = matchResults.chunkStart.get() + matchResults.processedLines.get();
+                    while ( !completedChunks.empty()
+                            && completedChunks.begin()->first == contiguousEnd ) {
+                        contiguousEnd = completedChunks.begin()->second;
+                        completedChunks.erase( completedChunks.begin() );
+                    }
+
+                    searchData.addAll( matchResults.matchingLines, matchResults.maxLengths,
+                                       LinesCount{ contiguousEnd } );
+                }
+
+                const int percentage
+                    = calculateProgress( totalProcessedLines.get(), totalLines.get() );
+
+                if ( percentage > reportedPercentage || nbMatches > reportedMatches ) {
+                    Q_EMIT searchProgressed( nbMatches, std::min( 99, percentage ), initialLine );
+                    reportedPercentage = percentage;
+                    reportedMatches = nbMatches;
+                }
+
+                return tbb::flow::continue_msg{};
+            } );
+
+    for ( auto& matcherNode : matcherNodes ) {
+        tbb::flow::make_edge( lineBlocksQueue, matcherNode );
+        tbb::flow::make_edge( matcherNode, resultsQueue );
+    }
+    tbb::flow::make_edge( resultsQueue, matchProcessor );
+
+    auto chunkStart = initialLine;
+    while ( chunkStart < endLine && !interruptRequested_ ) {
+        const auto linesInChunk
+            = LinesCount( qMin( nbLinesInChunk.get(), ( endLine - chunkStart ).get() ) );
+        auto* blockData = new MultiSearchBlockData{
+            chunkStart, sourceLogData_.getLinesRaw( chunkStart, linesInChunk ) };
+
+        chunkStart = chunkStart + nbLinesInChunk;
+
+        bool hasSlot = false;
+        while ( !( hasSlot = blocksSlots.tryAcquire( 1, 50 ) ) && !interruptRequested_ ) {
+        }
+
+        if ( !hasSlot ) {
+            delete blockData;
+            break;
+        }
+
+        lineBlocksQueue.try_put( blockData );
+    }
+
+    searchGraph.wait_for_all();
+
+    const auto duration
+        = duration_cast<milliseconds>( high_resolution_clock::now() - searchStartTime );
+    LOG_INFO << "Multi pattern search done, overall duration " << duration.count() << " ms";
+
+    Q_EMIT searchProgressed( nbMatches, 100, initialLine );
+    Q_EMIT searchFinished();
 }

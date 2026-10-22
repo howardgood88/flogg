@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.12)
 
 project(
-  klogg
+  flogg
   VERSION 24.11.0
-  DESCRIPTION "klogg log viewer"
+  DESCRIPTION "flogg log viewer"
   LANGUAGES C CXX ASM
 )
 
@@ -12,7 +12,7 @@ set(PROJECT_HOMEPAGE_URL "https://github.com/variar/klogg")
 string(TIMESTAMP PRODUCT_CURRENT_YEAR "%Y")
 set(COMPANY "Anton Filimonov")
 set(COPYRIGHT "Copyright (c) ${PRODUCT_CURRENT_YEAR} Nicolas Bonnefon, Anton Filimonov and other contributors.")
-set(IDENTIFIER "com.github.variar.klogg")
+set(IDENTIFIER "io.github.flogg")
 set(PROJECT_DESCRIPTION "${PROJECT_NAME} log viewer")
 
 option(KLOGG_BUILD_TESTS "Build tests" ON)
@@ -224,7 +224,7 @@ add_subdirectory(src)
 add_subdirectory(website)
 
 enable_testing()
-add_test(NAME klogg_smoke COMMAND klogg -platform offscreen -v)
+add_test(NAME flogg_smoke COMMAND flogg -platform offscreen -v)
 
 if(${KLOGG_BUILD_TESTS})
   add_subdirectory(tests)
@@ -248,7 +248,7 @@ set(CPACK_PACKAGE_ICON "${ICON_FILE}")
 if(UNIX)
   include(InstallRequiredSystemLibraries)
 
-  set(CPACK_STRIP_FILES "bin/klogg")
+  set(CPACK_STRIP_FILES "bin/flogg")
 
   if(APPLE)
     set(CPACK_GENERATOR "DragNDrop")

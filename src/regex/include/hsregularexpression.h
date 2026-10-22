@@ -158,6 +158,12 @@ class HsRegularExpression {
     bool isValid() const;
     QString errorString() const;
 
+    // True when every pattern is matched by hyperscan alone (no prefilter + Qt regex check)
+    bool isFullyAccelerated() const
+    {
+        return isHsValid() && !isPrefilter_;
+    }
+
     MatcherVariant createMatcher() const;
 
   private:
@@ -208,6 +214,11 @@ class HsRegularExpression {
     QString errorString() const
     {
         return errorString_;
+    }
+
+    bool isFullyAccelerated() const
+    {
+        return false;
     }
 
     MatcherVariant createMatcher() const

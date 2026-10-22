@@ -52,14 +52,14 @@ struct CliParameters {
     CliParameters( QCoreApplication& app, bool console = false )
     {
         QCommandLineParser parser;
-        parser.setApplicationDescription( "Klogg log viewer" );
+        parser.setApplicationDescription( "flogg log viewer" );
         const auto helpOption = parser.addHelpOption();
         const auto versionOption = parser.addVersionOption();
 
         const QCommandLineOption multiInstanceOption(
             QStringList() << "m"
                           << "multi",
-            "allow multiple instance of klogg to run simultaneously (use together with -s)" );
+            "allow multiple instance of flogg to run simultaneously (use together with -s)" );
 
         const QCommandLineOption loadSessionOption(
             QStringList() << "s"
@@ -160,7 +160,7 @@ struct CliParameters {
 
     static void print_version()
     {
-        std::cout << "klogg " << kloggVersion().data() << "\n";
+        std::cout << "flogg " << kloggVersion().data() << "\n";
         std::cout << "Built " << kloggBuildDate().data() << " from " << kloggCommit().data() << "("
                   << kloggGitVersion().data() << ")\n";
 

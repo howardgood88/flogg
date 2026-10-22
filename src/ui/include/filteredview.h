@@ -61,6 +61,7 @@ class FilteredView : public AbstractLogView
 
   protected:
     LogFilteredData::LineType lineType( LineNumber lineNumber ) const override;
+    uint32_t bookmarkSlots( LineNumber lineNumber ) const override;
 
     // Number of the filtered line relative to the unfiltered source
     LineNumber displayLineNumber(LineNumber lineNumber ) const override;

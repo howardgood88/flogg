@@ -62,6 +62,7 @@ class LogMainView : public AbstractLogView
   protected:
     // Implements the virtual function
     LogData::LineType lineType( LineNumber lineNumber ) const override;
+    uint32_t bookmarkSlots( LineNumber lineNumber ) const override;
 
     void doRegisterShortcuts() override;
 

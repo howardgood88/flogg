@@ -65,7 +65,8 @@ class QAction;
 class QActionGroup;
 class Session;
 class RecentFiles;
-class HighlightersMenu;
+class QDockWidget;
+class FilterPanel;
 
 // Main window of the application, creates menus, toolbar and
 // the CrawlerWidget
@@ -115,20 +116,19 @@ class MainWindow : public QMainWindow {
     void selectAll();
     void copy();
     void find();
-    void clearLog();
     void copyFullPath();
     void openContainingFolder();
     void openInEditor();
     void openClipboard();
     void openUrl();
-    void editHighlighters();
-    void editPredefinedFilters( const QString& newFilter = {} );
     void options();
     void about();
     void aboutQt();
     void documentation();
     void showScratchPad();
     void sendToScratchpad( QString );
+    void addToFilters( QString );
+    void updateFilterHits( FilterHits hits );
     void replaceDataInScratchpad( QString );
     void encodingChanged( QAction* action );
     void addToFavorites();
@@ -148,10 +148,6 @@ class MainWindow : public QMainWindow {
     // Must be passed as the internal (starts at 0) line number.
     void lineNumberHandler( LineNumber startLine, LinesCount nLines, LineColumn startCol,
                             LineLength nSymbols );
-
-    // Save current search in line edit as predefined filter.
-    // Opens dialog with new entry.
-    void newPredefinedFilterHandler( QString newFilter );
 
     // Instructs the widget to update the loading progress gauge
     void updateLoadingProgress( int progress );
@@ -191,6 +187,8 @@ class MainWindow : public QMainWindow {
     void exitRequested();
 
   private:
+    void setupFilterPanel();
+    void applyFiltersToCurrentCrawler();
     void createActions();
     void loadIcons();
     void createMenus();
@@ -207,7 +205,6 @@ class MainWindow : public QMainWindow {
     void clearRecentFileActions();
     void updateFavoritesMenu();
     void updateOpenedFilesMenu();
-    void updateHighlightersMenu();
     QString strippedName( const QString& fullFileName ) const;
     CrawlerWidget* currentCrawlerWidget() const;
     void displayQuickFindBar( QuickFindMux::QFDirection direction );
@@ -232,7 +229,6 @@ class MainWindow : public QMainWindow {
     QMenu* viewMenu;
     QMenu* toolsMenu;
     QMenu* favoritesMenu;
-    HighlightersMenu* highlightersMenu;
     QMenu* openedFilesMenu;
     QMenu* helpMenu;
 
@@ -254,7 +250,6 @@ class MainWindow : public QMainWindow {
     QAction* selectAllAction;
     QAction* goToLineAction;
     QAction* findAction;
-    QAction* clearLogAction;
     QAction* copyPathToClipboardAction;
     QAction* openContainingFolderAction;
     QAction* openInEditorAction;
@@ -267,16 +262,11 @@ class MainWindow : public QMainWindow {
     QAction* textWrapAction;
     QAction* reloadAction;
     QAction* stopAction;
-    QAction* editHighlightersAction;
     QAction* optionsAction;
     QAction* showScratchPadAction;
     QAction* showDocumentationAction;
     QAction* aboutAction;
     QAction* aboutQtAction;
-    QAction* predefinedFiltersDialogAction;
-    QAction* reportIssueAction;
-    QAction* joinDiscordAction;
-    QAction* joinTelegramAction;
     QAction* generateDumpAction;
     QActionGroup* encodingGroup;
     QAction* addToFavoritesAction;
@@ -310,6 +300,9 @@ class MainWindow : public QMainWindow {
 
     // The main widget
     TabbedCrawlerWidget mainTabWidget_;
+
+    QDockWidget* filterDock_ = nullptr;
+    FilterPanel* filterPanel_ = nullptr;
 
     TabbedScratchPad scratchPad_;
 

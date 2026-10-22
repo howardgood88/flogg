@@ -36,7 +36,12 @@
  * along with klogg.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <QCheckBox>
 #include <QColorDialog>
+#include <QGridLayout>
+#include <QLabel>
+#include <QLineEdit>
+#include <QPushButton>
 #include <QKeySequenceEdit>
 #include <QMessageBox>
 #include <QToolButton>
@@ -44,6 +49,7 @@
 
 #include "encodings.h"
 #include "fontutils.h"
+#include "highlighterset.h"
 #include "highlighteredit.h"
 #include "log.h"
 #include "mainwindow.h"
@@ -64,6 +70,7 @@ OptionsDialog::OptionsDialog( QWidget* parent )
     setupUi( this );
 
     setupTabs();
+    setupColorLabels();
     setupFontList();
     setupRegexp();
     setupStyles();
@@ -84,7 +91,6 @@ OptionsDialog::OptionsDialog( QWidget* parent )
     connect( extractArchivesCheckBox, &QCheckBox::toggled,
              [ this ]( auto ) { this->setupArchives(); } );
 
-    connect( mainSearchColorButton, &QPushButton::clicked, this, &OptionsDialog::changeMainColor );
     connect( quickFindColorButton, &QPushButton::clicked, this, &OptionsDialog::changeQfColor );
 
     connect( restoreShortcutsDefaults, &QPushButton::clicked, this, [ this ]() {
@@ -324,16 +330,12 @@ void OptionsDialog::updateDialogFromConfig()
 
     // Regexp types
     mainSearchBox->setCurrentIndex( getRegexpTypeIndex( config.mainRegexpType() ) );
-    mainSearchColor_ = config.mainSearchBackColor();
-    HighlighterEdit::updateIcon( mainSearchColorButton, mainSearchColor_ );
     quickFindSearchBox->setCurrentIndex( getRegexpTypeIndex( config.quickfindRegexpType() ) );
     qfSearchColor_ = config.qfBackColor();
     HighlighterEdit::updateIcon( quickFindColorButton, qfSearchColor_ );
     regexpEngineComboBox->setCurrentIndex( getRegexpEngineIndex( config.regexpEngine() ) );
     autoRunSearchOnAddCheckBox->setChecked( config.autoRunSearchOnPatternChange() );
 
-    highlightMainSearchCheckBox->setChecked( config.mainSearchHighlight() );
-    variateHighlightCheckBox->setChecked( config.variateMainSearchHighlight() );
     incrementalCheckBox->setChecked( config.isQuickfindIncremental() );
     caseSensitiveCheckBox->setChecked( !config.isSearchIgnoreCaseDefault() );
     logicalCombiningCheckBox->setChecked( config.isSearchLogicalCombiningDefault() );
@@ -369,7 +371,6 @@ void OptionsDialog::updateDialogFromConfig()
     optimizeForNotLatinEncodingsCheckBox->setChecked( config.optimizeForNotLatinEncodings() );
 
     // version checking
-    checkForNewVersionCheckBox->setChecked( config.versionCheckingEnabled() );
 
     // downloads
     verifySslCheckBox->setChecked( config.verifySslPeers() );
@@ -407,13 +408,59 @@ void OptionsDialog::updateFontSize( const QString& fontFamily )
         fontSizeBox->setCurrentIndex( i );
 }
 
-void OptionsDialog::changeMainColor()
+// Color labels used to be configured in the highlighters dialog
+void OptionsDialog::setupColorLabels()
 {
-    QColor newColor;
-    if ( HighlighterEdit::showColorPicker( mainSearchColor_, newColor ) ) {
-        mainSearchColor_ = newColor;
-        HighlighterEdit::updateIcon( mainSearchColorButton, mainSearchColor_ );
+    colorLabels_ = HighlighterSetCollection::get().quickHighlighters();
+
+    auto* layout = new QGridLayout;
+    layout->addWidget( new QLabel( tr( "Name" ) ), 0, 0 );
+    layout->addWidget( new QLabel( tr( "Text" ) ), 0, 1, Qt::AlignCenter );
+    layout->addWidget( new QLabel( tr( "Background" ) ), 0, 2, Qt::AlignCenter );
+    layout->addWidget( new QLabel( tr( "Use in cycle" ) ), 0, 3, Qt::AlignCenter );
+
+    for ( int i = 0; i < colorLabels_.size(); ++i ) {
+        const auto row = i + 1;
+        auto* nameEdit = new QLineEdit( colorLabels_[ i ].name );
+        auto* foreButton = new QPushButton;
+        auto* backButton = new QPushButton;
+        auto* cycleCheckbox = new QCheckBox;
+
+        HighlighterEdit::updateIcon( foreButton, colorLabels_[ i ].color.foreColor );
+        HighlighterEdit::updateIcon( backButton, colorLabels_[ i ].color.backColor );
+        cycleCheckbox->setChecked( colorLabels_[ i ].useInCycle );
+
+        connect( nameEdit, &QLineEdit::textChanged, this, [ this, i ]( const QString& name ) {
+            if ( !name.isEmpty() ) {
+                colorLabels_[ i ].name = name;
+            }
+        } );
+
+        const auto connectColorButton = [ this ]( QPushButton* button, QColor& color ) {
+            connect( button, &QPushButton::clicked, this, [ button, &color ]() {
+                QColor newColor;
+                if ( HighlighterEdit::showColorPicker( color, newColor ) ) {
+                    color = newColor;
+                    HighlighterEdit::updateIcon( button, newColor );
+                }
+            } );
+        };
+        connectColorButton( foreButton, colorLabels_[ i ].color.foreColor );
+        connectColorButton( backButton, colorLabels_[ i ].color.backColor );
+
+        connect( cycleCheckbox, &QCheckBox::toggled, this,
+                 [ this, i ]( bool checked ) { colorLabels_[ i ].useInCycle = checked; } );
+
+        layout->addWidget( nameEdit, row, 0 );
+        layout->addWidget( foreButton, row, 1 );
+        layout->addWidget( backButton, row, 2 );
+        layout->addWidget( cycleCheckbox, row, 3, Qt::AlignCenter );
     }
+    layout->setRowStretch( layout->rowCount(), 1 );
+
+    auto* colorLabelsTab = new QWidget;
+    colorLabelsTab->setLayout( layout );
+    tabWidget->addTab( colorLabelsTab, tr( "Color labels" ) );
 }
 
 void OptionsDialog::changeQfColor()
@@ -497,9 +544,6 @@ void OptionsDialog::updateConfigFromDialog()
     config.setScaleFactorRounding( scaleRoundingComboBox->currentIndex() + 1 );
 
     config.setMainRegexpType( getRegexpTypeFromIndex( mainSearchBox->currentIndex() ) );
-    config.setMainSearchBackColor( mainSearchColor_ );
-    config.setEnableMainSearchHighlight( highlightMainSearchCheckBox->isChecked() );
-    config.setVariateMainSearchHighlight( variateHighlightCheckBox->isChecked() );
     config.setSearchIgnoreCaseDefault( !caseSensitiveCheckBox->isChecked() );
     config.setSearchAutoRefreshDefault( autoRefreshCheckBox->isChecked() );
     config.setSearchLogicalCombiningDefault( logicalCombiningCheckBox->isChecked() );
@@ -541,7 +585,6 @@ void OptionsDialog::updateConfigFromDialog()
     config.setOptimizeForNotLatinEncodings( optimizeForNotLatinEncodingsCheckBox->isChecked() );
 
     // version checking
-    config.setVersionCheckingEnabled( checkForNewVersionCheckBox->isChecked() );
 
     config.setVerifySslPeers( verifySslCheckBox->isChecked() );
 
@@ -582,15 +625,19 @@ void OptionsDialog::updateConfigFromDialog()
     savedSearches.setHistorySize( searchHistorySpinBox->value() );
     savedSearches.save();
 
+    auto& highlighterSetCollection = HighlighterSetCollection::get();
+    highlighterSetCollection.setQuickHighlighters( colorLabels_ );
+    highlighterSetCollection.save();
+
     auto& recentFiles = RecentFiles::get();
     recentFiles.setFilesHistoryMaxItems( filesHistoryMaxItemsSpinBox->value() );
     recentFiles.save();
 
     if ( restartAppMessage ) {
         QMessageBox::warning(
-            this, "klogg",
+            this, "flogg",
             QApplication::translate( "OptionsDialog",
-                                     "Klogg needs to be restarted to apply some changes. " ) );
+                                     "flogg needs to be restarted to apply some changes. " ) );
     }
 
     Q_EMIT optionsChanged();

@@ -14,7 +14,6 @@ const char* menu::editTitle = QT_TR_NOOP( "&Edit" );
 const char* menu::viewTitle = QT_TR_NOOP( "&View" );
 const char* menu::openedFilesTitle = QT_TR_NOOP( "Opened files" );
 const char* menu::toolsTitle = QT_TR_NOOP( "&Tools" );
-const char* menu::highlightersTitle = QT_TR_NOOP( "Highlighters" );
 const char* menu::favoritesTitle = QT_TR_NOOP( "F&avorites" );
 const char* menu::helpTitle = QT_TR_NOOP( "&Help" );
 const char* menu::encodingTitle = QT_TR_NOOP( "E&ncoding" );
@@ -23,11 +22,11 @@ const char* menu::encodingTitle = QT_TR_NOOP( "E&ncoding" );
 const char* toolbar::toolbarTitle = QT_TR_NOOP( "&Toolbar" );
 
 // trayicon
-const char* trayicon::trayiconTip = QT_TR_NOOP( "klogg log viewer" );
+const char* trayicon::trayiconTip = QT_TR_NOOP( "flogg log viewer" );
 
 // action
 const char* action::newWindowText = QT_TR_NOOP( "&New window" );
-const char* action::newWindowStatusTip = QT_TR_NOOP( "Create new klogg window" );
+const char* action::newWindowStatusTip = QT_TR_NOOP( "Create new flogg window" );
 const char* action::openText = QT_TR_NOOP( "&Open..." );
 const char* action::openStatusTip = QT_TR_NOOP( "Open a file" );
 const char* action::recentFilesCleanupText = QT_TR_NOOP("Clear List");
@@ -46,8 +45,6 @@ const char* action::goToLineStatusTip
     = QT_TR_NOOP( "Scrolls selected main view to specified line" );
 const char* action::findText = QT_TR_NOOP( "&Find..." );
 const char* action::findStatusTip = QT_TR_NOOP( "Find the text" );
-const char* action::clearLogText = QT_TR_NOOP( "Clear file..." );
-const char* action::clearLogStatusTip = QT_TR_NOOP( "Clear current file" );
 const char* action::openContainingFolderText = QT_TR_NOOP( "Open containing folder" );
 const char* action::openContainingFolderStatusTip
     = QT_TR_NOOP( "Open folder containing current file" );
@@ -70,22 +67,12 @@ const char* action::reloadText = QT_TR_NOOP( "&Reload" );
 const char* action::stopText = QT_TR_NOOP( "&Stop" );
 const char* action::optionsText = QT_TR_NOOP( "&Preferences..." );
 const char* action::optionsStatusTip = QT_TR_NOOP( "Show application settings dialog" );
-const char* action::editHighlightersText = QT_TR_NOOP( "Configure &highlighters..." );
-const char* action::editHighlightersStatusTip = QT_TR_NOOP( "Show highlighters configuration" );
 const char* action::showDocumentationText = QT_TR_NOOP( "&Documentation..." );
 const char* action::showDocumentationStatusTip = QT_TR_NOOP( "Show documentation" );
 const char* action::aboutText = QT_TR_NOOP( "&About" );
 const char* action::aboutStatusTip = QT_TR_NOOP( "Show the About box" );
 const char* action::aboutQtText = QT_TR_NOOP( "About &Qt" );
 const char* action::aboutQtStatusTip = QT_TR_NOOP( "Show the Qt library's About box" );
-const char* action::reportIssueText = QT_TR_NOOP( "Report issue..." );
-const char* action::reportIssueStatusTip = QT_TR_NOOP( "Report an issue on GitHub" );
-const char* action::joinDiscordText = QT_TR_NOOP( "Join Discord community..." );
-const char* action::joinDiscordStatusTip
-    = QT_TR_NOOP( "Join Klogg development community at Discord" );
-const char* action::joinTelegramText = QT_TR_NOOP( "Join Telegram community..." );
-const char* action::joinTelegramStatusTip
-    = QT_TR_NOOP( "Join Klogg development community at Telegram" );
 const char* action::generateDumpText = QT_TR_NOOP( "Generate crash dump" );
 const char* action::generateDumpStatusTip = QT_TR_NOOP( "Generate diagnostic crash dump" );
 const char* action::showScratchPadText = QT_TR_NOOP( "Scratchpad" );
@@ -93,9 +80,6 @@ const char* action::showScratchPadStatusTip = QT_TR_NOOP( "Show the scratchpad" 
 const char* action::addToFavoritesText = QT_TR_NOOP( "Add to favorites" );
 const char* action::removeFromFavoritesText = QT_TR_NOOP( "Remove from favorites..." );
 const char* action::selectOpenFileText = QT_TR_NOOP( "Switch to opened file..." );
-const char* action::predefinedFiltersDialogText = QT_TR_NOOP( "Predefined filters..." );
-const char* action::predefinedFiltersDialogStatusTip
-    = QT_TR_NOOP( "Show dialog to configure filters" );
 const char* action::autoEncodingText = QT_TR_NOOP( "Auto" );
 const char* action::autoEncodingStatusTip
     = QT_TR_NOOP( "Automatically detect the file's encoding" );

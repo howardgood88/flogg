@@ -17,10 +17,7 @@
  * along with klogg.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <QDesktopServices>
 #include <QMessageBox>
-#include <QUrl>
-#include <QUrlQuery>
 #include <qglobal.h>
 #include <qthreadpool.h>
 #include <string>
@@ -34,7 +31,7 @@ static constexpr auto DetailsFooter
     = "-------------------------\n"
       "Useful extra information\n"
       "-------------------------\n"
-      "> Klogg version %1 (built on %2 from commit %3) [built for %4]\n"
+      "> flogg version %1 (built on %2 from commit %3) [built for %4]\n"
       "> running on %5 (%6/%7) [%8], concurrency %9\n";
 
 static constexpr auto LibraryVersionsFooter = "> Qt %1, tbb %2";
@@ -58,21 +55,11 @@ static constexpr auto BugTemplate = "#### What did you do?\n\n\n"
                                     "#### What did you expect to see?\n\n\n"
                                     "#### What did you see instead?\n\n\n";
 
-static constexpr auto ExceptionAskUserAction
-    = "Ooops! Something unexpected happend. Create issue on Github?";
-
-static constexpr auto AskUserAction = "Create issue on Github?";
-
+// flogg is a fork: problems are not reported to the klogg issue tracker,
+// the details are shown so that they can be copied.
 void IssueReporter::askUserAndReportIssue( IssueTemplate issueTemplate, const QString& information )
 {
-    const auto askAction
-        = issueTemplate == IssueTemplate::Exception ? ExceptionAskUserAction : AskUserAction;
-
-    if ( QMessageBox::Yes
-         == QMessageBox::question( nullptr, "Klogg", askAction, QMessageBox::Yes,
-                                   QMessageBox::No ) ) {
-        IssueReporter::reportIssue( issueTemplate, information );
-    }
+    IssueReporter::reportIssue( issueTemplate, information );
 }
 
 void IssueReporter::reportIssue( IssueTemplate issueTemplate, const QString& information )
@@ -108,10 +95,10 @@ void IssueReporter::reportIssue( IssueTemplate issueTemplate, const QString& inf
                            arch, std::to_string(concurrency).c_str() ) );
     body.append( QString( LibraryVersionsFooter ).arg( qVersion(), TBB_runtime_version() ) );
 
-    QUrlQuery query;
-    query.addQueryItem( "body", body );
-
-    QUrl url( "https://github.com/variar/klogg/issues/new" );
-    url.setQuery( query );
-    QDesktopServices::openUrl( url );
+    QMessageBox messageBox( QMessageBox::Warning, "flogg",
+                            issueTemplate == IssueTemplate::Bug
+                                ? QString( "Diagnostic information" )
+                                : QString( "Something unexpected happened." ) );
+    messageBox.setDetailedText( body );
+    messageBox.exec();
 }

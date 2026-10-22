@@ -60,3 +60,6 @@ cmake-build-relwithdebinfo/
 #website
 website/hugo
 website/resources/
+
+# Benchmark logs (regenerate with bench/gen_bench_log.py)
+/bench/*.log
