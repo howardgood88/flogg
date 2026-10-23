@@ -1,0 +1,16 @@
+diff --git a/src/efsw/WatcherWin32.cpp b/src/efsw/WatcherWin32.cpp
+index 712419e..0ed6f6a 100644
+--- a/src/efsw/WatcherWin32.cpp
++++ b/src/efsw/WatcherWin32.cpp
+@@ -223,6 +223,11 @@ void DestroyWatch( WatcherStructWin32* pWatch ) {
+ 		WatcherWin32* tWatch = pWatch->Watch;
+ 		tWatch->StopNow = true;
+ 		CancelIoEx( pWatch->Watch->DirHandle, &pWatch->Overlapped );
++		// The system writes the OVERLAPPED (and possibly the buffer) when the cancelled
++		// read completes: wait for it before freeing them
++		DWORD bytesTransferred = 0;
++		GetOverlappedResult( pWatch->Watch->DirHandle, &pWatch->Overlapped, &bytesTransferred,
++							 TRUE );
+ 		CloseHandle( pWatch->Watch->DirHandle );
+ 		efSAFE_DELETE_ARRAY( pWatch->Watch->DirName );
+ 		efSAFE_DELETE( pWatch->Watch );

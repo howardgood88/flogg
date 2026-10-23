@@ -301,6 +301,22 @@ cpmaddpackage(
 )
 if(efsw_ADDED)
   target_compile_definitions(efsw PRIVATE EFSW_FSEVENTS_NOT_SUPPORTED)
+
+  # Removing a watch freed the OVERLAPPED and the buffer of the cancelled read before the
+  # system wrote its completion to them, corrupting the heap (fixed differently upstream)
+  set(EFSW_WIN32_CANCEL_PATCH ${CMAKE_CURRENT_SOURCE_DIR}/patches/efsw-win32-wait-cancelled-io.patch)
+  execute_process(
+    COMMAND git apply --reverse --check ${EFSW_WIN32_CANCEL_PATCH}
+    WORKING_DIRECTORY ${efsw_SOURCE_DIR}
+    RESULT_VARIABLE EFSW_PATCH_ALREADY_APPLIED
+    OUTPUT_QUIET ERROR_QUIET
+  )
+  if(NOT EFSW_PATCH_ALREADY_APPLIED EQUAL 0)
+    execute_process(
+      COMMAND git apply ${EFSW_WIN32_CANCEL_PATCH}
+      WORKING_DIRECTORY ${efsw_SOURCE_DIR}
+    )
+  endif()
 endif()
 
 if(WIN32)
