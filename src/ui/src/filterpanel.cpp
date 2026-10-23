@@ -38,6 +38,7 @@
 #include <QStandardPaths>
 #include <QStyle>
 #include <QStyleOption>
+#include <QStyledItemDelegate>
 #include <QToolButton>
 #include <QTreeWidget>
 #include <QTreeWidgetItemIterator>
@@ -230,6 +231,45 @@ class FlowLayout : public QLayout {
     }
 
     std::vector<QLayoutItem*> items_;
+};
+
+// Filters have no expand arrow: their check box takes the place of the arrow, so that it
+// lines up with the arrows of the groups next to them instead of with their folder icons
+class FilterItemDelegate : public QStyledItemDelegate {
+  public:
+    explicit FilterItemDelegate( QTreeView* tree )
+        : QStyledItemDelegate( tree )
+        , tree_( tree )
+    {
+    }
+
+    void paint( QPainter* painter, const QStyleOptionViewItem& option,
+                const QModelIndex& index ) const override
+    {
+        QStyledItemDelegate::paint( painter, alignedOption( option, index ), index );
+    }
+
+  protected:
+    // Check box clicks are tested against the moved rectangle
+    bool editorEvent( QEvent* event, QAbstractItemModel* model, const QStyleOptionViewItem& option,
+                      const QModelIndex& index ) override
+    {
+        return QStyledItemDelegate::editorEvent( event, model, alignedOption( option, index ),
+                                                 index );
+    }
+
+  private:
+    QStyleOptionViewItem alignedOption( const QStyleOptionViewItem& option,
+                                        const QModelIndex& index ) const
+    {
+        auto aligned = option;
+        if ( index.column() == PatternColumn && !index.flags().testFlag( Qt::ItemIsDropEnabled ) ) {
+            aligned.rect.setLeft( aligned.rect.left() - tree_->indentation() );
+        }
+        return aligned;
+    }
+
+    QTreeView* tree_;
 };
 
 // Tree that also accepts drops below its last row. The horizontal position of the
@@ -441,6 +481,7 @@ FilterPanel::FilterPanel( QWidget* parent )
 void FilterPanel::setupUi()
 {
     tree_ = new FilterTreeWidget;
+    tree_->setItemDelegate( new FilterItemDelegate( tree_ ) );
     tree_->setColumnCount( 3 );
     tree_->setHeaderLabels( { tr( "Filter" ), tr( "Hits" ), tr( "Description" ) } );
     tree_->setSelectionMode( QAbstractItemView::ExtendedSelection );

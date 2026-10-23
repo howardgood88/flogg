@@ -666,6 +666,38 @@ SCENARIO( "Filter panel enable, disable and suspend all", "[filters]" )
     settings.setValue( "filterPanel/currentFile", previousFile );
 }
 
+SCENARIO( "Filter panel check box lined up with the group arrows", "[filters]" )
+{
+    QTemporaryDir dir;
+    auto root = FilterNode::makeGroup( "root" );
+    root.children.push_back( FilterNode::makeFilter( "ERROR" ) );
+    root.children.push_back( FilterNode::makeGroup( "G" ) );
+    const auto filtersFile = dir.filePath( "test.flogg-filters.json" );
+    REQUIRE( filters::saveToFile( root, filtersFile ) );
+
+    auto& settings = PersistentInfo::getSettings( app_settings{} );
+    const auto previousFile = settings.value( "filterPanel/currentFile" );
+    settings.setValue( "filterPanel/currentFile", filtersFile );
+
+    FilterPanel panel;
+    panel.resize( 400, 300 );
+    panel.show();
+    auto* tree = panel.findChild<QTreeWidget*>();
+    REQUIRE( tree );
+    auto* filter = tree->topLevelItem( 0 );
+    REQUIRE( filter->checkState( 0 ) == Qt::Checked );
+
+    // The check box is drawn where a group has its expand arrow
+    const auto rowRect = tree->visualItemRect( filter );
+    const QPoint arrowArea( rowRect.left() - tree->indentation() / 2, rowRect.center().y() );
+    QTest::mouseClick( tree->viewport(), Qt::LeftButton, Qt::NoModifier, arrowArea );
+    CHECK( filter->checkState( 0 ) == Qt::Unchecked );
+    QTest::mouseClick( tree->viewport(), Qt::LeftButton, Qt::NoModifier, arrowArea );
+    CHECK( filter->checkState( 0 ) == Qt::Checked );
+
+    settings.setValue( "filterPanel/currentFile", previousFile );
+}
+
 SCENARIO( "Filter panel move up and down across groups", "[filters]" )
 {
     QTemporaryDir dir;
