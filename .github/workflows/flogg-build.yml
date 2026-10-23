@@ -1,4 +1,4 @@
-name: "Windows build"
+name: "Build"
 
 on:
   push:
@@ -25,8 +25,6 @@ jobs:
     if: "!contains(github.event.head_commit.message, '[skip ci]')"
     runs-on: windows-2022
     timeout-minutes: 120
-    permissions:
-      contents: write # only used to attach the packages to a release on a v* tag
 
     env:
       QT_VERSION: 6.7.3
@@ -44,10 +42,11 @@ jobs:
         shell: bash
         run: |
           # CMake reads the build version from KLOGG_VERSION
-          echo "KLOGG_VERSION=24.11.0.${{ github.run_number }}" >> $GITHUB_ENV
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            echo "KLOGG_VERSION=${GITHUB_REF_NAME#v}.${{ github.run_number }}" >> $GITHUB_ENV
             echo "PACKAGE_VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_ENV
           else
+            echo "KLOGG_VERSION=24.11.0.${{ github.run_number }}" >> $GITHUB_ENV
             echo "PACKAGE_VERSION=24.11.0.${{ github.run_number }}" >> $GITHUB_ENV
           fi
 
@@ -149,6 +148,7 @@ jobs:
           7z a -tzip $zip ".\release\flogg\*" | Out-Null
           7z a -tzip "flogg-$env:PACKAGE_VERSION-windows-x64-pdb.zip" "$output\*.pdb" | Out-Null
 
+      # The pdb files stay in the build artifact, only the application goes to the release
       - name: Upload packages
         uses: actions/upload-artifact@v4
         with:
@@ -156,8 +156,112 @@ jobs:
           path: flogg-*-windows-x64*.zip
           if-no-files-found: error
 
-      - name: Attach packages to the release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+  macos-arm64:
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    runs-on: macos-14
+    timeout-minutes: 120
+
+    env:
+      QT_VERSION: 6.7.3
+      BUILD_ROOT: build_root
+      HOMEBREW_NO_AUTO_UPDATE: 1
+      HOMEBREW_NO_INSTALL_CLEANUP: 1
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set version
+        run: |
+          # CMake reads the build version from KLOGG_VERSION
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            echo "KLOGG_VERSION=${GITHUB_REF_NAME#v}.${{ github.run_number }}" >> $GITHUB_ENV
+            echo "PACKAGE_VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_ENV
+          else
+            echo "KLOGG_VERSION=24.11.0.${{ github.run_number }}" >> $GITHUB_ENV
+            echo "PACKAGE_VERSION=24.11.0.${{ github.run_number }}" >> $GITHUB_ENV
+          fi
+
+      # Vectorscan needs ragel and the boost headers
+      - name: Install build tools
+        run: brew install ninja ragel boost pkgconf
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
         with:
-          files: flogg-*-windows-x64*.zip
+          version: ${{ env.QT_VERSION }}
+          host: mac
+          target: desktop
+          arch: clang_64
+          modules: qt5compat
+          archives: qtbase qtimageformats qtsvg qttools qttranslations
+          cache: true
+
+      - name: Restore third party sources cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/cpm_cache
+          key: cpm-${{ runner.os }}-${{ hashFiles('3rdparty/CMakeLists.txt', '3rdparty/patches/**') }}
+
+      - name: Configure
+        run: >
+          cmake -S . -B "$BUILD_ROOT" -G Ninja
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DCMAKE_OSX_ARCHITECTURES=arm64
+          -DKLOGG_OSX_DEPLOYMENT_TARGET=14.0
+          -DKLOGG_USE_SENTRY=OFF
+          -DWARNINGS_AS_ERRORS=OFF
+          -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+          -DCPM_SOURCE_CACHE="$GITHUB_WORKSPACE/cpm_cache"
+
+      - name: Build
+        run: cmake --build "$BUILD_ROOT" --target ci_build
+
+      - name: Test
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: ctest --test-dir "$BUILD_ROOT" --output-on-failure
+
+      - name: Package
+        run: |
+          app="$BUILD_ROOT/output/flogg.app"
+          macdeployqt "$app" -always-overwrite
+
+          # Not signed with a developer certificate: an ad-hoc signature is still needed to
+          # run on Apple silicon, and macdeployqt changed the binaries
+          codesign --force --deep --sign - "$app"
+          codesign --verify --deep --strict "$app"
+
+          staging=dmg/flogg
+          mkdir -p "$staging"
+          cp -R "$app" "$staging/"
+          ln -s /Applications "$staging/Applications"
+          cp COPYING NOTICE README.md "$staging/"
+          hdiutil create -volname flogg -srcfolder "$staging" -format UDZO -ov \
+            "flogg-$PACKAGE_VERSION-macos-arm64.dmg"
+
+      - name: Upload packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: flogg-macos-arm64
+          path: flogg-*-macos-arm64.dmg
+          if-no-files-found: error
+
+  # On a v* tag, one release with the packages of every platform, once they all built
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [ windows-x64, macos-arm64 ]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: packages
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            packages/flogg-*-windows-x64.zip
+            packages/flogg-*-macos-arm64.dmg
