@@ -58,9 +58,11 @@
 #include <QKeySequence>
 #include <QLineEdit>
 #include <QListView>
+#include <QPointer>
 #include <QShortcut>
 #include <QStandardItemModel>
 #include <QStringListModel>
+#include <QTimer>
 #include <qglobal.h>
 #include <qobject.h>
 #include <string>
@@ -165,6 +167,16 @@ CrawlerWidget::CrawlerWidget( QWidget* parent )
     : QSplitter( parent )
     , iconLoader_{ this }
 {
+}
+
+CrawlerWidget::~CrawlerWidget()
+{
+    // The members (log data, filtered data...) are destroyed before the child widgets.
+    // Deleting the children still sends signals, e.g. removing the filtered view tabs
+    // emits currentChanged, and the handlers would use the destroyed members.
+    for ( auto* child : findChildren<QObject*>() ) {
+        child->disconnect( this );
+    }
 }
 
 // The top line is first one on the main display
@@ -726,7 +738,9 @@ void CrawlerWidget::loadingFinishedHandler( LoadingStatus status )
         logMainView_->setFocus();
 
         if ( filterMode_ ) {
-            runFilterSearch();
+            // Not right away: the search processes events, which can delete this widget
+            // (its tab may have been closed while the file was loading)
+            QTimer::singleShot( 0, this, &CrawlerWidget::runFilterSearch );
         }
     }
 
@@ -1610,7 +1624,12 @@ void CrawlerWidget::replaceCurrentSearch( const RegularExpressionPattern& regexp
     // for Qt to empty its event queue, including (hopefully)
     // the search update event sent by logFilteredData_. It saves
     // us the overhead of having proper sync.
+    const QPointer<CrawlerWidget> self( this );
     QApplication::processEvents( QEventLoop::ExcludeUserInputEvents );
+    if ( !self ) {
+        // Deleted while processing the events (its tab was closed)
+        return;
+    }
 
     nbMatches_ = 0_lcount;
 
