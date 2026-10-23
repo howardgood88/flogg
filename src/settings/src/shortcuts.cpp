@@ -281,6 +281,75 @@ const ShortcutAction::ShortcutList& ShortcutAction::defaultShortcutList()
             },
         },
         {
+            MainWindowToggleMainView,
+            {
+                QApplication::tr( "Show/hide main log view" ),
+#ifdef Q_OS_MAC
+                // Cmd+H hides the application on macOS, use the Control key itself
+                QStringList{ "Meta+H" },
+#else
+                QStringList{ "Ctrl+H" },
+#endif
+            },
+        },
+        {
+            MainWindowToggleFilterPanel,
+            {
+                QApplication::tr( "Show/hide filter panel" ),
+                QStringList{},
+            },
+        },
+        {
+            FilterPanelFindNext,
+            {
+                QApplication::tr( "Find next match of selected filters" ),
+                QStringList{ QKeySequence( Qt::Key_F8 ).toString() },
+            },
+        },
+        {
+            FilterPanelFindPrevious,
+            {
+                QApplication::tr( "Find previous match of selected filters" ),
+                QStringList{ "Shift+F8" },
+            },
+        },
+        {
+            FilterPanelAddFilter,
+            {
+                QApplication::tr( "Filter panel: add filter" ),
+                QStringList{ QKeySequence( Qt::Key_Insert ).toString() },
+            },
+        },
+        {
+            FilterPanelEdit,
+            {
+                QApplication::tr( "Filter panel: edit filter or group" ),
+                QStringList{ { QKeySequence( Qt::Key_F2 ).toString(),
+                               QKeySequence( Qt::Key_Return ).toString() } },
+            },
+        },
+        {
+            FilterPanelDelete,
+            {
+                QApplication::tr( "Filter panel: delete selection" ),
+                getKeyBindings( QKeySequence::Delete ),
+            },
+        },
+        {
+            FilterPanelMoveUp,
+            {
+                QApplication::tr( "Filter panel: move filter or group up" ),
+                QStringList{ "Alt+Up" },
+            },
+        },
+        {
+            FilterPanelMoveDown,
+            {
+                QApplication::tr( "Filter panel: move filter or group down" ),
+                QStringList{ "Alt+Down" },
+            },
+        },
+        {
             CrawlerChangeVisibilityForward,
             {
                 QApplication::tr( "Change filtered lines visibility forward" ),
@@ -798,6 +867,13 @@ const ShortcutAction::ShortcutList& ShortcutAction::defaultShortcutList()
             {
                 QApplication::tr( "Replace search pattern with selection" ),
                 QStringList{ "Shift+R" },
+            },
+        },
+        {
+            LogViewAddAsFilter,
+            {
+                QApplication::tr( "Add selection as filter" ),
+                QStringList{},
             },
         },
         {

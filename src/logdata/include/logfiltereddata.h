@@ -157,6 +157,10 @@ class LogFilteredData : public AbstractLogData {
     OptionalLineNumber findBookmark( size_t slot, LineNumber from, bool backward ) const;
     // Bookmarks set on the line, bit N for bookmark N + 1
     uint32_t getBookmarkSlots( LineNumber line ) const;
+    bool hasBookmarks() const
+    {
+        return !bookmarks_.empty();
+    }
     // Get all marked lines
     QList<LineNumber> getMarks() const;
 

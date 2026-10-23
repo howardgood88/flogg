@@ -1772,6 +1772,36 @@ void CrawlerWidget::updateEncoding()
     filteredView_->forceRefresh();
 }
 
+void CrawlerWidget::setMainViewVisible( bool visible )
+{
+    if ( visible == !logMainView_->isHidden() ) {
+        return;
+    }
+
+    if ( !visible ) {
+        const auto viewSizes = sizes();
+        const auto total = viewSizes.at( 0 ) + viewSizes.at( 1 );
+        if ( total > 0 ) {
+            hiddenMainViewRatio_ = static_cast<double>( viewSizes.at( 0 ) ) / total;
+        }
+
+        const auto mainViewHadFocus = logMainView_->hasFocus();
+        logMainView_->hide();
+        if ( mainViewHadFocus ) {
+            filteredView_->setFocus();
+        }
+        return;
+    }
+
+    logMainView_->show();
+
+    // The height may have changed while the main view was hidden: keep the ratio
+    const auto viewSizes = sizes();
+    const auto total = viewSizes.at( 0 ) + viewSizes.at( 1 );
+    const auto mainViewSize = static_cast<int>( total * hiddenMainViewRatio_ + 0.5 );
+    setSizes( { mainViewSize, total - mainViewSize } );
+}
+
 // Change the respective size of the two views
 void CrawlerWidget::changeTopViewSize( int32_t delta )
 {
@@ -2217,7 +2247,7 @@ void CrawlerWidget::jumpToBookmark( size_t slot, bool backward )
         return;
     }
 
-    if ( filteredView_->hasFocus() ) {
+    if ( filteredView_->hasFocus() || logMainView_->isHidden() ) {
         const auto index = logFilteredData_->getLineIndexNumber( *line );
         if ( logFilteredData_->getMatchingLineNumber( index ) == *line ) {
             filteredView_->selectAndDisplayLine( index );

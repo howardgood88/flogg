@@ -76,6 +76,11 @@ uint32_t FilteredView::bookmarkSlots( LineNumber lineNumber ) const
         logFilteredData_->getMatchingLineNumber( lineNumber ) );
 }
 
+bool FilteredView::hasBookmarks() const
+{
+    return logFilteredData_->hasBookmarks();
+}
+
 AbstractLogData::LineType FilteredView::lineType( LineNumber lineNumber ) const
 {
     // line in filteredview corresponds to index

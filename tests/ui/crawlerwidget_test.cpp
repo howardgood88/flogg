@@ -298,6 +298,9 @@ SCENARIO( "Crawler widget bookmarks rendering", "[.render]" )
 
     waitUiState( [ & ]() { return crawlerVisitor.isLoadingFinished(); } );
 
+    // No bookmark column until a line has a bookmark
+    REQUIRE( crawlerVisitor.grabMainView().save( renderDir + "/no_bookmarks.png" ) );
+
     crawlerVisitor.toggleBookmark( 0, 1_lnum );
     crawlerVisitor.toggleBookmark( 0, 4_lnum );
     crawlerVisitor.toggleBookmark( 2, 4_lnum );

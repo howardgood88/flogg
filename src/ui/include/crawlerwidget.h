@@ -128,6 +128,10 @@ class CrawlerWidget : public QSplitter,
     // Next (or previous) line with the bookmark, wrapping around the file
     void jumpToBookmark( size_t slot, bool backward );
 
+    // Hides the main view to give all the room to the filtered view,
+    // showing it again restores the previous ratio of the two views
+    void setMainViewVisible( bool visible );
+
   public Q_SLOTS:
     // Stop the asynchoronous loading of the file if one is in progress
     // The file is identified by the view attached to it.
@@ -387,6 +391,8 @@ class CrawlerWidget : public QSplitter,
     std::shared_ptr<QuickFindPattern> quickFindPattern_;
 
     LogMainView* logMainView_;
+    // Share of the height taken by the main view when it was hidden
+    double hiddenMainViewRatio_ = 0.5;
     FilteredView* filteredView_;
     std::unordered_map<FilteredView*, std::shared_ptr<LogFilteredData>> filteredViewsData_;
     QTabWidget* tabbedFilteredView_;

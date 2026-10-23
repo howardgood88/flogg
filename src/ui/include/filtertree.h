@@ -43,8 +43,8 @@ struct FilterNode {
     // Group name, or free text description of a filter
     QString name;
 
-    // Check state. For groups it is derived from the children,
-    // the stored value only matters for empty groups.
+    // Check state of a filter. Groups have no check box (they are switched with
+    // all their filters), their stored value is unused.
     bool enabled = true;
 
     // Temporarily disabled without touching the check state.

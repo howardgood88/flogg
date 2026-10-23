@@ -27,6 +27,7 @@
 #include <QLineEdit>
 #include <QMenu>
 #include <QPixmap>
+#include <QPlainTextEdit>
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QToolButton>
@@ -40,7 +41,11 @@ FilterEditDialog::FilterEditDialog( const FilterNode& filter, QWidget* parent )
     setWindowTitle( tr( "Edit filter" ) );
 
     patternEdit_ = new QLineEdit( filter.pattern );
-    descriptionEdit_ = new QLineEdit( filter.name );
+    // Several lines for a detailed description, Tab still moves to the next field
+    descriptionEdit_ = new QPlainTextEdit( filter.name );
+    descriptionEdit_->setTabChangesFocus( true );
+    descriptionEdit_->setFixedHeight( descriptionEdit_->fontMetrics().lineSpacing() * 4
+                                      + 2 * descriptionEdit_->frameWidth() + 8 );
 
     regexCheck_ = new QCheckBox( tr( "Regular expression" ) );
     regexCheck_->setChecked( filter.useRegex );
@@ -118,7 +123,7 @@ FilterNode FilterEditDialog::filter() const
 {
     auto result = filter_;
     result.pattern = patternEdit_->text();
-    result.name = descriptionEdit_->text();
+    result.name = descriptionEdit_->toPlainText();
     result.useRegex = regexCheck_->isChecked();
     result.caseSensitive = caseCheck_->isChecked();
     result.exclude = excludeCheck_->isChecked();

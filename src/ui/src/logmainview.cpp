@@ -76,6 +76,11 @@ uint32_t LogMainView::bookmarkSlots( LineNumber lineNumber ) const
     return filteredData_ ? filteredData_->getBookmarkSlots( lineNumber ) : 0;
 }
 
+bool LogMainView::hasBookmarks() const
+{
+    return filteredData_ && filteredData_->hasBookmarks();
+}
+
 AbstractLogData::LineType LogMainView::lineType( LineNumber lineNumber ) const
 {
     if ( filteredData_ ) {

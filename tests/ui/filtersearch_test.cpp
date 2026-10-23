@@ -535,6 +535,7 @@ SCENARIO( "Filter panel drop below the last row rendering", "[.render]" )
     QTemporaryDir dir;
     auto root = FilterNode::makeGroup( "root" );
     root.children.push_back( FilterNode::makeFilter( "ERROR" ) );
+    root.children.back().name = "Errors\nof any kind";
     auto group = FilterNode::makeGroup( "WiFi" );
     group.children.push_back( FilterNode::makeFilter( "wlan" ) );
     auto inner = FilterNode::makeGroup( "Inner" );
@@ -585,6 +586,16 @@ SCENARIO( "Filter panel drop below the last row rendering", "[.render]" )
     sendToViewport( &leave );
     delete mimeData;
 
+    // First line of a multi line description in the column, all of it in the tool tip
+    auto* error = tree->topLevelItem( 0 );
+    CHECK( error->text( 2 ) == QString( "Errors \u2026" ) );
+    CHECK( error->toolTip( 2 ) == "Errors\nof any kind" );
+
+    // Close up of the tool bar, with the move buttons enabled
+    tree->setCurrentItem( error );
+    const auto toolBar = panel.grab( QRect( 0, 0, 220, 26 ) );
+    REQUIRE( toolBar.scaled( toolBar.size() * 4 ).save( renderDir + "/toolbar_zoom.png" ) );
+
     // The tool buttons wrap to more rows when the panel is narrow
     for ( const auto width : { 400, 200, 120 } ) {
         panel.resize( width, 300 );
@@ -633,6 +644,79 @@ SCENARIO( "Filter panel enable, disable and suspend all", "[filters]" )
     CHECK( runWithArg( "setAllEnabled", true ) == 3 );
     CHECK( run( "toggleSuspendAll" ) == 0 );
     CHECK( run( "toggleSuspendAll" ) == 3 );
+
+    // A group has no check box, enabling it switches all its filters
+    auto* tree = panel.findChild<QTreeWidget*>();
+    REQUIRE( tree );
+    auto* groupItem = tree->topLevelItem( 1 );
+    CHECK( !groupItem->flags().testFlag( Qt::ItemIsUserCheckable ) );
+    CHECK( !groupItem->data( 0, Qt::CheckStateRole ).isValid() );
+
+    tree->clearSelection();
+    groupItem->setSelected( true );
+    CHECK( runWithArg( "setSelectedEnabled", false ) == 1 );
+    CHECK( groupItem->child( 0 )->checkState( 0 ) == Qt::Unchecked );
+    CHECK( runWithArg( "setSelectedEnabled", true ) == 3 );
+
+    tree->clearSelection();
+    tree->topLevelItem( 0 )->setSelected( true );
+    CHECK( runWithArg( "setSelectedEnabled", false ) == 2 );
+    CHECK( !groupItem->data( 0, Qt::CheckStateRole ).isValid() );
+
+    settings.setValue( "filterPanel/currentFile", previousFile );
+}
+
+SCENARIO( "Filter panel move up and down across groups", "[filters]" )
+{
+    QTemporaryDir dir;
+    auto root = FilterNode::makeGroup( "root" );
+    root.children.push_back( FilterNode::makeFilter( "A" ) );
+    auto group = FilterNode::makeGroup( "G" );
+    group.children.push_back( FilterNode::makeFilter( "B" ) );
+    root.children.push_back( group );
+    root.children.push_back( FilterNode::makeFilter( "C" ) );
+    const auto filtersFile = dir.filePath( "test.flogg-filters.json" );
+    REQUIRE( filters::saveToFile( root, filtersFile ) );
+
+    auto& settings = PersistentInfo::getSettings( app_settings{} );
+    const auto previousFile = settings.value( "filterPanel/currentFile" );
+    settings.setValue( "filterPanel/currentFile", filtersFile );
+
+    FilterPanel panel;
+    auto* tree = panel.findChild<QTreeWidget*>();
+    REQUIRE( tree );
+
+    // Texts of the tree, children of a group between brackets
+    const std::function<QString( QTreeWidgetItem* )> layout = [ & ]( QTreeWidgetItem* parent ) {
+        QStringList texts;
+        for ( int i = 0; i < parent->childCount(); ++i ) {
+            auto* item = parent->child( i );
+            texts.append( item->childIndicatorPolicy() == QTreeWidgetItem::ShowIndicator
+                              ? item->text( 0 ) + "[" + layout( item ) + "]"
+                              : item->text( 0 ) );
+        }
+        return texts.join( " " );
+    };
+    const auto move = [ & ]( bool up ) {
+        REQUIRE( QMetaObject::invokeMethod( &panel, "moveCurrent", Q_ARG( bool, up ) ) );
+        return layout( tree->invisibleRootItem() );
+    };
+
+    REQUIRE( layout( tree->invisibleRootItem() ) == "A G[B] C" );
+
+    tree->setCurrentItem( tree->topLevelItem( 2 ) );
+    CHECK( move( true ) == "A G[B C]" );
+    CHECK( move( true ) == "A G[C B]" );
+    CHECK( move( true ) == "A C G[B]" );
+    CHECK( move( true ) == "C A G[B]" );
+    CHECK( move( true ) == "C A G[B]" );
+    CHECK( move( false ) == "A C G[B]" );
+    CHECK( move( false ) == "A G[C B]" );
+
+    // A collapsed group is jumped over
+    tree->topLevelItem( 1 )->setExpanded( false );
+    tree->setCurrentItem( tree->topLevelItem( 0 ) );
+    CHECK( move( false ) == "G[C B] A" );
 
     settings.setValue( "filterPanel/currentFile", previousFile );
 }

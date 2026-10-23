@@ -851,6 +851,8 @@ void AbstractLogView::doRegisterShortcuts()
     registerShortcut( ShortcutAction::LogViewExcludeFromSearch,
                       [ this ]() { excludeFromSearch(); } );
     registerShortcut( ShortcutAction::LogViewReplaceSearch, [ this ]() { replaceSearch(); } );
+    registerShortcut( ShortcutAction::LogViewAddAsFilter,
+                      [ this ]() { addToFiltersAction_->trigger(); } );
 
     registerShortcut( ShortcutAction::LogViewSelectLinesUp, [ this ]() {
         auto newPosition = selectionCurrentEndPos_;
@@ -2281,14 +2283,18 @@ void AbstractLogView::drawTextArea( QPaintDevice* paintDevice )
     // This is also the bullet zone width, used for marking clicks
     bulletZoneWidthPx_ = contentStartPosX;
 
-    // Draw the bookmarks area
+    // Draw the bookmarks area, only while the file has bookmarks (like TextAnalysisTool)
+    const bool bookmarksVisible = hasBookmarks();
     const int bookmarkSlotWidth = charWidth_;
     const int bookmarkAreaStartX = contentStartPosX;
-    const int bookmarkAreaWidth = NbBookmarkSlots * bookmarkSlotWidth;
-    painter->fillRect( bookmarkAreaStartX, 0, bookmarkAreaWidth, paintDeviceHeight, Qt::darkGray );
-    painter->drawLine( bookmarkAreaStartX + bookmarkAreaWidth, 0,
-                       bookmarkAreaStartX + bookmarkAreaWidth, paintDeviceHeight );
-    contentStartPosX += bookmarkAreaWidth + SeparatorWidth;
+    if ( bookmarksVisible ) {
+        const int bookmarkAreaWidth = NbBookmarkSlots * bookmarkSlotWidth;
+        painter->fillRect( bookmarkAreaStartX, 0, bookmarkAreaWidth, paintDeviceHeight,
+                           Qt::darkGray );
+        painter->drawLine( bookmarkAreaStartX + bookmarkAreaWidth, 0,
+                           bookmarkAreaStartX + bookmarkAreaWidth, paintDeviceHeight );
+        contentStartPosX += bookmarkAreaWidth + SeparatorWidth;
+    }
 
     // Update the length of line numbers
     const int nbDigitsInLineNumber = countDigits( maxDisplayLineNumber().get() );

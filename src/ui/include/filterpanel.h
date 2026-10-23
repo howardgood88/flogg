@@ -83,6 +83,9 @@ class FilterPanel : public QWidget {
     // Hit counts of the current tab, filters without a count are shown blank
     void setHitCounts( const FilterHits& hits );
 
+    // Applies the configured keyboard shortcuts
+    void updateShortcuts();
+
   Q_SIGNALS:
     void filtersChanged();
     void searchFragmentRequested( const std::vector<FilterNode>& filters, FilterSearchMode mode );
@@ -96,11 +99,15 @@ class FilterPanel : public QWidget {
     void toggleSuspendSelected();
     void toggleSuspendAll();
     void setAllEnabled( bool enabled );
+    // Filters are checked or unchecked, groups stand for all their filters
+    void setSelectedEnabled( bool enabled );
+    void moveCurrent( bool up );
     void openFile();
     void saveFileAs();
     void importTatFile();
     void importKloggSettings();
     void showContextMenu( const QPoint& pos );
+    void showHeaderMenu( const QPoint& pos );
     void requestSearchFragment( FilterSearchMode mode );
     void requestFind( bool backward );
     void onTreeChanged();
@@ -115,7 +122,9 @@ class FilterPanel : public QWidget {
     void updateSuspendedLook( QTreeWidgetItem* item, bool parentSuspended );
     bool selectionSuspended() const;
     bool anySuspended() const;
-    void updateSuspendAction();
+    void updateActions();
+    void moveItem( QTreeWidgetItem* item, QTreeWidgetItem* newParent, int index );
+    void saveHeaderState();
     QTreeWidgetItem* insertionParent() const;
     void insertItem( QTreeWidgetItem* item );
     std::vector<FilterNode> selectedFiltersForSearch() const;
@@ -136,6 +145,11 @@ class FilterPanel : public QWidget {
     QAction* suspendAction_;
     QAction* findNextAction_;
     QAction* findPreviousAction_;
+    QAction* addFilterAction_;
+    QAction* editAction_;
+    QAction* deleteAction_;
+    QAction* moveUpAction_;
+    QAction* moveDownAction_;
 
     // Per item filter properties (the tree structure and check states
     // are held by the QTreeWidget itself)

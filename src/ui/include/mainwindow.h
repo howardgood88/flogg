@@ -256,6 +256,7 @@ class MainWindow : public QMainWindow {
     QAction* openClipboardAction;
     QAction* openUrlAction;
     QAction* overviewVisibleAction;
+    QAction* mainViewVisibleAction;
     QAction* lineNumbersVisibleInMainAction;
     QAction* lineNumbersVisibleInFilteredAction;
     QAction* followAction;

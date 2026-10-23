@@ -75,6 +75,16 @@ struct ShortcutAction {
     static constexpr auto MainWindowCopyPathToClipboard = "mainwindow.copy_path_to_clipboard";
     static constexpr auto MainWindowOpenFromClipboard = "mainwindow.open_from_clipboard";
     static constexpr auto MainWindowOpenFromUrl = "mainwindow.open_from_url";
+    static constexpr auto MainWindowToggleMainView = "mainwindow.toggle_main_view";
+    static constexpr auto MainWindowToggleFilterPanel = "mainwindow.toggle_filter_panel";
+
+    static constexpr auto FilterPanelFindNext = "filterpanel.find_next";
+    static constexpr auto FilterPanelFindPrevious = "filterpanel.find_previous";
+    static constexpr auto FilterPanelAddFilter = "filterpanel.add_filter";
+    static constexpr auto FilterPanelEdit = "filterpanel.edit";
+    static constexpr auto FilterPanelDelete = "filterpanel.delete";
+    static constexpr auto FilterPanelMoveUp = "filterpanel.move_up";
+    static constexpr auto FilterPanelMoveDown = "filterpanel.move_down";
 
     static constexpr auto LogViewMark = "logview.mark";
     static constexpr auto LogViewNextMark = "logview.next_mark";
@@ -146,6 +156,7 @@ struct ShortcutAction {
     static constexpr auto LogViewAddToSearch = "logview.add_to_search";
     static constexpr auto LogViewExcludeFromSearch = "logview.exclude_from_search";
     static constexpr auto LogViewReplaceSearch = "logview.replace_search";
+    static constexpr auto LogViewAddAsFilter = "logview.add_as_filter";
     static constexpr auto LogViewSelectLinesUp = "logview.select_lines_up";
     static constexpr auto LogViewSelectLinesDown = "logview.select_lines_down";
 

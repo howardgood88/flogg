@@ -114,6 +114,7 @@ void signalCrawlerToFollowFile( CrawlerWidget* crawler_widget )
 }
 
 static constexpr auto ClipboardMaxTry = 5;
+static constexpr auto MainViewVisibleKey = "mainWindow/mainViewVisible";
 
 } // namespace
 
@@ -535,6 +536,18 @@ void MainWindow::createActions()
     connect( overviewVisibleAction, &QAction::toggled, this,
              &MainWindow::toggleOverviewVisibility );
 
+    mainViewVisibleAction = new QAction( tr( "Show &main log view" ), this );
+    mainViewVisibleAction->setCheckable( true );
+    mainViewVisibleAction->setChecked( PersistentInfo::getSettings( app_settings{} )
+                                           .value( MainViewVisibleKey, true )
+                                           .toBool() );
+    connect( mainViewVisibleAction, &QAction::toggled, this, [ this ]( bool isVisible ) {
+        PersistentInfo::getSettings( app_settings{} ).setValue( MainViewVisibleKey, isVisible );
+        if ( auto* crawler = currentCrawlerWidget() ) {
+            crawler->setMainViewVisible( isVisible );
+        }
+    } );
+
     lineNumbersVisibleInMainAction
         = new QAction( tr( action::lineNumbersVisibleInMainText ), this );
     lineNumbersVisibleInMainAction->setCheckable( true );
@@ -681,6 +694,13 @@ void MainWindow::updateShortcuts()
     setShortcuts( selectOpenFileAction, ShortcutAction::MainWindowSelectOpenFile );
     setShortcuts( goToLineAction, ShortcutAction::LogViewJumpToLine );
     setShortcuts( optionsAction, ShortcutAction::MainWindowPreference );
+    setShortcuts( mainViewVisibleAction, ShortcutAction::MainWindowToggleMainView );
+
+    // The filter panel is created after the first call
+    if ( filterDock_ ) {
+        setShortcuts( filterDock_->toggleViewAction(), ShortcutAction::MainWindowToggleFilterPanel );
+        filterPanel_->updateShortcuts();
+    }
 }
 
 void MainWindow::loadIcons()
@@ -741,6 +761,7 @@ void MainWindow::createMenus()
     openedFilesMenu = viewMenu->addMenu( tr( menu::openedFilesTitle ) );
     viewMenu->addSeparator();
     viewMenu->addAction( overviewVisibleAction );
+    viewMenu->addAction( mainViewVisibleAction );
     viewMenu->addSeparator();
     viewMenu->addAction( lineNumbersVisibleInMainAction );
     viewMenu->addAction( lineNumbersVisibleInFilteredAction );
@@ -1368,6 +1389,7 @@ void MainWindow::currentTabChanged( int index )
 
         updateMenuBarFromDocument( crawler_widget );
         updateTitleBar( session_.getFilename( crawler_widget ) );
+        crawler_widget->setMainViewVisible( mainViewVisibleAction->isChecked() );
         applyFiltersToCurrentCrawler();
         updateFavoritesMenu();
 
@@ -2107,6 +2129,9 @@ void MainWindow::setupFilterPanel()
 
     viewMenu->addSeparator();
     viewMenu->addAction( filterDock_->toggleViewAction() );
+    toolsMenu->addSeparator();
+    toolsMenu->addAction( filterDock_->toggleViewAction() );
+    updateShortcuts();
 
     connect( filterPanel_, &FilterPanel::filtersChanged, this,
              &MainWindow::applyFiltersToCurrentCrawler );

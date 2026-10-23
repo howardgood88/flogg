@@ -29,6 +29,7 @@ class QComboBox;
 class QDialogButtonBox;
 class QLabel;
 class QLineEdit;
+class QPlainTextEdit;
 class QToolButton;
 
 class FilterEditDialog : public QDialog {
@@ -49,7 +50,7 @@ class FilterEditDialog : public QDialog {
     FilterNode filter_;
 
     QLineEdit* patternEdit_;
-    QLineEdit* descriptionEdit_;
+    QPlainTextEdit* descriptionEdit_;
     QCheckBox* regexCheck_;
     QCheckBox* caseCheck_;
     QCheckBox* excludeCheck_;

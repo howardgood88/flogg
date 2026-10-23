@@ -193,6 +193,12 @@ class AbstractLogView : public QAbstractScrollArea, public SearchableWidgetInter
         return 0;
     }
 
+    // Whether any line of the file holds a numbered bookmark
+    virtual bool hasBookmarks() const
+    {
+        return false;
+    }
+
     // Line number to display for line at the given index
     virtual LineNumber displayLineNumber( LineNumber lineNumber ) const;
     virtual LineNumber lineIndex( LineNumber lineNumber ) const;

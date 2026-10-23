@@ -43,9 +43,11 @@
 #include <QTreeWidgetItemIterator>
 #include <QVBoxLayout>
 
+#include "configuration.h"
 #include "filtereditdialog.h"
 #include "log.h"
 #include "persistentinfo.h"
+#include "shortcuts.h"
 
 #include "filterpanel.h"
 
@@ -60,6 +62,7 @@ constexpr int DescriptionColumn = 2;
 
 constexpr auto CurrentFileKey = "filterPanel/currentFile";
 constexpr auto RecentFilesKey = "filterPanel/recentFiles";
+constexpr auto HeaderStateKey = "filterPanel/headerState";
 constexpr int MaxRecentFiles = 8;
 constexpr auto FileFilter = "flogg filters (*.flogg-filters.json);;All files (*)";
 
@@ -79,6 +82,49 @@ QSettings& settings()
 bool isGroupItem( const QTreeWidgetItem* item )
 {
     return item->flags().testFlag( Qt::ItemIsDropEnabled );
+}
+
+// Thin arrow drawn with the text colour, matching the text only tool buttons
+QIcon arrowIcon( bool up, const QPalette& palette )
+{
+    constexpr int Size = 12;
+    constexpr qreal Scale = 2;
+
+    QIcon icon;
+    for ( const auto mode : { QIcon::Normal, QIcon::Disabled } ) {
+        QPixmap pixmap( static_cast<int>( Size * Scale ), static_cast<int>( Size * Scale ) );
+        pixmap.setDevicePixelRatio( Scale );
+        pixmap.fill( Qt::transparent );
+
+        QPainter painter( &pixmap );
+        painter.setRenderHint( QPainter::Antialiasing );
+        const auto group = mode == QIcon::Disabled ? QPalette::Disabled : QPalette::Active;
+        painter.setPen( QPen( palette.color( group, QPalette::ButtonText ), 1.3, Qt::SolidLine,
+                              Qt::RoundCap, Qt::RoundJoin ) );
+
+        const qreal tip = up ? 2 : Size - 2;
+        const qreal tail = up ? Size - 2 : 2;
+        const qreal head = up ? 4 : -4;
+        const qreal middle = Size / 2.0;
+        painter.drawLine( QPointF( middle, tip ), QPointF( middle, tail ) );
+        painter.drawPolyline( QPolygonF{ { middle - 3.5, tip + head },
+                                         { middle, tip },
+                                         { middle + 3.5, tip + head } } );
+        painter.end();
+
+        icon.addPixmap( pixmap, mode );
+    }
+    return icon;
+}
+
+bool isSameOrChild( const QTreeWidgetItem* item, const QTreeWidgetItem* ancestor )
+{
+    for ( ; item; item = item->parent() ) {
+        if ( item == ancestor ) {
+            return true;
+        }
+    }
+    return false;
 }
 
 // Lays out widgets left to right, wrapping to a new row when the width runs out
@@ -369,16 +415,6 @@ class FilterTreeWidget : public QTreeWidget {
         }
     }
 
-    static bool isSameOrChild( const QTreeWidgetItem* item, const QTreeWidgetItem* ancestor )
-    {
-        for ( ; item; item = item->parent() ) {
-            if ( item == ancestor ) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     QTreeWidgetItem* tailParent_ = nullptr;
     QRect tailIndicator_;
 };
@@ -407,19 +443,30 @@ void FilterPanel::setupUi()
     tree_ = new FilterTreeWidget;
     tree_->setColumnCount( 3 );
     tree_->setHeaderLabels( { tr( "Filter" ), tr( "Hits" ), tr( "Description" ) } );
-    tree_->header()->setSectionResizeMode( PatternColumn, QHeaderView::Stretch );
-    tree_->header()->setSectionResizeMode( HitsColumn, QHeaderView::ResizeToContents );
-    tree_->header()->setStretchLastSection( false );
     tree_->setSelectionMode( QAbstractItemView::ExtendedSelection );
     tree_->setDragDropMode( QAbstractItemView::InternalMove );
     tree_->setDefaultDropAction( Qt::MoveAction );
     tree_->setContextMenuPolicy( Qt::CustomContextMenu );
     tree_->setUniformRowHeights( true );
 
+    // Each column is resized by its own right edge only, a wider panel just shows more room
+    auto* header = tree_->header();
+    header->setSectionResizeMode( QHeaderView::Interactive );
+    header->setStretchLastSection( false );
+    header->setSectionsMovable( false );
+    tree_->setColumnWidth( PatternColumn, 220 );
+    tree_->setColumnWidth( HitsColumn, 60 );
+    tree_->setColumnWidth( DescriptionColumn, 200 );
+    header->restoreState( settings().value( HeaderStateKey ).toByteArray() );
+    header->setContextMenuPolicy( Qt::CustomContextMenu );
+    connect( header, &QWidget::customContextMenuRequested, this, &FilterPanel::showHeaderMenu );
+    connect( header, &QHeaderView::sectionResized, this, &FilterPanel::saveHeaderState );
+
     connect( tree_, &QTreeWidget::itemChanged, this, &FilterPanel::onTreeChanged );
     connect( tree_, &QTreeWidget::itemDoubleClicked, this, &FilterPanel::editCurrent );
     connect( tree_, &QWidget::customContextMenuRequested, this, &FilterPanel::showContextMenu );
-    connect( tree_, &QTreeWidget::itemSelectionChanged, this, &FilterPanel::updateSuspendAction );
+    connect( tree_, &QTreeWidget::itemSelectionChanged, this, &FilterPanel::updateActions );
+    connect( tree_, &QTreeWidget::currentItemChanged, this, &FilterPanel::updateActions );
     connect( tree_->model(), &QAbstractItemModel::rowsInserted, this,
              &FilterPanel::onTreeChanged );
     connect( tree_->model(), &QAbstractItemModel::rowsRemoved, this,
@@ -434,22 +481,30 @@ void FilterPanel::setupUi()
         return button;
     };
 
-    auto* addFilterAction = new QAction( tr( "+ Filter" ), this );
-    addFilterAction->setToolTip( tr( "Add a filter (Ins)" ) );
-    connect( addFilterAction, &QAction::triggered, this, &FilterPanel::addFilter );
-    addButton( addFilterAction );
+    auto* addFilterButtonAction = new QAction( tr( "+ Filter" ), this );
+    addFilterButtonAction->setToolTip( tr( "Add a filter" ) );
+    connect( addFilterButtonAction, &QAction::triggered, this, &FilterPanel::addFilter );
+    const auto textButtonHeight = addButton( addFilterButtonAction )->sizeHint().height();
+
+    // Small and close together, as tall as the text buttons to stay aligned with them
+    const auto addArrowButton = [ addButton, textButtonHeight ]( QAction* action ) {
+        auto* button = addButton( action );
+        button->setIconSize( QSize( 12, 12 ) );
+        button->setStyleSheet( "QToolButton { padding: 0px 1px; }" );
+        button->setFixedHeight( textButtonHeight );
+        return button;
+    };
 
     auto* addGroupAction = new QAction( tr( "+ Group" ), this );
     connect( addGroupAction, &QAction::triggered, this, &FilterPanel::addGroup );
     addButton( addGroupAction );
 
-    // Text follows the selection, see updateSuspendAction()
+    // Text follows the selection, see updateActions()
     suspendAction_ = new QAction( tr( "Suspend" ), this );
     suspendAction_->setToolTip(
         tr( "Temporarily disable/enable the selected filters or groups without changing their "
             "check state" ) );
     connect( suspendAction_, &QAction::triggered, this, &FilterPanel::toggleSuspendSelected );
-    addButton( suspendAction_ );
 
     auto* fileMenu = new QMenu( this );
     fileMenu->addAction( tr( "Open filters..." ), this, &FilterPanel::openFile );
@@ -474,35 +529,43 @@ void FilterPanel::setupUi()
     connect( fileAction, &QAction::triggered, this, &FilterPanel::openFile );
     addButton( fileAction )->setPopupMode( QToolButton::MenuButtonPopup );
 
+    // Moving across the edge of a group moves in or out of it
+    moveUpAction_ = new QAction( arrowIcon( true, palette() ), tr( "Move up" ), this );
+    moveUpAction_->setShortcutContext( Qt::WidgetShortcut );
+    connect( moveUpAction_, &QAction::triggered, this, [ this ] { moveCurrent( true ); } );
+    addArrowButton( moveUpAction_ );
+    tree_->addAction( moveUpAction_ );
+
+    moveDownAction_ = new QAction( arrowIcon( false, palette() ), tr( "Move down" ), this );
+    moveDownAction_->setShortcutContext( Qt::WidgetShortcut );
+    connect( moveDownAction_, &QAction::triggered, this, [ this ] { moveCurrent( false ); } );
+    addArrowButton( moveDownAction_ );
+    tree_->addAction( moveDownAction_ );
+
     findNextAction_ = new QAction( tr( "Find next match of filter" ), this );
-    findNextAction_->setShortcut( Qt::Key_F8 );
     findNextAction_->setShortcutContext( Qt::WindowShortcut );
     connect( findNextAction_, &QAction::triggered, this, [ this ] { requestFind( false ); } );
     addAction( findNextAction_ );
 
     findPreviousAction_ = new QAction( tr( "Find previous match of filter" ), this );
-    findPreviousAction_->setShortcut( Qt::SHIFT | Qt::Key_F8 );
     findPreviousAction_->setShortcutContext( Qt::WindowShortcut );
     connect( findPreviousAction_, &QAction::triggered, this, [ this ] { requestFind( true ); } );
     addAction( findPreviousAction_ );
 
-    auto* deleteAction = new QAction( this );
-    deleteAction->setShortcut( QKeySequence::Delete );
-    deleteAction->setShortcutContext( Qt::WidgetShortcut );
-    connect( deleteAction, &QAction::triggered, this, &FilterPanel::deleteSelected );
-    tree_->addAction( deleteAction );
+    deleteAction_ = new QAction( tr( "Delete" ), this );
+    deleteAction_->setShortcutContext( Qt::WidgetShortcut );
+    connect( deleteAction_, &QAction::triggered, this, &FilterPanel::deleteSelected );
+    tree_->addAction( deleteAction_ );
 
-    auto* insertAction = new QAction( this );
-    insertAction->setShortcut( Qt::Key_Insert );
-    insertAction->setShortcutContext( Qt::WidgetShortcut );
-    connect( insertAction, &QAction::triggered, this, &FilterPanel::addFilter );
-    tree_->addAction( insertAction );
+    addFilterAction_ = new QAction( tr( "Add filter..." ), this );
+    addFilterAction_->setShortcutContext( Qt::WidgetShortcut );
+    connect( addFilterAction_, &QAction::triggered, this, &FilterPanel::addFilter );
+    tree_->addAction( addFilterAction_ );
 
-    auto* editAction = new QAction( this );
-    editAction->setShortcuts( { Qt::Key_Return, Qt::Key_Enter, Qt::Key_F2 } );
-    editAction->setShortcutContext( Qt::WidgetShortcut );
-    connect( editAction, &QAction::triggered, this, &FilterPanel::editCurrent );
-    tree_->addAction( editAction );
+    editAction_ = new QAction( tr( "Edit..." ), this );
+    editAction_->setShortcutContext( Qt::WidgetShortcut );
+    connect( editAction_, &QAction::triggered, this, &FilterPanel::editCurrent );
+    tree_->addAction( editAction_ );
 
     fileLabel_ = new QLabel;
     fileLabel_->setTextInteractionFlags( Qt::TextSelectableByMouse );
@@ -516,7 +579,57 @@ void FilterPanel::setupUi()
     layout->addWidget( fileLabel_ );
     setLayout( layout );
 
-    updateSuspendAction();
+    updateShortcuts();
+    updateActions();
+}
+
+void FilterPanel::updateShortcuts()
+{
+    const auto& shortcuts = Configuration::get().shortcuts();
+    const auto setShortcuts = [ &shortcuts ]( QAction* action, const std::string& actionName ) {
+        action->setShortcuts( ShortcutAction::shortcutKeys( actionName, shortcuts ) );
+    };
+
+    setShortcuts( findNextAction_, ShortcutAction::FilterPanelFindNext );
+    setShortcuts( findPreviousAction_, ShortcutAction::FilterPanelFindPrevious );
+    setShortcuts( addFilterAction_, ShortcutAction::FilterPanelAddFilter );
+    setShortcuts( editAction_, ShortcutAction::FilterPanelEdit );
+    setShortcuts( deleteAction_, ShortcutAction::FilterPanelDelete );
+    setShortcuts( moveUpAction_, ShortcutAction::FilterPanelMoveUp );
+    setShortcuts( moveDownAction_, ShortcutAction::FilterPanelMoveDown );
+
+    // Tool tips of the tool bar buttons show the shortcut
+    for ( auto* action : { moveUpAction_, moveDownAction_ } ) {
+        const auto shortcut = action->shortcut().toString( QKeySequence::NativeText );
+        action->setToolTip( shortcut.isEmpty() ? action->text()
+                                               : QString( "%1 (%2)" ).arg( action->text(),
+                                                                           shortcut ) );
+    }
+}
+
+void FilterPanel::saveHeaderState()
+{
+    settings().setValue( HeaderStateKey, tree_->header()->saveState() );
+}
+
+void FilterPanel::showHeaderMenu( const QPoint& pos )
+{
+    auto* header = tree_->header();
+
+    QMenu menu( this );
+    for ( int column = 0; column < tree_->columnCount(); ++column ) {
+        auto* action = menu.addAction( tree_->headerItem()->text( column ) );
+        action->setCheckable( true );
+        action->setChecked( !header->isSectionHidden( column ) );
+        // The filter column holds the tree and the check boxes
+        action->setEnabled( column != PatternColumn );
+        connect( action, &QAction::toggled, this, [ this, header, column ]( bool visible ) {
+            header->setSectionHidden( column, !visible );
+            saveHeaderState();
+        } );
+    }
+
+    menu.exec( header->mapToGlobal( pos ) );
 }
 
 void FilterPanel::addFilterFromText( const QString& text )
@@ -627,7 +740,7 @@ void FilterPanel::toggleSuspendSelected()
     }
     loading_ = false;
 
-    updateSuspendAction();
+    updateActions();
     scheduleChange();
 }
 
@@ -642,7 +755,7 @@ void FilterPanel::toggleSuspendAll()
     }
     loading_ = false;
 
-    updateSuspendAction();
+    updateActions();
     scheduleChange();
 }
 
@@ -660,7 +773,27 @@ void FilterPanel::setAllEnabled( bool enabled )
 {
     loading_ = true;
     for ( QTreeWidgetItemIterator it( tree_ ); *it; ++it ) {
-        ( *it )->setCheckState( PatternColumn, enabled ? Qt::Checked : Qt::Unchecked );
+        if ( !isGroupItem( *it ) ) {
+            ( *it )->setCheckState( PatternColumn, enabled ? Qt::Checked : Qt::Unchecked );
+        }
+    }
+    loading_ = false;
+
+    scheduleChange();
+}
+
+void FilterPanel::setSelectedEnabled( bool enabled )
+{
+    loading_ = true;
+    for ( auto* selected : tree_->selectedItems() ) {
+        for ( QTreeWidgetItemIterator it( selected ); *it; ++it ) {
+            if ( *it != selected && !isSameOrChild( *it, selected ) ) {
+                break;
+            }
+            if ( !isGroupItem( *it ) ) {
+                ( *it )->setCheckState( PatternColumn, enabled ? Qt::Checked : Qt::Unchecked );
+            }
+        }
     }
     loading_ = false;
 
@@ -676,10 +809,70 @@ bool FilterPanel::selectionSuspended() const
               } );
 }
 
-void FilterPanel::updateSuspendAction()
+void FilterPanel::updateActions()
 {
     suspendAction_->setEnabled( !tree_->selectedItems().isEmpty() );
     suspendAction_->setText( selectionSuspended() ? tr( "Resume" ) : tr( "Suspend" ) );
+
+    const auto hasCurrent = tree_->currentItem() != nullptr;
+    moveUpAction_->setEnabled( hasCurrent );
+    moveDownAction_->setEnabled( hasCurrent );
+}
+
+void FilterPanel::moveCurrent( bool up )
+{
+    auto* item = tree_->currentItem();
+    if ( !item ) {
+        return;
+    }
+
+    auto* root = tree_->invisibleRootItem();
+    auto* parent = item->parent() ? item->parent() : root;
+    const auto siblingIndex = parent->indexOfChild( item ) + ( up ? -1 : 1 );
+
+    if ( siblingIndex < 0 || siblingIndex >= parent->childCount() ) {
+        // At the edge of a group: out of it, right before or after the group
+        if ( parent == root ) {
+            return;
+        }
+        auto* grandParent = parent->parent() ? parent->parent() : root;
+        moveItem( item, grandParent, grandParent->indexOfChild( parent ) + ( up ? 0 : 1 ) );
+        return;
+    }
+
+    auto* sibling = parent->child( siblingIndex );
+    if ( isGroupItem( sibling ) && ( sibling->isExpanded() || sibling->childCount() == 0 ) ) {
+        // Into the open group next to the item, at its near edge
+        moveItem( item, sibling, up ? sibling->childCount() : 0 );
+        return;
+    }
+
+    moveItem( item, parent, siblingIndex );
+}
+
+void FilterPanel::moveItem( QTreeWidgetItem* item, QTreeWidgetItem* newParent, int index )
+{
+    // Taking an item out of the tree forgets which groups were expanded
+    std::vector<QTreeWidgetItem*> expanded;
+    for ( QTreeWidgetItemIterator it( item ); *it && isSameOrChild( *it, item ); ++it ) {
+        if ( ( *it )->isExpanded() ) {
+            expanded.push_back( *it );
+        }
+    }
+
+    auto* oldParent = item->parent() ? item->parent() : tree_->invisibleRootItem();
+    oldParent->takeChild( oldParent->indexOfChild( item ) );
+    newParent->insertChild( index, item );
+
+    for ( auto* group : expanded ) {
+        group->setExpanded( true );
+    }
+    if ( newParent != tree_->invisibleRootItem() ) {
+        newParent->setExpanded( true );
+    }
+
+    tree_->setCurrentItem( item );
+    tree_->scrollToItem( item );
 }
 
 void FilterPanel::openFile()
@@ -775,19 +968,33 @@ void FilterPanel::showContextMenu( const QPoint& pos )
     QMenu menu( this );
     const auto hasSelection = !tree_->selectedItems().isEmpty();
 
-    menu.addAction( tr( "Add filter..." ), this, &FilterPanel::addFilter );
+    const auto* clickedItem = tree_->itemAt( pos );
+
+    menu.addAction( addFilterAction_ );
     menu.addAction( tr( "Add group..." ), this, &FilterPanel::addGroup );
-    if ( tree_->itemAt( pos ) ) {
-        menu.addAction( tr( "Edit..." ), this, &FilterPanel::editCurrent );
-        menu.addAction( tr( "Delete" ), this, &FilterPanel::deleteSelected );
+    if ( clickedItem ) {
+        menu.addAction( editAction_ );
+        menu.addAction( deleteAction_ );
+        menu.addAction( moveUpAction_ );
+        menu.addAction( moveDownAction_ );
     }
+    menu.addSeparator();
+
+    // Groups have no check box: enabling a group checks all the filters it contains
+    if ( hasSelection ) {
+        const auto onGroup = clickedItem && isGroupItem( clickedItem );
+        menu.addAction( onGroup ? tr( "Enable in group" ) : tr( "Enable" ), this,
+                        [ this ] { setSelectedEnabled( true ); } );
+        menu.addAction( onGroup ? tr( "Disable in group" ) : tr( "Disable" ), this,
+                        [ this ] { setSelectedEnabled( false ); } );
+    }
+    menu.addAction( tr( "Enable all" ), this, [ this ] { setAllEnabled( true ); } );
+    menu.addAction( tr( "Disable all" ), this, [ this ] { setAllEnabled( false ); } );
     menu.addSeparator();
 
     menu.addAction( suspendAction_ );
     menu.addAction( anySuspended() ? tr( "Resume all" ) : tr( "Suspend all" ), this,
                     &FilterPanel::toggleSuspendAll );
-    menu.addAction( tr( "Enable all" ), this, [ this ] { setAllEnabled( true ); } );
-    menu.addAction( tr( "Disable all" ), this, [ this ] { setAllEnabled( false ); } );
     menu.addSeparator();
 
     menu.addAction( tr( "Add to search" ), this,
@@ -929,7 +1136,8 @@ FilterNode FilterPanel::buildNode( const QTreeWidgetItem* item ) const
 {
     auto node = nodes_.at( item->data( PatternColumn, IdRole ).toString() );
     node.suspended = item->data( PatternColumn, SuspendedRole ).toBool();
-    node.enabled = item->checkState( PatternColumn ) != Qt::Unchecked;
+    // Groups have no check box of their own
+    node.enabled = isGroupItem( item ) || item->checkState( PatternColumn ) != Qt::Unchecked;
 
     for ( int i = 0; i < item->childCount(); ++i ) {
         node.children.push_back( buildNode( item->child( i ) ) );
@@ -950,19 +1158,15 @@ QTreeWidgetItem* FilterPanel::createItem( const FilterNode& node )
     item->setData( PatternColumn, SuspendedRole, node.suspended );
 
     if ( node.isGroup() ) {
-        item->setFlags( Qt::ItemIsSelectable | Qt::ItemIsEnabled | Qt::ItemIsUserCheckable
-                        | Qt::ItemIsDragEnabled | Qt::ItemIsDropEnabled
-                        | Qt::ItemIsAutoTristate );
+        // No check box, to avoid switching a whole group by mistake: groups are
+        // enabled or disabled from the context menu
+        item->setFlags( Qt::ItemIsSelectable | Qt::ItemIsEnabled | Qt::ItemIsDragEnabled
+                        | Qt::ItemIsDropEnabled );
         // Expand arrow even when empty, so that a new group does not look like a filter
         item->setChildIndicatorPolicy( QTreeWidgetItem::ShowIndicator );
 
         for ( const auto& child : node.children ) {
             item->addChild( createItem( child ) );
-        }
-
-        // Check state of a non empty group is derived from its children
-        if ( node.children.empty() ) {
-            item->setCheckState( PatternColumn, node.enabled ? Qt::Checked : Qt::Unchecked );
         }
     }
     else {
@@ -991,7 +1195,13 @@ void FilterPanel::updateItem( QTreeWidgetItem* item )
     }
     else {
         item->setText( PatternColumn, ( node.exclude ? "¬ " : "" ) + node.pattern );
-        item->setText( DescriptionColumn, node.name );
+        // Only the first line of a long description, all of it in the tool tip
+        const auto description = node.name.trimmed();
+        const auto firstLine = description.section( '\n', 0, 0 ).trimmed();
+        item->setText( DescriptionColumn, firstLine.size() < description.size()
+                                              ? firstLine + QStringLiteral( " \u2026" )
+                                              : description );
+        item->setToolTip( DescriptionColumn, description );
 
         // Same check as the search: such patterns are verified line by line with Qt regex
         const MultiRegularExpression expression{ { filters::toPattern( node ) } };
