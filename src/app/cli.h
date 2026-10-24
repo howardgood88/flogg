@@ -28,6 +28,7 @@
 #include <QCoreApplication>
 #include <QFileInfo>
 #include <QString>
+#include <QStringList>
 
 #include "klogg_version.h"
 #include "log.h"
@@ -49,17 +50,54 @@ struct CliParameters {
 
     QString pattern;
 
+    QString filters_file;
+
+    static constexpr auto ConfigOptionName = "config";
+
+    // The settings are read before the application object exists, so the configuration
+    // file is looked up in the raw arguments (only as --config file or --config=file)
+    static QString configFileFromArguments( const QStringList& arguments )
+    {
+        const auto option = QString( "--" ) + ConfigOptionName;
+        for ( auto i = 1; i < arguments.size(); ++i ) {
+            const auto& argument = arguments.at( i );
+            if ( argument == "--" ) {
+                break;
+            }
+            if ( argument == option && i + 1 < arguments.size() ) {
+                return arguments.at( i + 1 );
+            }
+            if ( argument.startsWith( option + "=" ) ) {
+                return argument.mid( option.size() + 1 );
+            }
+        }
+        return {};
+    }
+
     CliParameters( QCoreApplication& app, bool console = false )
     {
         QCommandLineParser parser;
         parser.setApplicationDescription( "flogg log viewer" );
         const auto helpOption = parser.addHelpOption();
+        // Shown without the build number, in a message box on Windows
+        QCoreApplication::setApplicationVersion( releaseVersion() );
         const auto versionOption = parser.addVersionOption();
 
         const QCommandLineOption multiInstanceOption(
             QStringList() << "m"
                           << "multi",
-            "allow multiple instance of flogg to run simultaneously (use together with -s)" );
+            "allow multiple instance of flogg to run simultaneously (use together with -s, "
+            "--config or --filters)" );
+
+        const QCommandLineOption configOption(
+            ConfigOptionName,
+            "keep the settings in this file instead of flogg.conf (the session goes to "
+            "<name>_session.conf next to it)",
+            "file" );
+
+        const QCommandLineOption filtersOption(
+            "filters", "load the filters from this file, without making it the default one",
+            "file" );
 
         const QCommandLineOption loadSessionOption(
             QStringList() << "s"
@@ -102,6 +140,8 @@ struct CliParameters {
             parser.addOption( followOption );
             parser.addOption( windowWidthOption );
             parser.addOption( windowHeightOption );
+            parser.addOption( configOption );
+            parser.addOption( filtersOption );
         }
         else {
             parser.addOption( patternOption );
@@ -114,8 +154,7 @@ struct CliParameters {
         }
 
         if ( parser.isSet( versionOption ) ) {
-            print_version();
-            exit( EXIT_SUCCESS );
+            parser.showVersion();
         }
 
         if (parser.value( debugOption ).toInt() > 0) {
@@ -144,6 +183,10 @@ struct CliParameters {
             if ( parser.isSet( followOption ) ) {
                 follow_file = true;
             }
+
+            if ( parser.isSet( filtersOption ) ) {
+                filters_file = QFileInfo( parser.value( filtersOption ) ).absoluteFilePath();
+            }
         }
         else {
 
@@ -158,18 +201,11 @@ struct CliParameters {
         }
     }
 
-    static void print_version()
+    // Release version without the build number: 1.0.0 for 1.0.0.3
+    static QString releaseVersion()
     {
-        std::cout << "flogg " << kloggVersion().data() << "\n";
-        std::cout << "Built " << kloggBuildDate().data() << " from " << kloggCommit().data() << "("
-                  << kloggGitVersion().data() << ")\n";
-
-        std::cout
-            << "Copyright (C) 2020 Nicolas Bonnefon, Anton Filimonov and other contributors\n";
-        std::cout
-            << "This is free software.  You may redistribute copies of it under the terms of\n";
-        std::cout << "the GNU General Public License <http://www.gnu.org/licenses/gpl.html>.\n";
-        std::cout << "There is NO WARRANTY, to the extent permitted by law.\n";
+        const auto parts = QString( kloggVersion() ).split( '.' );
+        return parts.mid( 0, 3 ).join( '.' );
     }
 };
 

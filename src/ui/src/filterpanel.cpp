@@ -69,10 +69,45 @@ constexpr auto FileFilter = "flogg filters (*.flogg-filters.json);;All files (*)
 
 QString defaultFiltersFile()
 {
-    const auto dir
-        = QStandardPaths::writableLocation( QStandardPaths::GenericDataLocation ) + "/flogg";
+    // Next to the settings when they are kept in a file of their own
+    auto dir = PersistentInfo::portableDirectory();
+    if ( dir.isEmpty() ) {
+        dir = QStandardPaths::writableLocation( QStandardPaths::GenericDataLocation ) + "/flogg";
+    }
     QDir{}.mkpath( dir );
     return dir + "/filters.flogg-filters.json";
+}
+
+QString& startupFile()
+{
+    static QString path;
+    return path;
+}
+
+// Filter files in the folder of portable settings are remembered relative to it,
+// so that the folder still works when it is moved or copied elsewhere
+QString toRememberedPath( const QString& path )
+{
+    const auto dir = PersistentInfo::portableDirectory();
+    if ( dir.isEmpty() ) {
+        return path;
+    }
+
+    const auto relativePath = QDir( dir ).relativeFilePath( path );
+    if ( QDir::isAbsolutePath( relativePath ) || relativePath == ".."
+         || relativePath.startsWith( "../" ) ) {
+        return path;
+    }
+    return relativePath;
+}
+
+QString fromRememberedPath( const QString& path )
+{
+    const auto dir = PersistentInfo::portableDirectory();
+    if ( dir.isEmpty() || path.isEmpty() || QDir::isAbsolutePath( path ) ) {
+        return path;
+    }
+    return QDir::cleanPath( QDir( dir ).absoluteFilePath( path ) );
 }
 
 QSettings& settings()
@@ -471,11 +506,21 @@ FilterPanel::FilterPanel( QWidget* parent )
     changeTimer_.setInterval( 150 );
     connect( &changeTimer_, &QTimer::timeout, this, &FilterPanel::publishChange );
 
-    auto file = settings().value( CurrentFileKey ).toString();
+    if ( !startupFile().isEmpty() ) {
+        loadFile( startupFile(), false );
+        return;
+    }
+
+    auto file = fromRememberedPath( settings().value( CurrentFileKey ).toString() );
     if ( file.isEmpty() ) {
         file = defaultFiltersFile();
     }
     loadFile( file );
+}
+
+void FilterPanel::setStartupFile( const QString& path )
+{
+    startupFile() = path;
 }
 
 void FilterPanel::setupUi()
@@ -553,7 +598,8 @@ void FilterPanel::setupUi()
     connect( recentMenu, &QMenu::aboutToShow, this, [ this, recentMenu ] {
         recentMenu->clear();
         const auto recentFiles = settings().value( RecentFilesKey ).toStringList();
-        for ( const auto& file : recentFiles ) {
+        for ( const auto& rememberedFile : recentFiles ) {
+            const auto file = fromRememberedPath( rememberedFile );
             recentMenu->addAction( QDir::toNativeSeparators( file ), this,
                                    [ this, file ] { loadFile( file ); } );
         }
@@ -938,7 +984,7 @@ void FilterPanel::saveFileAs()
     }
 
     currentFile_ = path;
-    settings().setValue( CurrentFileKey, currentFile_ );
+    settings().setValue( CurrentFileKey, toRememberedPath( currentFile_ ) );
     addRecentFile( currentFile_ );
     saveCurrentFile();
     updateFileLabel();
@@ -1334,7 +1380,7 @@ void FilterPanel::insertItem( QTreeWidgetItem* item )
     scheduleChange();
 }
 
-void FilterPanel::loadFile( const QString& path )
+void FilterPanel::loadFile( const QString& path, bool remember )
 {
     QString error;
     auto root = QFileInfo::exists( path ) ? filters::loadFromFile( path, &error )
@@ -1349,8 +1395,10 @@ void FilterPanel::loadFile( const QString& path )
     }
 
     currentFile_ = path;
-    settings().setValue( CurrentFileKey, currentFile_ );
-    addRecentFile( currentFile_ );
+    if ( remember ) {
+        settings().setValue( CurrentFileKey, toRememberedPath( currentFile_ ) );
+        addRecentFile( currentFile_ );
+    }
 
     setRoot( *root );
     updateFileLabel();
@@ -1398,9 +1446,10 @@ void FilterPanel::updateHitCounts()
 
 void FilterPanel::addRecentFile( const QString& path )
 {
+    const auto rememberedPath = toRememberedPath( path );
     auto recentFiles = settings().value( RecentFilesKey ).toStringList();
-    recentFiles.removeAll( path );
-    recentFiles.prepend( path );
+    recentFiles.removeAll( rememberedPath );
+    recentFiles.prepend( rememberedPath );
     while ( recentFiles.size() > MaxRecentFiles ) {
         recentFiles.removeLast();
     }

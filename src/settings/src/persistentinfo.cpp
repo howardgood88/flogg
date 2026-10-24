@@ -60,13 +60,40 @@ constexpr const char SessionSettingsFile[] = "flogg_session";
 constexpr const char PortableExtension[] = ".conf";
 
 namespace {
+#ifndef Q_OS_MAC
 QString makeSessionSettingsPath( const QString& appConfigPath )
 {
     return QFileInfo( appConfigPath )
         .absoluteDir()
         .filePath( QString( SessionSettingsFile ) + PortableExtension );
 }
+#endif
+
+// flogg.conf keeps its session in flogg_session.conf, other.conf in other_session.conf,
+// so that instances started with different configuration files do not share a session
+QString makePortableSessionSettingsPath( const QString& appConfigPath )
+{
+    const QFileInfo configInfo( appConfigPath );
+    return configInfo.absoluteDir().filePath( configInfo.completeBaseName() + "_session"
+                                              + PortableExtension );
+}
+
+QString& configFileOverride()
+{
+    static QString path;
+    return path;
+}
 } // namespace
+
+void PersistentInfo::setConfigFile( const QString& path )
+{
+    configFileOverride() = QFileInfo( path ).absoluteFilePath();
+}
+
+QString PersistentInfo::portableDirectory()
+{
+    return getInstance().portableDirectory_;
+}
 
 PersistentInfo::PersistentInfo()
 {
@@ -81,11 +108,14 @@ PersistentInfo::PersistentInfo()
     }
 
     const auto portableConfigPath
-        = executablePath + QDir::separator() + ApplicationSessionFile + PortableExtension;
+        = configFileOverride().isEmpty()
+              ? executablePath + QDir::separator() + ApplicationSessionFile + PortableExtension
+              : configFileOverride();
 
     LOG_INFO << "Portable config path " << portableConfigPath;
 
-    const auto usePortableConfiguration = ForcePortable || QFileInfo::exists( portableConfigPath );
+    const auto usePortableConfiguration = ForcePortable || !configFileOverride().isEmpty()
+                                          || QFileInfo::exists( portableConfigPath );
 
     if ( usePortableConfiguration ) {
         PreparePortableSettings( portableConfigPath );
@@ -99,7 +129,9 @@ PersistentInfo::PersistentInfo()
 
 void PersistentInfo::PreparePortableSettings( const QString& portableConfigPath )
 {
-    const auto sessionSettingsPath = makeSessionSettingsPath( portableConfigPath );
+    const auto sessionSettingsPath = makePortableSessionSettingsPath( portableConfigPath );
+    portableDirectory_ = QFileInfo( portableConfigPath ).absolutePath();
+    QDir{}.mkpath( portableDirectory_ );
 
     if ( !QFileInfo::exists( sessionSettingsPath ) && QFileInfo::exists( portableConfigPath ) ) {
         QFile::copy( portableConfigPath, sessionSettingsPath );

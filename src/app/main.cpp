@@ -44,6 +44,8 @@
 #ifdef Q_OS_WIN
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+
+#include <shellapi.h>
 #endif // _WIN32
 
 #include <mimalloc.h>
@@ -57,13 +59,16 @@
 
 #include "configuration.h"
 #include "logger.h"
+#include "filterpanel.h"
 #include "mainwindow.h"
+#include "persistentinfo.h"
 #include "styles.h"
 
 #include "cli.h"
 #include "kloggapp.h"
 
-#ifdef KLOGG_PORTABLE
+// On Windows the settings and the filters are always kept next to flogg.exe
+#if defined( KLOGG_PORTABLE ) || defined( Q_OS_WIN )
 const bool PersistentInfo::ForcePortable = true;
 #else
 const bool PersistentInfo::ForcePortable = false;
@@ -113,11 +118,39 @@ void setApplicationAttributes( bool enableQtHdpi, int scaleFactorRounding )
     QCoreApplication::setAttribute( Qt::AA_DontShowIconsInMenus );
 }
 
+QStringList rawArguments( int argc, char* argv[] )
+{
+    QStringList arguments;
+#ifdef Q_OS_WIN
+    // argv is in the ANSI code page, which can't hold every file name
+    Q_UNUSED( argc );
+    Q_UNUSED( argv );
+    int count = 0;
+    if ( auto* wideArguments = ::CommandLineToArgvW( ::GetCommandLineW(), &count ) ) {
+        for ( int i = 0; i < count; ++i ) {
+            arguments.append( QString::fromWCharArray( wideArguments[ i ] ) );
+        }
+        ::LocalFree( wideArguments );
+    }
+#else
+    for ( int i = 0; i < argc; ++i ) {
+        arguments.append( QString::fromLocal8Bit( argv[ i ] ) );
+    }
+#endif
+    return arguments;
+}
+
 int main( int argc, char* argv[] )
 {
 #ifdef KLOGG_USE_MIMALLOC
     mi_process_init();
 #endif
+
+    // The settings are read before the command line is parsed
+    const auto configFile = CliParameters::configFileFromArguments( rawArguments( argc, argv ) );
+    if ( !configFile.isEmpty() ) {
+        PersistentInfo::setConfigFile( configFile );
+    }
 
     const auto& config = Configuration::getSynced();
     setApplicationAttributes( config.enableQtHighDpi(), config.scaleFactorRounding() );
@@ -127,6 +160,10 @@ int main( int argc, char* argv[] )
 
     MainWindow::installLanguage( config.language() );
     CliParameters parameters( app );
+
+    if ( !parameters.filters_file.isEmpty() ) {
+        FilterPanel::setStartupFile( parameters.filters_file );
+    }
 
     const auto logLevel
         = static_cast<logging::LogLevel>( std::max( parameters.log_level, config.loggingLevel() ) );

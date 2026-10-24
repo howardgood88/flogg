@@ -67,6 +67,10 @@ class FilterPanel : public QWidget {
   public:
     explicit FilterPanel( QWidget* parent = nullptr );
 
+    // Filter file loaded by the panels created from now on (instead of the remembered one),
+    // without remembering it
+    static void setStartupFile( const QString& path );
+
     std::shared_ptr<const FilterSnapshot> snapshot() const
     {
         return snapshot_;
@@ -131,7 +135,7 @@ class FilterPanel : public QWidget {
 
     void scheduleChange();
     void publishChange();
-    void loadFile( const QString& path );
+    void loadFile( const QString& path, bool remember = true );
     void saveCurrentFile();
     void updateFileLabel();
     void addRecentFile( const QString& path );

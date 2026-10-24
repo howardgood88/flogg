@@ -123,9 +123,8 @@ jobs:
           $release = "release\flogg"
           New-Item -ItemType Directory -Force $release | Out-Null
 
-          foreach ($name in "flogg", "flogg_portable", "flogg_grep") {
-            Copy-Item "$output\$name.exe" $release
-          }
+          # flogg.exe keeps its settings next to itself, flogg_portable.exe would be the same
+          Copy-Item "$output\flogg.exe" $release
 
           # oneTBB is built as a dll in a compiler specific folder
           $tbb = Get-ChildItem $env:BUILD_ROOT -Recurse -Filter tbb12.dll | Select-Object -First 1
@@ -134,7 +133,7 @@ jobs:
 
           windeployqt --release --no-translations --no-compiler-runtime `
             --no-system-d3d-compiler --no-system-dxc-compiler --no-opengl-sw `
-            "$release\flogg.exe" "$release\flogg_portable.exe"
+            "$release\flogg.exe"
           if ($LASTEXITCODE -ne 0) { throw "windeployqt failed" }
 
           $crt = Join-Path $env:VCToolsRedistDir "x64\Microsoft.VC143.CRT"

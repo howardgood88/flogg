@@ -487,4 +487,16 @@ Holding `Shift` while scrolling will scroll faster.
 |-l,--log           |save the log to a file                                    |
 |-f,--follow        |follow initial opened files                               |
 |-d,--debug         |output more debug (include multiple times for more verbosity e.g. -dddd) |
+|--config <file>    |keep the settings in this file instead of flogg.conf (the session goes to `<name>_session.conf` next to it) |
+|--filters <file>   |load the filters from this file, without making it the default one |
+
+On Windows the settings (`flogg.conf`, `flogg_session.conf`) and the default filter file
+(`filters.flogg-filters.json`) are kept next to `flogg.exe`.
+
+Several windows with their own settings and filters can be opened with `-m`:
+
+```
+flogg.exe -m --config team-a.conf --filters team-a.flogg-filters.json app.log
+flogg.exe -m --config team-b.conf --filters team-b.flogg-filters.json app.log
+```
 

@@ -56,6 +56,15 @@ class PersistentInfo {
     static QSettings& getSettings( app_settings );
     static QSettings& getSettings( session_settings );
 
+    // Keeps the settings in the given file instead of the default one,
+    // has to be called before the settings are first used
+    static void setConfigFile( const QString& path );
+
+    // Folder of the configuration file when the settings are kept in a file of their own
+    // (next to the executable or passed on the command line), empty when they are kept
+    // in the operating system location
+    static QString portableDirectory();
+
   private:
     static const bool ForcePortable;
 
@@ -69,5 +78,6 @@ class PersistentInfo {
 
     std::unique_ptr<QSettings> appSettings_;
     std::unique_ptr<QSettings> sessionSettings_;
+    QString portableDirectory_;
 };
 #endif

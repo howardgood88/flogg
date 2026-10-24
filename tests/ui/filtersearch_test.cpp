@@ -606,6 +606,87 @@ SCENARIO( "Filter panel drop below the last row rendering", "[.render]" )
     settings.setValue( "filterPanel/currentFile", previousFile );
 }
 
+SCENARIO( "Filter panel remembered and startup files", "[filters]" )
+{
+    const auto portableDir = PersistentInfo::portableDirectory();
+    REQUIRE( !portableDir.isEmpty() );
+
+    QTemporaryDir insideDir( portableDir + "/filters_test_XXXXXX" );
+    QTemporaryDir outsideDir;
+    REQUIRE( insideDir.isValid() );
+    REQUIRE( outsideDir.isValid() );
+
+    const auto saveFilters = []( const QString& path, const QString& pattern ) {
+        auto root = FilterNode::makeGroup( "root" );
+        root.children.push_back( FilterNode::makeFilter( pattern ) );
+        REQUIRE( filters::saveToFile( root, path ) );
+    };
+    const auto insideFile = insideDir.filePath( "inside.flogg-filters.json" );
+    const auto outsideFile = outsideDir.filePath( "outside.flogg-filters.json" );
+    saveFilters( insideFile, "inside" );
+    saveFilters( outsideFile, "outside" );
+
+    auto& settings = PersistentInfo::getSettings( app_settings{} );
+    const auto previousFile = settings.value( "filterPanel/currentFile" );
+    const auto previousRecentFiles = settings.value( "filterPanel/recentFiles" );
+
+    const auto firstPattern = []( const FilterPanel& panel ) {
+        const auto& filters = panel.snapshot()->filters;
+        return filters.empty() ? QString{} : filters.front().pattern;
+    };
+    const auto relativeInsideFile = QDir( portableDir ).relativeFilePath( insideFile );
+
+    GIVEN( "a filter file in the folder of the settings" )
+    {
+        settings.setValue( "filterPanel/currentFile", insideFile );
+
+        THEN( "it is remembered relative to that folder" )
+        {
+            FilterPanel panel;
+            CHECK( panel.currentFile() == insideFile );
+            CHECK( firstPattern( panel ) == "inside" );
+            CHECK( settings.value( "filterPanel/currentFile" ).toString() == relativeInsideFile );
+            CHECK( settings.value( "filterPanel/recentFiles" ).toStringList().front()
+                   == relativeInsideFile );
+
+            FilterPanel reopened;
+            CHECK( reopened.currentFile() == insideFile );
+            CHECK( firstPattern( reopened ) == "inside" );
+        }
+    }
+
+    GIVEN( "a filter file elsewhere" )
+    {
+        settings.setValue( "filterPanel/currentFile", outsideFile );
+
+        THEN( "it is remembered as is" )
+        {
+            FilterPanel panel;
+            CHECK( panel.currentFile() == outsideFile );
+            CHECK( settings.value( "filterPanel/currentFile" ).toString() == outsideFile );
+        }
+    }
+
+    GIVEN( "a startup file" )
+    {
+        settings.setValue( "filterPanel/currentFile", relativeInsideFile );
+        FilterPanel::setStartupFile( outsideFile );
+
+        THEN( "new panels load it without remembering it" )
+        {
+            FilterPanel panel;
+            CHECK( panel.currentFile() == outsideFile );
+            CHECK( firstPattern( panel ) == "outside" );
+            CHECK( settings.value( "filterPanel/currentFile" ).toString() == relativeInsideFile );
+        }
+
+        FilterPanel::setStartupFile( {} );
+    }
+
+    settings.setValue( "filterPanel/currentFile", previousFile );
+    settings.setValue( "filterPanel/recentFiles", previousRecentFiles );
+}
+
 SCENARIO( "Filter panel enable, disable and suspend all", "[filters]" )
 {
     QTemporaryDir dir;
