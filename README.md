@@ -1,10 +1,14 @@
 # flogg
 
+**English** | [繁體中文](README.zh-TW.md)
+
 flogg is a log viewer built on [klogg](https://github.com/variar/klogg). It keeps
 klogg's fast file reading and search, and replaces its search bar workflow with a
 [TextAnalysisTool](https://textanalysistool.github.io/) style filter panel: a list
 of filters that decides both which lines appear in the filtered view and how the
 main view is coloured.
+
+![flogg with the filter panel](docs/images/filter-panel.png)
 
 Downloads for Windows (x64) and macOS (Apple Silicon) are on the
 [releases page](https://github.com/howardgood88/flogg/releases/latest).
@@ -23,10 +27,11 @@ Downloads for Windows (x64) and macOS (Apple Silicon) are on the
   filter temporarily without losing its state.
 - Filters can have multi-line descriptions (first line in the list, all of it in
   the tool tip).
-- Move filters up and down, and in and out of groups, from the tool bar.
+- Reorder filters with drag and drop or the move buttons, including moving them in
+  and out of groups.
 - Columns resize independently; their widths and visibility are saved. Right click
   the header to choose the visible columns.
-- Add the current selection as a new filter.
+- Create a filter from the selected text or from the search box.
 
 ### Fast filtering
 
@@ -34,19 +39,16 @@ Downloads for Windows (x64) and macOS (Apple Silicon) are on the
   cached results and editing a filter rescans that pattern only.
 - Larger read blocks and no sleep polling in the search pipeline.
 
-### Navigation
+### Bookmarks and views
 
-- F8 / Shift+F8 jump to the next / previous match of the selected filter.
-- Numbered bookmarks 1-8 on any number of lines: Ctrl+N toggles, Alt+N and
-  Alt+Shift+N go to the next and previous line with bookmark N. The bookmark
-  column is only shown while the file has bookmarks.
-- View > Show main log view (Ctrl+H) hides the top view to give the filtered view
-  the whole window.
-- All new actions have configurable shortcuts in the preferences.
+- Numbered bookmarks 1-8 on any number of lines, with next/previous navigation per
+  bookmark. The bookmark column is only shown while the file has bookmarks.
+- Hide the main log view to give the filtered view the whole window.
+- All new actions have configurable shortcuts, see [Shortcuts](#shortcuts).
 
 ### Filter files
 
-- Filters are saved as JSON filter files.
+- Filters are saved as JSON filter files (File menu of the filter panel).
 - Import TextAnalysisTool `.tat` files.
 - Import klogg predefined filters and highlighters.
 
@@ -64,6 +66,50 @@ Downloads for Windows (x64) and macOS (Apple Silicon) are on the
 
 Predefined filters, highlighter sets, search highlighting, clear file, the version
 check and the Help menu links are replaced by the filter panel or dropped.
+
+## Shortcuts
+
+Shortcuts added by flogg. All of them can be changed in Preferences > Shortcuts.
+On macOS, `Ctrl` is the Command key and `Alt` is the Option key, except for
+Show/hide main log view, which uses the Control key (Command+H hides the
+application).
+
+### Views
+
+| Action | Shortcut | Also in |
+| --- | --- | --- |
+| Show/hide main log view | `Ctrl+H` (macOS: `Control+H`) | View menu |
+| Show/hide filter panel | none by default | View and Tools menus, close button of the panel |
+
+### Filter panel
+
+These work while the filter panel has the focus.
+
+| Action | Shortcut | Mouse |
+| --- | --- | --- |
+| Add filter | `Insert` | `+ Filter` button, context menu |
+| Add group | | `+ Group` button, context menu |
+| Edit filter or rename group | `F2`, `Enter` | Double click |
+| Delete selection | `Delete` | Context menu |
+| Move up / down (also in and out of groups) | `Alt+Up` / `Alt+Down` | Arrow buttons, drag and drop |
+| Enable / disable a filter | | Check box |
+| Enable / disable (in group), enable all, disable all | | Context menu |
+| Suspend / resume, suspend all / resume all | | Context menu |
+| Add to search, exclude from search, replace search | | Context menu |
+| Choose visible columns | | Right click the column header |
+| Open, save, import filter files | | `File` button |
+
+### Log views
+
+| Action | Shortcut | Mouse |
+| --- | --- | --- |
+| Next match of the selected filters | `F8` | Filter panel context menu |
+| Previous match of the selected filters | `Shift+F8` | Filter panel context menu |
+| Set/remove bookmark N (1-8) on the selected lines | `Ctrl+1` ... `Ctrl+8` | |
+| Next line with bookmark N | `Alt+1` ... `Alt+8` | |
+| Previous line with bookmark N | `Alt+Shift+1` ... `Alt+Shift+8` | |
+| Add selection as filter | none by default | `Add as filter...` in the log view context menu |
+| Add search text as filter | | `Add as filter...` in the search box context menu |
 
 ## Building
 
