@@ -140,6 +140,9 @@ class FilterPanel : public QWidget {
     void updateFileLabel();
     void addRecentFile( const QString& path );
     void updateHitCounts();
+    // Numbers the filters in priority order (FilterNode::number)
+    void numberFilters();
+    void updateNumberToolTip( QTreeWidgetItem* item, const FilterNode& node );
 
   private:
     QTreeWidget* tree_;

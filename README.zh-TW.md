@@ -26,6 +26,10 @@ Windows（x64）與 macOS（Apple Silicon）的安裝檔請到
 - 可用拖放或移動按鈕調整順序，也能移入或移出群組。
 - 各欄寬度可獨立調整，欄寬與顯示的欄位會被記住；在欄位標題按右鍵可選擇要顯示的欄位。
 - 可從選取的文字或搜尋框內容建立 filter。
+- Hits 欄顯示每個 filter 的命中行數；群組顯示其中所有已啟用 filter 的命中數總和。
+- 每個 filter 依優先順序有一個編號（`#` 欄，可和其他欄位一樣隱藏）；滑鼠停在 log
+  檢視的某一行時，會依優先順序列出命中該行的 filter 與其編號。
+- `Light` style（Preferences > View > Style）不論系統外觀都維持淺色；`Dark` 則維持深色。
 
 ### 快速過濾
 
@@ -94,8 +98,8 @@ macOS 上 `Ctrl` 是 Command 鍵、`Alt` 是 Option 鍵；唯一例外是「顯�
 
 | 操作 | 快捷鍵 | 滑鼠 |
 | --- | --- | --- |
-| 跳到選取 filter 的下一個符合行 | `F8` | Filter panel 右鍵選單 |
-| 跳到選取 filter 的上一個符合行 | `Shift+F8` | Filter panel 右鍵選單 |
+| 跳到選取 filter 的下一個符合行（循環搜尋） | `F8` | Filter panel 右鍵選單 |
+| 跳到選取 filter 的上一個符合行（循環搜尋） | `Shift+F8` | Filter panel 右鍵選單 |
 | 在選取的行設定／移除書籤 N（1-8） | `Ctrl+1` … `Ctrl+8` | |
 | 跳到下一個有書籤 N 的行 | `Alt+1` … `Alt+8` | |
 | 跳到上一個有書籤 N 的行 | `Alt+Shift+1` … `Alt+Shift+8` | |

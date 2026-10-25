@@ -35,6 +35,10 @@
 #include "logfiltereddata.h"
 
 #include "crawlerwidget.h"
+#include "filterpanel.h"
+#include "styles.h"
+
+#include <QToolTip>
 
 static const qint64 SL_NB_LINES = 100LL;
 
@@ -158,6 +162,35 @@ struct CrawlerWidget::access_by<CrawlerWidgetPrivate> {
     QImage grabMainView()
     {
         return crawler->logMainView_->grab().toImage();
+    }
+
+    void setFilters( const std::vector<FilterNode>& filterNodes )
+    {
+        std::vector<const FilterNode*> pointers;
+        for ( const auto& filter : filterNodes ) {
+            pointers.push_back( &filter );
+        }
+        auto snapshot = std::make_shared<FilterSnapshot>();
+        snapshot->filters = filterNodes;
+        snapshot->searchPattern = filters::buildSearchPattern( pointers );
+        snapshot->highlighters = std::make_shared<HighlighterSet>(
+            filters::buildHighlighterSet( pointers ) );
+        crawler->setFilters( snapshot );
+    }
+
+    QString filterToolTip( LineNumber line )
+    {
+        return crawler->filterToolTip( line );
+    }
+
+    int rowHeight()
+    {
+        return crawler->logMainView_->fontMetrics().height();
+    }
+
+    QWidget* mainViewport()
+    {
+        return crawler->logMainView_->viewport();
     }
 };
 
@@ -311,4 +344,99 @@ SCENARIO( "Crawler widget bookmarks rendering", "[.render]" )
     }
 
     REQUIRE( crawlerVisitor.grabMainView().save( renderDir + "/bookmarks.png" ) );
+}
+
+SCENARIO( "Crawler widget filter tool tip", "[ui]" )
+{
+    QTemporaryFile file{ "crawler_test_XXXXXX" };
+    REQUIRE( generateDataFiles( file ) );
+
+    Session session;
+    CrawlerWidgetVisitor crawlerVisitor;
+    crawlerVisitor.crawler.reset( static_cast<CrawlerWidget*>(
+        session.open( file.fileName(), []() { return new CrawlerWidget(); } ) ) );
+    waitUiState( [ & ]() { return crawlerVisitor.isLoadingFinished(); } );
+
+    auto first = FilterNode::makeFilter( "line 00000[1-3]" );
+    first.useRegex = true;
+    first.backColor = QColor( Qt::yellow );
+    first.name = "First lines\nmore text";
+    auto glogg = FilterNode::makeFilter( "GLOGG" );
+    auto excluded = FilterNode::makeFilter( "line 000002" );
+    excluded.exclude = true;
+    auto missing = FilterNode::makeFilter( "missing" );
+    first.number = 1;
+    glogg.number = 2;
+    excluded.number = 4;
+    missing.number = 5;
+    crawlerVisitor.setFilters( { first, glogg, excluded, missing } );
+
+    // Matching filters are listed in priority order
+    const auto twoMatches = crawlerVisitor.filterToolTip( 2_lnum );
+    CHECK( twoMatches.contains( ">#1</td>" ) );
+    CHECK( twoMatches.contains( ">#4</td>" ) );
+    CHECK( twoMatches.contains( "line 00000[1-3]" ) );
+    CHECK( twoMatches.contains( "First lines" ) );
+    CHECK_FALSE( twoMatches.contains( "more text" ) );
+    CHECK( twoMatches.contains( "background-color:#ffff00" ) );
+    CHECK( twoMatches.indexOf( "line 00000[1-3]" ) < twoMatches.indexOf( "GLOGG" ) );
+    CHECK( twoMatches.indexOf( "GLOGG" ) < twoMatches.indexOf( "line 000002" ) );
+    CHECK( twoMatches.contains( "exclude" ) );
+    CHECK_FALSE( twoMatches.contains( "missing" ) );
+
+    const auto oneMatch = crawlerVisitor.filterToolTip( 50_lnum );
+    CHECK( oneMatch.contains( "GLOGG" ) );
+    CHECK( oneMatch.contains( ">#2</td>" ) );
+    CHECK_FALSE( oneMatch.contains( ">#1</td>" ) );
+
+    // The tool tip shown over a row is the one of the line drawn there
+    crawlerVisitor.crawler->resize( 900, 600 );
+    crawlerVisitor.crawler->show();
+    crawlerVisitor.crawler->grab();
+    auto* viewport = crawlerVisitor.mainViewport();
+    const auto rowHeight = crawlerVisitor.rowHeight();
+    const auto hoveredToolTip = [ & ]( int row ) {
+        QToolTip::hideText();
+        const QPoint pos( 100, rowHeight * row + rowHeight / 2 );
+        QHelpEvent help( QEvent::ToolTip, pos, viewport->mapToGlobal( pos ) );
+        QApplication::sendEvent( viewport, &help );
+        return QToolTip::text();
+    };
+    CHECK( hoveredToolTip( 2 ).contains( ">#4</td>" ) );
+    CHECK_FALSE( hoveredToolTip( 1 ).contains( ">#4</td>" ) );
+    CHECK( hoveredToolTip( 1 ).contains( ">#1</td>" ) );
+    CHECK_FALSE( hoveredToolTip( 0 ).contains( ">#1</td>" ) );
+
+    crawlerVisitor.setFilters( { missing } );
+    CHECK( crawlerVisitor.filterToolTip( 2_lnum ).isEmpty() );
+
+    // Hidden output: FLOGG_RENDER_DIR=<dir> klogg_itests "Crawler widget filter tool tip"
+    const auto renderDir = qEnvironmentVariable( "FLOGG_RENDER_DIR" );
+    if ( !renderDir.isEmpty() ) {
+        crawlerVisitor.setFilters( { first, glogg, excluded } );
+        crawlerVisitor.crawler->resize( 900, 600 );
+        crawlerVisitor.crawler->show();
+        QApplication::processEvents();
+
+        auto* viewport = crawlerVisitor.mainViewport();
+        const QPoint pos( 100, viewport->fontMetrics().height() * 2 + 4 );
+        const auto grabToolTip = [ & ]( const QString& name ) {
+            QToolTip::hideText();
+            QHelpEvent help( QEvent::ToolTip, pos, viewport->mapToGlobal( pos ) );
+            QApplication::sendEvent( viewport, &help );
+            QApplication::processEvents();
+            for ( auto* widget : QApplication::topLevelWidgets() ) {
+                if ( widget->inherits( "QTipLabel" ) && widget->isVisible() ) {
+                    REQUIRE( widget->grab().save( renderDir + "/" + name ) );
+                }
+            }
+        };
+        grabToolTip( "filter_tooltip.png" );
+
+        const auto previousPalette = QApplication::palette();
+        StyleManager::applyStyle( StyleManager::DarkStyleKey );
+        grabToolTip( "filter_tooltip_dark.png" );
+        QApplication::setPalette( previousPalette );
+        QToolTip::setPalette( previousPalette );
+    }
 }

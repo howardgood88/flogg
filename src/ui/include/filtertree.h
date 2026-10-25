@@ -51,6 +51,10 @@ struct FilterNode {
     // Runtime only, never written to a filter file.
     bool suspended = false;
 
+    // Unique number of a filter: its 1 based position among all the filters of the tree,
+    // which is its priority order (0 when not numbered yet). Runtime only.
+    int number = 0;
+
     // Filter properties
     QString pattern;
     bool useRegex = false;
@@ -121,6 +125,9 @@ RegularExpressionPattern buildSearchPattern( const std::vector<const FilterNode*
 // Text colour used to draw a filter: its own one, or black/white contrasting with
 // its background when only a background is set (invalid if neither is set)
 QColor displayForeColor( const FilterNode& filter );
+
+// "#3", the number of a filter as shown to the user
+QString numberText( const FilterNode& filter );
 
 // Highlighters for the include filters that have a colour, in priority order
 HighlighterSet buildHighlighterSet( const std::vector<const FilterNode*>& filters );

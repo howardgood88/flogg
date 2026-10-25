@@ -75,6 +75,7 @@
 #include <QScrollBar>
 #include <QShortcut>
 #include <QStringView>
+#include <QToolTip>
 #include <QtCore>
 
 #include <tbb/flow_graph.h>
@@ -1284,14 +1285,65 @@ void AbstractLogView::setFilterHighlighterSet(
     forceRefresh();
 }
 
+void AbstractLogView::setLineToolTipProvider( std::function<QString( LineNumber )> provider )
+{
+    lineToolTipProvider_ = std::move( provider );
+}
+
+bool AbstractLogView::viewportEvent( QEvent* e )
+{
+    // Horizontal distance between the mouse position and the line tool tip
+    constexpr int CursorTipOffset = 20;
+
+    if ( e->type() != QEvent::ToolTip || !lineToolTipProvider_ ) {
+        return QAbstractScrollArea::viewportEvent( e );
+    }
+
+    const auto* helpEvent = static_cast<QHelpEvent*>( e );
+    const auto line = convertCoordToLine( helpEvent->pos().y() );
+    QString text;
+    if ( line && *line < logData_->getNbLine() ) {
+        // getLineNumber is 1 based (as shown to the user)
+        text = lineToolTipProvider_( LineNumber( logData_->getLineNumber( *line ).get() - 1 ) );
+    }
+
+    if ( text.isEmpty() ) {
+        QToolTip::hideText();
+        e->ignore();
+        return true;
+    }
+
+    // The tool tip goes away when the mouse leaves the row
+    const auto row = ( helpEvent->pos().y() - drawingTopOffset_ ) / charHeight_;
+    const QRect rowRect( 0, drawingTopOffset_ + row * charHeight_, viewport()->width(),
+                         charHeight_ );
+    QToolTip::showText( helpEvent->globalPos(), text, viewport(), rowRect );
+
+    // Qt moves tips taller than twice the cursor below it by the cursor height, which on
+    // macOS puts a list of filters far below the hovered row: keep it right of the cursor
+    for ( auto* widget : QApplication::topLevelWidgets() ) {
+        if ( !widget->inherits( "QTipLabel" ) || !widget->isVisible() ) {
+            continue;
+        }
+
+        auto position = helpEvent->globalPos() + QPoint( CursorTipOffset, 0 );
+        if ( const auto* screen = QGuiApplication::screenAt( helpEvent->globalPos() ) ) {
+            const auto available = screen->availableGeometry();
+            if ( position.x() + widget->width() > available.right() ) {
+                position.setX( helpEvent->globalPos().x() - CursorTipOffset - widget->width() );
+            }
+            position.setY( std::clamp( position.y(), available.top(),
+                                       std::max( available.top(),
+                                                 available.bottom() - widget->height() ) ) );
+        }
+        widget->move( position );
+    }
+    return true;
+}
+
 void AbstractLogView::searchUsingMatcher( const QuickFindMatcher& matcher, bool backward )
 {
-    if ( backward ) {
-        quickFind_->searchBackward( selection_, matcher );
-    }
-    else {
-        quickFind_->searchForward( selection_, matcher );
-    }
+    quickFind_->searchWrappingAround( selection_, matcher, backward );
 }
 
 void AbstractLogView::followSet( bool checked )

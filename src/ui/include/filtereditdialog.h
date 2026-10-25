@@ -55,8 +55,10 @@ class FilterEditDialog : public QDialog {
     QCheckBox* caseCheck_;
     QCheckBox* excludeCheck_;
     QComboBox* colorModeCombo_;
-    QToolButton* foreButton_;
-    QToolButton* backButton_;
+    QToolButton* foreButton_ = nullptr;
+    QToolButton* backButton_ = nullptr;
+    QToolButton* clearForeButton_ = nullptr;
+    QToolButton* clearBackButton_ = nullptr;
     QLabel* preview_;
     QLabel* errorLabel_;
     QDialogButtonBox* buttons_;

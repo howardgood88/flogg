@@ -26,6 +26,8 @@
 struct StyleManager {
 
     static constexpr QLatin1String DarkStyleKey = QLatin1String( "Dark", 4 );
+    // Fusion with a light palette, whatever the system appearance
+    static constexpr QLatin1String LightStyleKey = QLatin1String( "Light", 5 );
     static constexpr QLatin1String DarkWindowsStyleKey = QLatin1String( "Windows Dark", 12 );
     static constexpr QLatin1String VistaKey = QLatin1String( "WindowsVista", 12 );
     static constexpr QLatin1String FusionKey = QLatin1String( "Fusion", 6 );

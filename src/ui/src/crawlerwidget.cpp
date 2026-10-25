@@ -983,6 +983,7 @@ void CrawlerWidget::setup()
 
     // Connect the search to the top view
     logMainView_->useNewFiltering( logFilteredData_.get() );
+    logMainView_->setLineToolTipProvider( [ this ]( LineNumber line ) { return filterToolTip( line ); } );
 
     // Construct the visibility button
     using VisibilityFlags = LogFilteredData::VisibilityFlags;
@@ -1370,6 +1371,7 @@ void CrawlerWidget::changeFontSize( bool increase )
 void CrawlerWidget::connectAllFilteredViewSlots( FilteredView* view )
 {
     view->setFilterHighlighterSet( filters_ ? filters_->highlighters : nullptr );
+    view->setLineToolTipProvider( [ this ]( LineNumber line ) { return filterToolTip( line ); } );
     connect( view, &FilteredView::addToFilters, this, &CrawlerWidget::addToFilters );
 
     connect( view, &FilteredView::newSelection, view, [ view ]( auto ) { view->update(); } );
@@ -2214,8 +2216,7 @@ void CrawlerWidget::findFilterMatch( const std::vector<FilterNode>& filters, boo
     const auto cachedMatch = logFilteredData_->findFilterMatch( patterns, fromLine, backward );
     if ( cachedMatch ) {
         if ( !cachedMatch->has_value() ) {
-            searchInfoLine_->setText( backward ? tr( "No previous match of the filter" )
-                                               : tr( "No next match of the filter" ) );
+            searchInfoLine_->setText( tr( "No match of the filter" ) );
             searchInfoLine_->show();
             return;
         }
@@ -2244,6 +2245,70 @@ LineNumber CrawlerWidget::currentLogLine() const
     return filteredView_->hasFocus()
                ? logFilteredData_->getMatchingLineNumber( filteredView_->getViewPosition() )
                : logMainView_->getViewPosition();
+}
+
+QString CrawlerWidget::filterToolTip( LineNumber line ) const
+{
+    if ( !filters_ || filters_->filters.empty() ) {
+        return {};
+    }
+
+    // Only run when a tool tip is requested: the cached results of the filters are used
+    // when available, otherwise the single line is matched
+    std::optional<QString> lineText;
+    QStringList rows;
+    for ( const auto& filter : filters_->filters ) {
+        auto matched = filterMode_
+                           ? logFilteredData_->isFilterMatch( filters::toPattern( filter ), line )
+                           : std::optional<bool>{};
+        if ( !matched ) {
+            if ( !lineText ) {
+                lineText = logData_->getLineString( line );
+            }
+            const QRegularExpression regex( filters::toRegex( filter ),
+                                            QRegularExpression::UseUnicodePropertiesOption );
+            matched = regex.isValid() && regex.match( *lineText ).hasMatch();
+        }
+        if ( !*matched ) {
+            continue;
+        }
+
+        const auto foreColor = filters::displayForeColor( filter );
+        QString style;
+        if ( foreColor.isValid() ) {
+            style += QString( "color:%1;" ).arg( foreColor.name() );
+        }
+        if ( filter.backColor.isValid() ) {
+            style += QString( "background-color:%1;" ).arg( filter.backColor.name() );
+        }
+
+        QStringList options;
+        if ( filter.exclude ) {
+            options.append( tr( "exclude" ) );
+        }
+        if ( filter.useRegex ) {
+            options.append( tr( "regex" ) );
+        }
+        if ( filter.caseSensitive ) {
+            options.append( tr( "match case" ) );
+        }
+
+        const auto description = filter.name.section( '\n', 0, 0 );
+        rows.append( QString( "<tr><td align=right>%1</td>"
+                              "<td style=\"white-space:pre;%2\"> %3 </td>"
+                              "<td style=\"white-space:pre\"><i>%4</i></td>"
+                              "<td style=\"white-space:pre\">%5</td></tr>" )
+                         .arg( filters::numberText( filter ) )
+                         .arg( style, filter.pattern.toHtmlEscaped(),
+                               options.join( ", " ).toHtmlEscaped(),
+                               description.toHtmlEscaped() ) );
+    }
+
+    if ( rows.isEmpty() ) {
+        return {};
+    }
+
+    return "<table cellspacing=2 cellpadding=1>" + rows.join( "" ) + "</table>";
 }
 
 void CrawlerWidget::toggleBookmark( size_t slot )

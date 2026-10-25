@@ -293,6 +293,8 @@ class CrawlerWidget : public QSplitter,
   private:
     // Line of the file selected in the active view
     LineNumber currentLogLine() const;
+    // Tool tip listing the effective filters matching the line, in priority order
+    QString filterToolTip( LineNumber line ) const;
 
     // State machine holding the state of the search, used to allow/disallow
     // auto-refresh and inform the user via the info line.

@@ -22,6 +22,7 @@
 #include <chrono>
 #include <functional>
 
+#include <QHeaderView>
 #include <QSignalSpy>
 #include <QTemporaryFile>
 #include <QApplication>
@@ -37,6 +38,8 @@
 #include "logdata.h"
 #include "logfiltereddata.h"
 
+#include "filtereditdialog.h"
+#include "styles.h"
 #include "filterpanel.h"
 #include "filtertree.h"
 #include "persistentinfo.h"
@@ -218,9 +221,31 @@ SCENARIO( "filter search with per filter cache", "[logdata][filters]" )
         }
     }
 
+    WHEN( "Searching many filters at once" )
+    {
+        std::vector<LogFilteredData::FilterSpec> filters;
+        for ( int i = 0; i < 60; ++i ) {
+            filters.push_back( spec( QString( "line %1" ).arg( 100 + i ) ) );
+        }
+        runFilterSearch( *filteredData, filters );
+
+        THEN( "Every filter has its own matching lines" )
+        {
+            for ( const auto& filter : filters ) {
+                for ( int i = 0; i < 300; ++i ) {
+                    const auto text = QString( "line %1\n" ).arg( i );
+                    INFO( filter.pattern.pattern.toStdString() << " line " << i );
+                    REQUIRE( filteredData->isFilterMatch( filter.pattern, LineNumber( i ) )
+                             == std::optional<bool>( text.startsWith( filter.pattern.pattern ) ) );
+                }
+            }
+        }
+    }
+
     WHEN( "Looking for filter matches and counts" )
     {
-        runFilterSearch( *filteredData, { spec( "five" ), spec( "three", true ) } );
+        runFilterSearch( *filteredData,
+                         { spec( "five" ), spec( "three", true ), spec( "missing" ) } );
 
         const auto five = spec( "five" ).pattern;
         const auto three = spec( "three" ).pattern;
@@ -242,16 +267,25 @@ SCENARIO( "filter search with per filter cache", "[logdata][filters]" )
                      == OptionalLineNumber( 5_lnum ) );
             REQUIRE( filteredData->findFilterMatch( { five, three }, 10_lnum, false )
                      == OptionalLineNumber( 12_lnum ) );
+            // The search wraps around the file
+            REQUIRE( filteredData->findFilterMatch( { five }, 0_lnum, true )
+                     == OptionalLineNumber( LineNumber( NbLines - 5 ) ) );
+            REQUIRE( filteredData->findFilterMatch( { five }, LineNumber( NbLines - 1 ), false )
+                     == OptionalLineNumber( 0_lnum ) );
             // Searched patterns without a match give an empty line number
-            const auto noPrevious = filteredData->findFilterMatch( { five }, 0_lnum, true );
-            REQUIRE( noPrevious );
-            REQUIRE_FALSE( noPrevious->has_value() );
-            const auto noNext
-                = filteredData->findFilterMatch( { five }, LineNumber( NbLines - 1 ), false );
-            REQUIRE( noNext );
-            REQUIRE_FALSE( noNext->has_value() );
+            const auto noMatch
+                = filteredData->findFilterMatch( { spec( "missing" ).pattern }, 10_lnum, false );
+            REQUIRE( noMatch );
+            REQUIRE_FALSE( noMatch->has_value() );
             REQUIRE_FALSE( filteredData->findFilterMatch( { spec( "even" ).pattern }, 10_lnum,
                                                           false ) );
+        }
+
+        THEN( "Lines are tested against the cached results" )
+        {
+            REQUIRE( filteredData->isFilterMatch( five, 10_lnum ) == std::optional<bool>( true ) );
+            REQUIRE( filteredData->isFilterMatch( five, 11_lnum ) == std::optional<bool>( false ) );
+            REQUIRE_FALSE( filteredData->isFilterMatch( spec( "even" ).pattern, 10_lnum ) );
         }
     }
 }
@@ -562,6 +596,8 @@ SCENARIO( "Filter panel drop below the last row rendering", "[.render]" )
     const auto lastRow = tree->visualItemRect( tree->topLevelItem( 1 )->child( 1 ) );
     const auto y = lastRow.bottom() + 20;
     const auto indent = tree->indentation();
+    // The tree column follows the number column
+    const auto treeLeft = tree->header()->sectionViewportPosition( 0 );
 
     // Drag move events are only delivered once the drag enter is accepted, which an internal
     // move tree only does for its own drags
@@ -575,7 +611,7 @@ SCENARIO( "Filter panel drop below the last row rendering", "[.render]" )
     REQUIRE( enter.isAccepted() );
 
     for ( int level = 0; level < 4; ++level ) {
-        QDragMoveEvent move( QPoint( indent * ( level + 1 ) + 2, y ), Qt::MoveAction, mimeData,
+        QDragMoveEvent move( QPoint( treeLeft + indent * ( level + 1 ) + 2, y ), Qt::MoveAction, mimeData,
                              Qt::LeftButton, Qt::NoModifier );
         sendToViewport( &move );
         REQUIRE( move.isAccepted() );
@@ -585,6 +621,24 @@ SCENARIO( "Filter panel drop below the last row rendering", "[.render]" )
     QDragLeaveEvent leave;
     sendToViewport( &leave );
     delete mimeData;
+
+    // Edit dialog with a filter number and colour clear buttons
+    auto colored = FilterNode::makeFilter( "ERROR" );
+    colored.number = 3;
+    colored.backColor = QColor( "#ffe08a" );
+    FilterEditDialog editDialog( colored );
+    editDialog.show();
+    REQUIRE( editDialog.grab().save( renderDir + "/edit_dialog.png" ) );
+    {
+        const auto previousPalette = QApplication::palette();
+        const auto previousStyle = QApplication::style()->name();
+        StyleManager::applyStyle( StyleManager::LightStyleKey );
+        FilterEditDialog lightDialog( colored );
+        lightDialog.show();
+        REQUIRE( lightDialog.grab().save( renderDir + "/edit_dialog_light.png" ) );
+        QApplication::setStyle( previousStyle );
+        QApplication::setPalette( previousPalette );
+    }
 
     // First line of a multi line description in the column, all of it in the tool tip
     auto* error = tree->topLevelItem( 0 );
@@ -747,6 +801,86 @@ SCENARIO( "Filter panel enable, disable and suspend all", "[filters]" )
     settings.setValue( "filterPanel/currentFile", previousFile );
 }
 
+SCENARIO( "Filter panel group hit counts", "[filters]" )
+{
+    QTemporaryDir dir;
+    auto root = FilterNode::makeGroup( "root" );
+    root.children.push_back( FilterNode::makeFilter( "ERROR" ) );
+    auto group = FilterNode::makeGroup( "WiFi" );
+    group.children.push_back( FilterNode::makeFilter( "wlan" ) );
+    auto disabled = FilterNode::makeFilter( "hci0" );
+    disabled.enabled = false;
+    group.children.push_back( disabled );
+    auto inner = FilterNode::makeGroup( "Inner" );
+    inner.children.push_back( FilterNode::makeFilter( "dhcp" ) );
+    group.children.push_back( inner );
+    group.children.push_back( FilterNode::makeGroup( "Empty" ) );
+    root.children.push_back( group );
+    const auto filtersFile = dir.filePath( "test.flogg-filters.json" );
+    REQUIRE( filters::saveToFile( root, filtersFile ) );
+
+    auto& settings = PersistentInfo::getSettings( app_settings{} );
+    const auto previousFile = settings.value( "filterPanel/currentFile" );
+    settings.setValue( "filterPanel/currentFile", filtersFile );
+
+    FilterPanel panel;
+    auto* tree = panel.findChild<QTreeWidget*>();
+    REQUIRE( tree );
+
+    // Only the effective filters get counts, as a crawler widget reports them
+    const QHash<QString, qint64> countsByPattern{ { "ERROR", 7 }, { "wlan", 3 }, { "dhcp", 5 } };
+    FilterHits hits;
+    for ( const auto& filter : panel.snapshot()->filters ) {
+        hits[ filter.id ] = countsByPattern.value( filter.pattern );
+    }
+    panel.setHitCounts( hits );
+
+    // Every filter is numbered in priority order, disabled ones included
+    std::vector<int> numbers;
+    for ( const auto& filter : panel.snapshot()->filters ) {
+        numbers.push_back( filter.number );
+    }
+    CHECK( numbers == std::vector<int>{ 1, 2, 4 } );
+    CHECK( tree->topLevelItem( 1 )->child( 1 )->toolTip( 0 ).startsWith( "#3" ) );
+    // Number column, shown first
+    CHECK( tree->topLevelItem( 0 )->text( 3 ) == "1" );
+    CHECK( tree->topLevelItem( 1 )->child( 2 )->child( 0 )->text( 3 ) == "4" );
+    CHECK( tree->topLevelItem( 1 )->text( 3 ).isEmpty() );
+    CHECK( tree->header()->visualIndex( 3 ) == 0 );
+    CHECK_FALSE( tree->header()->isSectionHidden( 3 ) );
+
+    // Header state saved before the number column existed
+    {
+        QTreeWidget oldTree;
+        oldTree.setColumnCount( 3 );
+        oldTree.header()->resizeSection( 2, 123 );
+        const auto previousState = settings.value( "filterPanel/headerState" );
+        settings.setValue( "filterPanel/headerState", oldTree.header()->saveState() );
+
+        FilterPanel oldStatePanel;
+        auto* oldStateTree = oldStatePanel.findChild<QTreeWidget*>();
+        REQUIRE( oldStateTree );
+        CHECK( oldStateTree->header()->visualIndex( 3 ) == 0 );
+        CHECK_FALSE( oldStateTree->header()->isSectionHidden( 3 ) );
+        CHECK( oldStateTree->header()->sectionSize( 3 ) > 0 );
+
+        settings.setValue( "filterPanel/headerState", previousState );
+    }
+
+    auto* groupItem = tree->topLevelItem( 1 );
+    CHECK( tree->topLevelItem( 0 )->text( 1 ) == "7" );
+    CHECK( groupItem->text( 1 ) == "8" );
+    CHECK( groupItem->child( 1 )->text( 1 ).isEmpty() );
+    CHECK( groupItem->child( 2 )->text( 1 ) == "5" );
+    CHECK( groupItem->child( 3 )->text( 1 ).isEmpty() );
+
+    // No count at all leaves the group blank
+    panel.setHitCounts( {} );
+    CHECK( groupItem->text( 1 ).isEmpty() );
+
+    settings.setValue( "filterPanel/currentFile", previousFile );
+}
+
 SCENARIO( "Filter panel check box lined up with the group arrows", "[filters]" )
 {
     QTemporaryDir dir;
@@ -770,7 +904,9 @@ SCENARIO( "Filter panel check box lined up with the group arrows", "[filters]" )
 
     // The check box is drawn where a group has its expand arrow
     const auto rowRect = tree->visualItemRect( filter );
-    const QPoint arrowArea( rowRect.left() - tree->indentation() / 2, rowRect.center().y() );
+    // Top level items start one indentation into the filter column, after the number column
+    const QPoint arrowArea( tree->header()->sectionViewportPosition( 0 ) + tree->indentation() / 2,
+                            rowRect.center().y() );
     QTest::mouseClick( tree->viewport(), Qt::LeftButton, Qt::NoModifier, arrowArea );
     CHECK( filter->checkState( 0 ) == Qt::Unchecked );
     QTest::mouseClick( tree->viewport(), Qt::LeftButton, Qt::NoModifier, arrowArea );

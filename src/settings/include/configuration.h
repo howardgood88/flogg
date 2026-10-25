@@ -586,8 +586,6 @@ class Configuration final : public Persistable<Configuration> {
         {"WindowText", "#FFFFFF"},
         {"Base", "#282828"},
         {"AlternateBase", "#353535"},
-        {"ToolTipBase", "#2a82da"},
-        {"ToolTipText", "#FFFFFF"},
         {"Text", "#FFFFFF"},
         {"Button", "#353535"},
         {"ButtonText", "#FFFFFF"},

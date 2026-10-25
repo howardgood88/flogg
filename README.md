@@ -32,6 +32,13 @@ Downloads for Windows (x64) and macOS (Apple Silicon) are on the
 - Columns resize independently; their widths and visibility are saved. Right click
   the header to choose the visible columns.
 - Create a filter from the selected text or from the search box.
+- The hits column shows the number of matching lines of each filter; a group shows
+  the sum of its enabled filters.
+- Every filter has a number following its priority (the `#` column, which can be hidden
+  like the other columns); hovering a line of the log views lists the filters matching
+  it with their numbers, in priority order.
+- A `Light` style (Preferences > View > Style) keeps flogg light whatever the system
+  appearance; `Dark` keeps it dark.
 
 ### Fast filtering
 
@@ -103,8 +110,8 @@ These work while the filter panel has the focus.
 
 | Action | Shortcut | Mouse |
 | --- | --- | --- |
-| Next match of the selected filters | `F8` | Filter panel context menu |
-| Previous match of the selected filters | `Shift+F8` | Filter panel context menu |
+| Next match of the selected filters (wraps around) | `F8` | Filter panel context menu |
+| Previous match of the selected filters (wraps around) | `Shift+F8` | Filter panel context menu |
 | Set/remove bookmark N (1-8) on the selected lines | `Ctrl+1` ... `Ctrl+8` | |
 | Next line with bookmark N | `Alt+1` ... `Alt+8` | |
 | Previous line with bookmark N | `Alt+Shift+1` ... `Alt+Shift+8` | |

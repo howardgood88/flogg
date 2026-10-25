@@ -824,6 +824,18 @@ LogFilteredData::getFilterMatchCount( const RegularExpressionPattern& pattern ) 
     return LinesCount( result->second.matchingLines.cardinality() );
 }
 
+std::optional<bool> LogFilteredData::isFilterMatch( const RegularExpressionPattern& pattern,
+                                                    LineNumber line ) const
+{
+    const auto result = filterResults_.find( makeFilterKey( pattern ) );
+    if ( result == filterResults_.end() || result->second.processedEnd < filterEndLine_
+         || line < filterStartLine_ || line >= filterEndLine_ ) {
+        return {};
+    }
+
+    return result->second.matchingLines.contains( line.get() );
+}
+
 std::optional<OptionalLineNumber>
 LogFilteredData::findFilterMatch( const std::vector<RegularExpressionPattern>& patterns,
                                   LineNumber line, bool backward ) const
@@ -837,22 +849,25 @@ LogFilteredData::findFilterMatch( const std::vector<RegularExpressionPattern>& p
         anyMatch |= result->second.matchingLines;
     }
 
-    LineNumber::UnderlyingType found = 0;
-    if ( backward ) {
-        // Number of matches strictly before the line
-        const auto before = line.get() > 0 ? anyMatch.rank( line.get() - 1 ) : 0;
-        if ( before > 0 && anyMatch.select( before - 1, &found ) ) {
-            return OptionalLineNumber( LineNumber( found ) );
-        }
-    }
-    else {
-        // rank is the number of matches up to and including the line
-        if ( anyMatch.select( anyMatch.rank( line.get() ), &found ) ) {
-            return OptionalLineNumber( LineNumber( found ) );
-        }
+    const auto nbMatches = anyMatch.cardinality();
+    if ( nbMatches == 0 ) {
+        return OptionalLineNumber{};
     }
 
-    return OptionalLineNumber{};
+    LineNumber::UnderlyingType found = 0;
+    if ( backward ) {
+        // Number of matches strictly before the line, wrapping to the last match
+        const auto before = line.get() > 0 ? anyMatch.rank( line.get() - 1 ) : 0;
+        anyMatch.select( before > 0 ? before - 1 : nbMatches - 1, &found );
+    }
+    else {
+        // rank is the number of matches up to and including the line,
+        // wrapping to the first match
+        const auto upTo = anyMatch.rank( line.get() );
+        anyMatch.select( upTo < nbMatches ? upTo : 0, &found );
+    }
+
+    return OptionalLineNumber( LineNumber( found ) );
 }
 
 //

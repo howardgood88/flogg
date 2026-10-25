@@ -100,8 +100,12 @@ class LogFilteredData : public AbstractLogData {
     // Number of lines matching the pattern, empty if the pattern is not completely searched
     std::optional<LinesCount> getFilterMatchCount( const RegularExpressionPattern& pattern ) const;
 
+    // Whether the line matches the pattern, empty if the line is not searched for the pattern
+    std::optional<bool> isFilterMatch( const RegularExpressionPattern& pattern,
+                                       LineNumber line ) const;
+
     // Next (or previous) line after (before) the passed one matching any of the patterns,
-    // empty if one of the patterns is not completely searched.
+    // wrapping around the file, empty if one of the patterns is not completely searched.
     std::optional<OptionalLineNumber>
     findFilterMatch( const std::vector<RegularExpressionPattern>& patterns, LineNumber line,
                      bool backward ) const;

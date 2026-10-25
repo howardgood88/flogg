@@ -128,6 +128,8 @@ class QuickFind : public QObject {
     // specified direction
     void searchForward( Selection selection, QuickFindMatcher matcher );
     void searchBackward( Selection selection, QuickFindMatcher matcher );
+    // Idem but the search continues from the other end of the file
+    void searchWrappingAround( Selection selection, QuickFindMatcher matcher, bool backward );
 
     void stopSearch();
 
@@ -229,6 +231,12 @@ class QuickFind : public QObject {
     Portion doSearchBackward( const Selection& selection, const QuickFindMatcher& matcher );
     Portion doSearchBackward( const FilePosition& start_position, const Selection& selection,
                               const QuickFindMatcher& matcher );
+
+    // Set before a search is started, read by the search thread
+    bool wrapAround_ = false;
+
+    void searchForward( Selection selection, QuickFindMatcher matcher, bool wrapAround );
+    void searchBackward( Selection selection, QuickFindMatcher matcher, bool wrapAround );
 
     AtomicFlag interruptRequested_;
     QFuture<Portion> operationFuture_;

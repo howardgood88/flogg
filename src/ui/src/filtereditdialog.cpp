@@ -38,7 +38,9 @@ FilterEditDialog::FilterEditDialog( const FilterNode& filter, QWidget* parent )
     : QDialog( parent )
     , filter_( filter )
 {
-    setWindowTitle( tr( "Edit filter" ) );
+    setWindowTitle( filter.number > 0
+                        ? tr( "Edit filter %1" ).arg( filters::numberText( filter ) )
+                        : tr( "New filter" ) );
 
     patternEdit_ = new QLineEdit( filter.pattern );
     // Several lines for a detailed description, Tab still moves to the next field
@@ -60,30 +62,34 @@ FilterEditDialog::FilterEditDialog( const FilterNode& filter, QWidget* parent )
     colorModeCombo_->setCurrentIndex( filter.colorMode == FilterNode::ColorMode::MatchOnly ? 1
                                                                                          : 0 );
 
-    const auto makeColorButton = [ this ]( QColor& color ) {
+    // Colour button followed by a button resetting the colour to none
+    const auto makeColorButton = [ this ]( QColor& color, QToolButton*& clearButton ) {
         auto* button = new QToolButton;
-        button->setPopupMode( QToolButton::MenuButtonPopup );
-        auto* menu = new QMenu( button );
-        menu->addAction( tr( "No color" ), this, [ this, &color, button ] {
+        clearButton = new QToolButton;
+        clearButton->setText( tr( "Clear" ) );
+        clearButton->setToolTip( tr( "No color" ) );
+        connect( button, &QToolButton::clicked, this,
+                 [ this, &color, button ] { chooseColor( color, button ); } );
+        connect( clearButton, &QToolButton::clicked, this, [ this, &color, button ] {
             color = QColor{};
             updateColorButton( button, color );
             updatePreview();
         } );
-        button->setMenu( menu );
-        connect( button, &QToolButton::clicked, this,
-                 [ this, &color, button ] { chooseColor( color, button ); } );
-        updateColorButton( button, color );
         return button;
     };
-    foreButton_ = makeColorButton( filter_.foreColor );
-    backButton_ = makeColorButton( filter_.backColor );
+    foreButton_ = makeColorButton( filter_.foreColor, clearForeButton_ );
+    backButton_ = makeColorButton( filter_.backColor, clearBackButton_ );
+    updateColorButton( foreButton_, filter_.foreColor );
+    updateColorButton( backButton_, filter_.backColor );
 
     auto* colorsLayout = new QHBoxLayout;
     colorsLayout->addWidget( new QLabel( tr( "Text" ) ) );
     colorsLayout->addWidget( foreButton_ );
+    colorsLayout->addWidget( clearForeButton_ );
     colorsLayout->addSpacing( 12 );
     colorsLayout->addWidget( new QLabel( tr( "Background" ) ) );
     colorsLayout->addWidget( backButton_ );
+    colorsLayout->addWidget( clearBackButton_ );
     colorsLayout->addStretch();
 
     preview_ = new QLabel;
@@ -99,6 +105,9 @@ FilterEditDialog::FilterEditDialog( const FilterNode& filter, QWidget* parent )
     connect( buttons_, &QDialogButtonBox::rejected, this, &QDialog::reject );
 
     auto* form = new QFormLayout;
+    if ( filter.number > 0 ) {
+        form->addRow( tr( "Number:" ), new QLabel( filters::numberText( filter ) ) );
+    }
     form->addRow( tr( "Pattern:" ), patternEdit_ );
     form->addRow( tr( "Description:" ), descriptionEdit_ );
     form->addRow( QString{}, regexCheck_ );
@@ -155,6 +164,8 @@ void FilterEditDialog::updateColorButton( QToolButton* button, const QColor& col
     button->setIcon( QIcon( pixmap ) );
     button->setText( color.isValid() ? color.name() : tr( "None" ) );
     button->setToolButtonStyle( Qt::ToolButtonTextBesideIcon );
+
+    ( button == foreButton_ ? clearForeButton_ : clearBackButton_ )->setEnabled( color.isValid() );
 }
 
 void FilterEditDialog::updatePreview()
@@ -163,8 +174,10 @@ void FilterEditDialog::updatePreview()
     preview_->setText( pattern.isEmpty() ? tr( "(empty pattern)" ) : pattern );
 
     auto palette = this->palette();
-    if ( filter_.foreColor.isValid() ) {
-        palette.setColor( QPalette::WindowText, filter_.foreColor );
+    // Same text colour as the views
+    const auto foreColor = filters::displayForeColor( filter_ );
+    if ( foreColor.isValid() ) {
+        palette.setColor( QPalette::WindowText, foreColor );
     }
     if ( filter_.backColor.isValid() ) {
         palette.setColor( QPalette::Window, filter_.backColor );

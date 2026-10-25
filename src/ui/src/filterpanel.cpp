@@ -18,9 +18,12 @@
  */
 
 #include <algorithm>
+#include <functional>
+#include <optional>
 #include <utility>
 
 #include <QAction>
+#include <QApplication>
 #include <QCursor>
 #include <QDir>
 #include <QDrag>
@@ -56,10 +59,14 @@ namespace {
 
 constexpr int IdRole = Qt::UserRole;
 constexpr int SuspendedRole = Qt::UserRole + 1;
+// Tool tip of the pattern column without the filter number
+constexpr int PropertiesRole = Qt::UserRole + 2;
 
 constexpr int PatternColumn = 0;
 constexpr int HitsColumn = 1;
 constexpr int DescriptionColumn = 2;
+// Filter number (priority order), shown first like line numbers
+constexpr int NumberColumn = 3;
 
 constexpr auto CurrentFileKey = "filterPanel/currentFile";
 constexpr auto RecentFilesKey = "filterPanel/recentFiles";
@@ -281,7 +288,37 @@ class FilterItemDelegate : public QStyledItemDelegate {
     void paint( QPainter* painter, const QStyleOptionViewItem& option,
                 const QModelIndex& index ) const override
     {
-        QStyledItemDelegate::paint( painter, alignedOption( option, index ), index );
+        auto itemOption = alignedOption( option, index );
+        initStyleOption( &itemOption, index );
+        if ( !itemOption.features.testFlag( QStyleOptionViewItem::HasCheckIndicator ) ) {
+            QStyledItemDelegate::paint( painter, alignedOption( option, index ), index );
+            return;
+        }
+
+        // The style draws the check box with the text colour, which is the filter colour:
+        // draw the item with the palette of the tree and no text, then the text on top
+        const auto* widget = itemOption.widget;
+        auto* style = widget ? widget->style() : QApplication::style();
+        const auto selected = itemOption.state.testFlag( QStyle::State_Selected );
+        const auto textColor = itemOption.palette.color(
+            selected ? QPalette::HighlightedText : QPalette::Text );
+        const auto textRect
+            = style->subElementRect( QStyle::SE_ItemViewItemText, &itemOption, widget );
+        const auto text = itemOption.text;
+
+        itemOption.text.clear();
+        itemOption.palette = tree_->palette();
+        style->drawControl( QStyle::CE_ItemViewItem, &itemOption, painter, widget );
+
+        const auto margin = style->pixelMetric( QStyle::PM_FocusFrameHMargin, nullptr, widget ) + 1;
+        const auto textArea = textRect.adjusted( margin, 0, -margin, 0 );
+        painter->save();
+        painter->setFont( itemOption.font );
+        painter->setPen( textColor );
+        painter->drawText( textArea, static_cast<int>( itemOption.displayAlignment ),
+                           QFontMetrics( itemOption.font )
+                               .elidedText( text, itemOption.textElideMode, textArea.width() ) );
+        painter->restore();
     }
 
   protected:
@@ -446,14 +483,15 @@ class FilterTreeWidget : public QTreeWidget {
         }
 
         const auto parents = tailParents();
-        const auto rootOffset = rootIsDecorated() ? indentation() : 0;
-        const auto level
-            = std::clamp( ( pos.x() + horizontalOffset() - rootOffset ) / indentation(), 0,
-                          static_cast<int>( parents.size() ) - 1 );
+        // The tree column is not the first one, it follows the number column
+        const auto treeLeft = header()->sectionViewportPosition( treePosition() );
+        const auto rootOffset = treeLeft + ( rootIsDecorated() ? indentation() : 0 );
+        const auto level = std::clamp( ( pos.x() - rootOffset ) / indentation(), 0,
+                                       static_cast<int>( parents.size() ) - 1 );
 
         tailParent_ = parents[ static_cast<size_t>( level ) ];
 
-        const auto left = rootOffset + level * indentation() - horizontalOffset();
+        const auto left = rootOffset + level * indentation();
         tailIndicator_ = QRect( left, lastRow.bottom(), viewport()->width() - left, 0 );
     }
 
@@ -527,8 +565,8 @@ void FilterPanel::setupUi()
 {
     tree_ = new FilterTreeWidget;
     tree_->setItemDelegate( new FilterItemDelegate( tree_ ) );
-    tree_->setColumnCount( 3 );
-    tree_->setHeaderLabels( { tr( "Filter" ), tr( "Hits" ), tr( "Description" ) } );
+    tree_->setColumnCount( 4 );
+    tree_->setHeaderLabels( { tr( "Filter" ), tr( "Hits" ), tr( "Description" ), tr( "#" ) } );
     tree_->setSelectionMode( QAbstractItemView::ExtendedSelection );
     tree_->setDragDropMode( QAbstractItemView::InternalMove );
     tree_->setDefaultDropAction( Qt::MoveAction );
@@ -543,7 +581,16 @@ void FilterPanel::setupUi()
     tree_->setColumnWidth( PatternColumn, 220 );
     tree_->setColumnWidth( HitsColumn, 60 );
     tree_->setColumnWidth( DescriptionColumn, 200 );
-    header->restoreState( settings().value( HeaderStateKey ).toByteArray() );
+    tree_->setColumnWidth( NumberColumn, 32 );
+    header->moveSection( header->visualIndex( NumberColumn ), 0 );
+    const auto headerState = settings().value( HeaderStateKey ).toByteArray();
+    // A state saved before the number column existed would hide it or put it last
+    if ( !headerState.isEmpty() && header->restoreState( headerState )
+         && header->visualIndex( NumberColumn ) != 0 ) {
+        header->moveSection( header->visualIndex( NumberColumn ), 0 );
+        header->setSectionHidden( NumberColumn, false );
+        header->resizeSection( NumberColumn, 32 );
+    }
     header->setContextMenuPolicy( Qt::CustomContextMenu );
     connect( header, &QWidget::customContextMenuRequested, this, &FilterPanel::showHeaderMenu );
     connect( header, &QHeaderView::sectionResized, this, &FilterPanel::saveHeaderState );
@@ -703,8 +750,10 @@ void FilterPanel::showHeaderMenu( const QPoint& pos )
 {
     auto* header = tree_->header();
 
+    // In the order the columns are shown
     QMenu menu( this );
-    for ( int column = 0; column < tree_->columnCount(); ++column ) {
+    for ( int visual = 0; visual < header->count(); ++visual ) {
+        const auto column = header->logicalIndex( visual );
         auto* action = menu.addAction( tree_->headerItem()->text( column ) );
         action->setCheckable( true );
         action->setChecked( !header->isSectionHidden( column ) );
@@ -1166,6 +1215,7 @@ void FilterPanel::publishChange()
     for ( int i = 0; i < tree_->topLevelItemCount(); ++i ) {
         updateSuspendedLook( tree_->topLevelItem( i ), false );
     }
+    numberFilters();
     loading_ = false;
 
     const auto root = buildTree();
@@ -1193,6 +1243,31 @@ void FilterPanel::publishChange()
     saveCurrentFile();
 
     Q_EMIT filtersChanged();
+}
+
+void FilterPanel::numberFilters()
+{
+    int number = 0;
+    QTreeWidgetItemIterator it( tree_ );
+    while ( *it ) {
+        auto* item = *it;
+        auto& node = nodes_.at( item->data( PatternColumn, IdRole ).toString() );
+        if ( !node.isGroup() ) {
+            node.number = ++number;
+            updateNumberToolTip( item, node );
+            item->setText( NumberColumn, QString::number( node.number ) );
+            item->setTextAlignment( NumberColumn, Qt::AlignRight | Qt::AlignVCenter );
+        }
+        ++it;
+    }
+}
+
+void FilterPanel::updateNumberToolTip( QTreeWidgetItem* item, const FilterNode& node )
+{
+    const auto properties = item->data( PatternColumn, PropertiesRole ).toString();
+    item->setToolTip( PatternColumn, node.number > 0
+                                         ? filters::numberText( node ) + "  " + properties
+                                         : properties );
 }
 
 void FilterPanel::setRoot( const FilterNode& root )
@@ -1313,7 +1388,8 @@ void FilterPanel::updateItem( QTreeWidgetItem* item )
                 tr( "This regular expression is not supported by the fast regex engine "
                     "(e.g. back references or look-arounds), searching it is slower." ) );
         }
-        item->setToolTip( PatternColumn, toolTip );
+        item->setData( PatternColumn, PropertiesRole, toolTip );
+        updateNumberToolTip( item, node );
     }
 
     loading_ = wasLoading;
@@ -1432,13 +1508,32 @@ void FilterPanel::updateHitCounts()
     const auto wasLoading = loading_;
     loading_ = true;
 
-    QTreeWidgetItemIterator it( tree_ );
-    while ( *it ) {
-        auto* item = *it;
-        const auto hits = hits_.find( item->data( PatternColumn, IdRole ).toString() );
-        item->setText( HitsColumn, hits != hits_.end() ? QString::number( *hits ) : QString{} );
+    // Groups show the sum of the hits of their enabled filters, blank if none has a count
+    const std::function<std::optional<qint64>( QTreeWidgetItem* )> update
+        = [ & ]( QTreeWidgetItem* item ) -> std::optional<qint64> {
+        std::optional<qint64> count;
+        if ( isGroupItem( item ) ) {
+            for ( int i = 0; i < item->childCount(); ++i ) {
+                const auto childCount = update( item->child( i ) );
+                if ( childCount ) {
+                    count = count.value_or( 0 ) + *childCount;
+                }
+            }
+        }
+        else {
+            const auto hits = hits_.find( item->data( PatternColumn, IdRole ).toString() );
+            if ( hits != hits_.end() && item->checkState( PatternColumn ) != Qt::Unchecked ) {
+                count = *hits;
+            }
+        }
+
+        item->setText( HitsColumn, count ? QString::number( *count ) : QString{} );
         item->setTextAlignment( HitsColumn, Qt::AlignRight | Qt::AlignVCenter );
-        ++it;
+        return count;
+    };
+
+    for ( int i = 0; i < tree_->topLevelItemCount(); ++i ) {
+        update( tree_->topLevelItem( i ) );
     }
 
     loading_ = wasLoading;

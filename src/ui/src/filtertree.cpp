@@ -459,6 +459,11 @@ QColor displayForeColor( const FilterNode& filter )
     return luma > 0.5 ? QColor( Qt::black ) : QColor( Qt::white );
 }
 
+QString numberText( const FilterNode& filter )
+{
+    return QStringLiteral( "#%1" ).arg( filter.number );
+}
+
 HighlighterSet buildHighlighterSet( const std::vector<const FilterNode*>& filters )
 {
     QList<Highlighter> highlighters;

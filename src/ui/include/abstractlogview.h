@@ -160,7 +160,12 @@ class AbstractLogView : public QAbstractScrollArea, public SearchableWidgetInter
     // Colouring rules built from the filter panel
     void setFilterHighlighterSet( std::shared_ptr<const HighlighterSet> highlighterSet );
 
-    // Selects the next (or previous) line matching the passed matcher
+    // Rich text tool tip shown over a line (passed as a line number of the file),
+    // nothing is shown when it returns an empty string
+    void setLineToolTipProvider( std::function<QString( LineNumber )> provider );
+
+    // Selects the next (or previous) line matching the passed matcher,
+    // continuing from the other end of the file
     void searchUsingMatcher( const QuickFindMatcher& matcher, bool backward );
 
     // Returns the current "position" of the view as a line number,
@@ -177,6 +182,7 @@ class AbstractLogView : public QAbstractScrollArea, public SearchableWidgetInter
     void timerEvent( QTimerEvent* timerEvent ) override;
     void changeEvent( QEvent* changeEvent ) override;
     void paintEvent( QPaintEvent* paintEvent ) override;
+    bool viewportEvent( QEvent* e ) override;
     void resizeEvent( QResizeEvent* resizeEvent ) override;
     void scrollContentsBy( int dx, int dy ) override;
     void keyPressEvent( QKeyEvent* keyEvent ) override;
@@ -382,6 +388,7 @@ class AbstractLogView : public QAbstractScrollArea, public SearchableWidgetInter
     std::vector<QuickHighlighters> quickHighlighters_ = std::vector<QuickHighlighters>{ 9 };
 
     std::shared_ptr<const HighlighterSet> filterHighlighterSet_;
+    std::function<QString( LineNumber )> lineToolTipProvider_;
 
     // Position of the view, those are crucial to control drawing
     // firstLine gives the position of the view,
