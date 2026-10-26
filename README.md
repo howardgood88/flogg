@@ -2,90 +2,65 @@
 
 **English** | [繁體中文](README.zh-TW.md)
 
-flogg is a log viewer built on [klogg](https://github.com/variar/klogg). It keeps
-klogg's fast file reading and search, and replaces its search bar workflow with a
-[TextAnalysisTool](https://textanalysistool.github.io/) style filter panel: a list
-of filters that decides both which lines appear in the filtered view and how the
-main view is coloured.
+flogg is a log viewer built on [klogg](https://github.com/variar/klogg). It keeps klogg's fast file reading and search, and adds a more customisable [TextAnalysisTool](https://textanalysistool.github.io/) style filter panel.
 
 ![flogg with the filter panel](docs/images/filter-panel.png)
 
-Downloads for Windows (x64) and macOS (Apple Silicon) are on the
-[releases page](https://github.com/howardgood88/flogg/releases/latest).
+Downloads for Windows (x64) and macOS (Apple Silicon) are on the [releases page](https://github.com/howardgood88/flogg/releases/latest).
 
 ## Features
 
-### Filter panel
+### Filter panel: a TAT style, easier to manage filter list
 
 - Filters are organised in a tree of nested groups.
-- Each filter has a pattern (plain text or regular expression), case sensitivity,
-  an exclude option, and foreground/background colours applied to the whole line
-  or to the match only.
-- The enabled filters drive both the filtered view and the colouring of the main
-  view.
-- Enable or disable single filters, whole groups, or everything at once; suspend a
-  filter temporarily without losing its state.
-- Filters can have multi-line descriptions (first line in the list, all of it in
-  the tool tip).
-- Reorder filters with drag and drop or the move buttons, including moving them in
-  and out of groups.
-- Columns resize independently; their widths and visibility are saved. Right click
-  the header to choose the visible columns.
-- Create a filter from the selected text or from the search box.
-- The hits column shows the number of matching lines of each filter; a group shows
-  the sum of its enabled filters.
-- Every filter has a number following its priority (the `#` column, which can be hidden
-  like the other columns); hovering a line of the log views lists the filters matching
-  it with their numbers, in priority order.
-- A `Light` style (Preferences > View > Style) keeps flogg light whatever the system
-  appearance; `Dark` keeps it dark.
+- Each filter has a pattern (text or regex), case sensitivity, an exclude option and foreground/background colours, applied to the whole line or to the match only.
+- Enable or disable single filters, whole groups, or everything at once; a filter can also be suspended temporarily without changing whether it is enabled.
+- With filters selected, `F8` / `Shift+F8` in the main or filtered view jumps between their matching lines.
+- Hovering a line of the log views lists the filters matching it with their numbers, in priority order.
+- Right click the column header to choose the visible columns; each column resizes independently and the widths are saved.
 
-### Fast filtering
+### Fast filtering: searching and filtering as fast as klogg
 
-- Each filter keeps its own result bitmap, so toggling filters only recombines
-  cached results and editing a filter rescans that pattern only.
-- Larger read blocks and no sleep polling in the search pipeline.
+- Hyperscan can scan for many patterns at once, but a klogg search produces a single result; flogg extends it so that one pass over the file gives every filter its own result.
+- Each filter keeps its search result in a Roaring Bitmap (as in klogg), which adapts its layout to how dense the matches are to keep memory use low.
+- The final result is the union of the included filters minus the excluded ones. Enabling, disabling or suspending filters only recombines the bitmaps without rescanning, and adding or editing a filter rescans that pattern only.
 
 ### Bookmarks and views
 
-- Numbered bookmarks 1-8 on any number of lines, with next/previous navigation per
-  bookmark. The bookmark column is only shown while the file has bookmarks.
-- Hide the main log view to give the filtered view the whole window.
-- All new actions have configurable shortcuts, see [Shortcuts](#shortcuts).
+- The filter panel and klogg's own search box are used one at a time; switch with the `Filters` button at the left end of the search bar above the filtered view.
+- In the main and filtered views, `Ctrl+1-8` sets bookmarks and `Alt+1-8` / `Shift+Alt+1-8` jump to the next / previous line with that bookmark.
+  (Shortcuts can be changed in `File > Preferences > Shortcuts`; flogg keeps klogg's own shortcuts by default.)
+- `Ctrl+H` (macOS: `Control+H`) hides the main view and shows the filtered view only.
 
-### Filter files
+### Filter and conf files
 
-- Filters are saved as JSON filter files (File menu of the filter panel).
+- Every change to the filters is saved automatically to the current JSON filter file, `filters.flogg-filters.json` by default (see [Command line](#command-line) for where it is).
 - Import TextAnalysisTool `.tat` files.
 - Import klogg predefined filters and highlighters.
+- Application settings (UI, shortcuts and so on) are kept in `flogg.conf` by default (see [Command line](#command-line) for where it is).
 
 ### Command line
 
-- `--config <file>` keeps the settings in that file (and the session in
-  `<name>_session.conf` next to it).
-- `--filters <file>` loads a filter file without making it the default one.
-- Together with `-m` this starts several windows, each with its own settings and
-  filters.
-- On Windows the settings and the default filter file are kept next to
-  `flogg.exe`, so the package is portable.
+- `--config <file>` reads and writes the settings in that file (any name) instead of the default `flogg.conf`; the session goes to `<name>_session.conf` next to it.
+- `--filters <file>` opens flogg with that filter file without making it the default one.
+- Together with `-m` this starts several windows, each with its own settings and filters.
+- On Windows the settings (`flogg.conf`) and the default filter file are kept next to `flogg.exe`, so the whole folder is portable.
+- On macOS they follow the system conventions: the settings are in `~/Library/Preferences/com.flogg.flogg.plist` and the default filter file in
+  `~/Library/Application Support/flogg/filters.flogg-filters.json`; with `--config` the default filter file goes next to that settings file.
 
 ### Removed from klogg
 
-Predefined filters, highlighter sets, search highlighting, clear file, the version
-check and the Help menu links are replaced by the filter panel or dropped.
+Predefined filters, highlighter sets, search highlighting, clear file, the version check and the Help menu links are replaced by the filter panel or dropped.
 
 ## Shortcuts
 
-Shortcuts added by flogg. All of them can be changed in Preferences > Shortcuts.
-On macOS, `Ctrl` is the Command key and `Alt` is the Option key, except for
-Show/hide main log view, which uses the Control key (Command+H hides the
-application).
+Shortcuts added by flogg. All of them can be changed in File > Preferences > Shortcuts.
 
 ### Views
 
 | Action | Shortcut | Also in |
 | --- | --- | --- |
-| Show/hide main log view | `Ctrl+H` (macOS: `Control+H`) | View menu |
+| Show/hide main view | `Ctrl+H` (macOS: `Control+H`) | View menu |
 | Show/hide filter panel | none by default | View and Tools menus, close button of the panel |
 
 ### Filter panel

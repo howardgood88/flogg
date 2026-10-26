@@ -2,78 +2,65 @@
 
 [English](README.md) | **繁體中文**
 
-flogg 是以 [klogg](https://github.com/variar/klogg) 為基礎的 log 檢視器。它保留
-klogg 快速的檔案讀取與搜尋，並以 [TextAnalysisTool](https://textanalysistool.github.io/)
-風格的 filter panel 取代原本的搜尋列操作方式：由一組 filter 同時決定哪些行出現在
-過濾檢視中，以及主檢視的著色方式。
+flogg 是以 [klogg](https://github.com/variar/klogg) 為基礎的 log 檢視器。它保留了 klogg 快速的檔案讀取與搜尋，並加入客製化程度更高的 [TextAnalysisTool](https://textanalysistool.github.io/) 風格 filter panel。
 
 ![顯示 filter panel 的 flogg](docs/images/filter-panel.png)
 
-Windows（x64）與 macOS（Apple Silicon）的安裝檔請到
-[Releases 頁面](https://github.com/howardgood88/flogg/releases/latest)下載。
+Windows（x64）與 macOS（Apple Silicon）的安裝檔請到 [Releases 頁面](https://github.com/howardgood88/flogg/releases/latest)下載。
 
 ## 功能
 
-### Filter panel
+### Filter panel：TAT 風格，更方便的 filter 管理器
 
-- Filter 以可巢狀的群組樹狀結構管理。
-- 每個 filter 可設定 pattern（純文字或正規表示式）、大小寫敏感、排除（exclude），
-  以及前景／背景顏色，顏色可套用在整行或只套用在符合的文字。
-- 啟用中的 filter 同時決定過濾檢視的內容與主檢視的著色。
-- 可個別、整個群組或一次全部啟用／停用 filter；也可以暫時 suspend，不會改動原本的
-  啟用狀態。
-- Filter 可以有多行說明（清單中顯示第一行，tool tip 顯示全部）。
-- 可用拖放或移動按鈕調整順序，也能移入或移出群組。
-- 各欄寬度可獨立調整，欄寬與顯示的欄位會被記住；在欄位標題按右鍵可選擇要顯示的欄位。
-- 可從選取的文字或搜尋框內容建立 filter。
-- Hits 欄顯示每個 filter 的命中行數；群組顯示其中所有已啟用 filter 的命中數總和。
-- 每個 filter 依優先順序有一個編號（`#` 欄，可和其他欄位一樣隱藏）；滑鼠停在 log
-  檢視的某一行時，會依優先順序列出命中該行的 filter 與其編號。
-- `Light` style（Preferences > View > Style）不論系統外觀都維持淺色；`Dark` 則維持深色。
+- Filter 支援巢狀的群組樹狀結構管理。
+- 每個 filter 可設定 pattern（text 或 regex）、大小寫敏感、排除、前景／背景顏色，顏色可套用在整行或只套用在符合的文字。
+- 可個別、整個群組或一次全部啟用／停用 filter；也可以暫時 suspend（不會改動原本的啟用狀態）。
+- 選中 filter 後，在主視窗或過濾視窗按 `F8` / `Shift+F8` 在命中行間跳轉。
+- 滑鼠停在 log 檢視的某一行時，會依優先順序列出命中該行的 filter 與其編號。
+- 在欄位標題按右鍵可選擇要顯示的欄位，各欄寬度可個別調整。
 
-### 快速過濾
+### 快速過濾：與 klogg 同樣高效的搜尋與過濾
 
-- 每個 filter 保有自己的結果 bitmap：切換 filter 只需重新組合快取結果，編輯 filter
-  也只會重新掃描該 pattern。
-- 搜尋流程使用更大的讀取區塊，且不再以 sleep 輪詢。
+- Hyperscan 本身即支援多 pattern 同時掃描，但 klogg 一次搜尋只產生一份結果；flogg 將其擴充為掃描一次檔案就同時得到每個 filter 各自的結果。
+- 每個 filter 維護自己的搜尋結果 Roaring Bitmap（沿用自 klogg），可自動根據命中稠密度調整資料結構，以壓縮所需記憶體空間。
+- 最終命中結果為 Roaring Bitmap 彼此做聯集 / 差集，啟用 / 停用 / 暫停 filter 只需重新計算 bitmap 組合結果，不需要重新掃描，新增 / 編輯 filter 也只會重新掃描該 pattern。
 
 ### 書籤與檢視
 
-- 編號 1-8 的書籤，每個編號可標記任意多行，並可逐一跳到下一個／上一個。書籤欄只在
-  檔案有書籤時顯示。
-- 可隱藏主 log 檢視，讓過濾檢視佔滿整個視窗。
-- 所有新增的操作都可自訂快捷鍵，見[快捷鍵](#快捷鍵)。
+- Filter Panel 與 klogg 原生 pattern 輸入框互斥，可透過過濾視窗上方搜尋列最左邊的 `Filters` 按鈕切換。
+- 主視窗與過濾視窗支援 `Ctrl+1-8` 標記書籤，`Alt+1-8` / `Shift+Alt+1-8` 可跳到下一個 / 上一個對應書籤行。
+  (建議至 `File > Preferences > Shortcuts` 修改按鍵設定，flogg 預設保留 klogg 原生 shortcuts)
+- `Ctrl+H`（macOS：`Control+H`）可隱藏主視窗，只顯示過濾視窗。
 
-### Filter 檔
+### Filter / conf 檔
 
-- Filter 存成 JSON 格式的 filter 檔（filter panel 的 File 選單）。
-- 可匯入 TextAnalysisTool 的 `.tat` 檔。
-- 可匯入 klogg 的 predefined filters 與 highlighters。
+- Filter 的每次修改都會自動存到目前使用的 JSON filter 檔，預設為 `filters.flogg-filters.json`（位置見下方[命令列](#命令列)）。
+- 支援匯入 TextAnalysisTool 的 `.tat` 檔。
+- 支援匯入 klogg 的 predefined filters 與 highlighters。
+- 應用相關設定（UI、shortcuts 等等）預設儲存於 `flogg.conf`（位置見下方[命令列](#命令列)）。
 
 ### 命令列
 
-- `--config <file>`：設定存在指定的檔案中（session 存在同目錄的
-  `<name>_session.conf`）。
-- `--filters <file>`：載入 filter 檔，但不把它設為預設 filter 檔。
+- `--config <file>`：改用指定的設定檔讀寫設定，不影響預設的 `flogg.conf`；對應 session 存在同目錄的 `<name>_session.conf`。
+- `--filters <file>`：以指定的 filter 檔開啟 flogg，但不把它設為預設 filter 檔。
 - 搭配 `-m` 可開啟多個視窗，各自使用自己的設定與 filter。
-- Windows 版的設定與預設 filter 檔放在 `flogg.exe` 旁邊，整個資料夾可攜帶使用。
+- Windows 版的設定（`flogg.conf`）與預設 filter 檔放在 `flogg.exe` 旁邊，整個資料夾為 portable。
+- macOS 版依照系統慣例存放：設定在 `~/Library/Preferences/com.flogg.flogg.plist`，預設 filter 檔在
+  `~/Library/Application Support/flogg/filters.flogg-filters.json`；使用 `--config` 時，預設 filter 檔改放在該設定檔旁邊。
 
 ### 相較 klogg 移除的功能
 
-Predefined filters、highlighter sets、搜尋結果高亮、清空檔案、版本檢查與 Help 選單
-連結，已由 filter panel 取代或移除。
+Predefined filters、highlighter sets、搜尋結果高亮、清空檔案、版本檢查與 Help 選單連結，已由 filter panel 取代或移除。
 
 ## 快捷鍵
 
-以下是 flogg 新增的快捷鍵，全部都可以在 Preferences > Shortcuts 中修改。
-macOS 上 `Ctrl` 是 Command 鍵、`Alt` 是 Option 鍵；唯一例外是「顯示／隱藏主 log
-檢視」使用 Control 鍵（因為 Command+H 會隱藏整個應用程式）。
+以下是 flogg 新增的快捷鍵，全部都可以在 File > Preferences > Shortcuts 中修改。
 
 ### 檢視
 
 | 操作 | 快捷鍵 | 其他位置 |
 | --- | --- | --- |
-| 顯示／隱藏主 log 檢視 | `Ctrl+H`（macOS：`Control+H`） | View 選單 |
+| 顯示／隱藏主視窗檢視 | `Ctrl+H`（macOS：`Control+H`） | View 選單 |
 | 顯示／隱藏 filter panel | 預設無 | View 與 Tools 選單、panel 右上角的關閉按鈕 |
 
 ### Filter panel
