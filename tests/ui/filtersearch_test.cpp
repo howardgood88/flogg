@@ -915,6 +915,92 @@ SCENARIO( "Filter panel check box lined up with the group arrows", "[filters]" )
     settings.setValue( "filterPanel/currentFile", previousFile );
 }
 
+SCENARIO( "Filter panel selected filter keeps its colours", "[filters]" )
+{
+    QTemporaryDir dir;
+    auto root = FilterNode::makeGroup( "root" );
+    root.children.push_back( FilterNode::makeFilter( "WWWWWWWWWW" ) );
+    root.children.back().foreColor = QColor( Qt::red );
+    root.children.back().backColor = QColor( Qt::yellow );
+    const auto filtersFile = dir.filePath( "test.flogg-filters.json" );
+    REQUIRE( filters::saveToFile( root, filtersFile ) );
+
+    auto& settings = PersistentInfo::getSettings( app_settings{} );
+    const auto previousFile = settings.value( "filterPanel/currentFile" );
+    settings.setValue( "filterPanel/currentFile", filtersFile );
+
+    FilterPanel panel;
+    panel.resize( 400, 300 );
+    panel.show();
+    auto* tree = panel.findChild<QTreeWidget*>();
+    REQUIRE( tree );
+    auto* filter = tree->topLevelItem( 0 );
+    // The current cell is in the hits column
+    tree->setCurrentItem( filter, 1 );
+    tree->setFocus();
+    REQUIRE( filter->isSelected() );
+
+    // The text is drawn in the filter colour, not in the highlighted text colour
+    const auto row = tree->viewport()->grab( tree->visualItemRect( filter ) ).toImage();
+    // and its background shows through the selection
+    int redPixels = 0;
+    int yellowPixels = 0;
+    for ( int y = 0; y < row.height(); ++y ) {
+        for ( int x = 0; x < row.width(); ++x ) {
+            const auto color = row.pixelColor( x, y );
+            if ( color.red() > 180 && color.green() < 80 && color.blue() < 80 ) {
+                ++redPixels;
+            }
+            if ( color.red() > 150 && color.green() > 150 && color.blue() < 120 ) {
+                ++yellowPixels;
+            }
+        }
+    }
+    CHECK( redPixels > 20 );
+
+    // The current cell looks like the rest of the selected row, also in the Light style
+    // which fills it
+    {
+        const auto previousPalette = QApplication::palette();
+        const auto previousStyle = QApplication::style()->name();
+        StyleManager::applyStyle( StyleManager::LightStyleKey );
+        QApplication::processEvents();
+        const auto hitsCell = tree->visualRect( tree->currentIndex() );
+        const auto descriptionCell = tree->visualRect( tree->currentIndex().siblingAtColumn( 2 ) );
+        const auto cells = tree->viewport()->grab().toImage();
+        CHECK( cells.pixelColor( hitsCell.topLeft() + QPoint( 4, 4 ) )
+               == cells.pixelColor( descriptionCell.topLeft() + QPoint( 4, 4 ) ) );
+        QApplication::setStyle( previousStyle );
+        QApplication::setPalette( previousPalette );
+        QApplication::processEvents();
+    }
+    CHECK( yellowPixels > row.width() * row.height() / 4 );
+
+    // FLOGG_RENDER_DIR=<dir> also saves pictures of a selected filter, plain filter and group
+    const auto renderDir = qEnvironmentVariable( "FLOGG_RENDER_DIR" );
+    if ( !renderDir.isEmpty() ) {
+        tree->addTopLevelItem( new QTreeWidgetItem( *filter ) );
+        tree->topLevelItem( 1 )->setForeground( 0, QBrush{} );
+        tree->topLevelItem( 1 )->setBackground( 0, QBrush{} );
+        REQUIRE( panel.grab().save( renderDir + "/selected_filter.png" ) );
+        tree->setCurrentItem( tree->topLevelItem( 1 ) );
+        REQUIRE( panel.grab().save( renderDir + "/selected_plain_filter.png" ) );
+
+        const auto previousPalette = QApplication::palette();
+        const auto previousStyle = QApplication::style()->name();
+        for ( const auto& style : { StyleManager::DarkStyleKey, StyleManager::LightStyleKey } ) {
+            StyleManager::applyStyle( style );
+            QApplication::processEvents();
+            tree->setCurrentItem( filter );
+            REQUIRE( panel.grab().save( renderDir + "/selected_filter_" + style + ".png" ) );
+        }
+        QApplication::setStyle( previousStyle );
+        QApplication::setPalette( previousPalette );
+    }
+
+    settings.setValue( "filterPanel/currentFile", previousFile );
+}
+
 SCENARIO( "Filter panel move up and down across groups", "[filters]" )
 {
     QTemporaryDir dir;

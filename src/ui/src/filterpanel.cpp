@@ -275,6 +275,21 @@ class FlowLayout : public QLayout {
     std::vector<QLayoutItem*> items_;
 };
 
+// The native Windows styles draw a light selection that keeps the filter colours, the others
+// cover a selected row with the opaque highlight colour and the highlighted text colour
+bool hasTranslucentSelection( const QStyle* style )
+{
+    const auto name = style->name();
+    return name != QLatin1String( "windowsvista" ) && name != QLatin1String( "windows11" );
+}
+
+QColor selectionOverlay( const QPalette& palette )
+{
+    auto color = palette.color( QPalette::Active, QPalette::Highlight );
+    color.setAlpha( 90 );
+    return color;
+}
+
 // Filters have no expand arrow: their check box takes the place of the arrow, so that it
 // lines up with the arrows of the groups next to them instead of with their folder icons
 class FilterItemDelegate : public QStyledItemDelegate {
@@ -290,34 +305,46 @@ class FilterItemDelegate : public QStyledItemDelegate {
     {
         auto itemOption = alignedOption( option, index );
         initStyleOption( &itemOption, index );
+        const auto* widget = itemOption.widget;
+        auto* style = widget ? widget->style() : QApplication::style();
+
+        // Rows are selected as a whole, the current column is not marked
+        itemOption.state &= ~QStyle::State_HasFocus;
+
+        // A selected item keeps its background and text colours under a see through highlight
+        if ( hasTranslucentSelection( style )
+             && itemOption.state.testFlag( QStyle::State_Selected ) ) {
+            itemOption.state &= ~QStyle::State_Selected;
+            if ( itemOption.backgroundBrush.style() != Qt::NoBrush ) {
+                painter->fillRect( itemOption.rect, itemOption.backgroundBrush );
+                itemOption.backgroundBrush = QBrush{};
+            }
+            painter->fillRect( itemOption.rect, selectionOverlay( tree_->palette() ) );
+        }
+
         if ( !itemOption.features.testFlag( QStyleOptionViewItem::HasCheckIndicator ) ) {
-            QStyledItemDelegate::paint( painter, alignedOption( option, index ), index );
+            style->drawControl( QStyle::CE_ItemViewItem, &itemOption, painter, widget );
             return;
         }
 
         // The style draws the check box with the text colour, which is the filter colour:
-        // draw the item with the palette of the tree and no text, then the text on top
-        const auto* widget = itemOption.widget;
-        auto* style = widget ? widget->style() : QApplication::style();
-        const auto selected = itemOption.state.testFlag( QStyle::State_Selected );
-        const auto textColor = itemOption.palette.color(
-            selected ? QPalette::HighlightedText : QPalette::Text );
+        // draw the item with the palette of the tree, then the style draws the text again
+        // clipped to the text area, like for the groups. A filter colour is kept when selected.
         const auto textRect
             = style->subElementRect( QStyle::SE_ItemViewItemText, &itemOption, widget );
-        const auto text = itemOption.text;
 
-        itemOption.text.clear();
-        itemOption.palette = tree_->palette();
-        style->drawControl( QStyle::CE_ItemViewItem, &itemOption, painter, widget );
+        auto boxOption = itemOption;
+        boxOption.text.clear();
+        boxOption.palette = tree_->palette();
+        style->drawControl( QStyle::CE_ItemViewItem, &boxOption, painter, widget );
 
-        const auto margin = style->pixelMetric( QStyle::PM_FocusFrameHMargin, nullptr, widget ) + 1;
-        const auto textArea = textRect.adjusted( margin, 0, -margin, 0 );
+        if ( index.data( Qt::ForegroundRole ).isValid() ) {
+            itemOption.palette.setBrush( QPalette::HighlightedText,
+                                         itemOption.palette.brush( QPalette::Text ) );
+        }
         painter->save();
-        painter->setFont( itemOption.font );
-        painter->setPen( textColor );
-        painter->drawText( textArea, static_cast<int>( itemOption.displayAlignment ),
-                           QFontMetrics( itemOption.font )
-                               .elidedText( text, itemOption.textElideMode, textArea.width() ) );
+        painter->setClipRect( textRect, Qt::IntersectClip );
+        style->drawControl( QStyle::CE_ItemViewItem, &itemOption, painter, widget );
         painter->restore();
     }
 
@@ -351,6 +378,40 @@ class FilterTreeWidget : public QTreeWidget {
     using QTreeWidget::QTreeWidget;
 
   protected:
+    // The style does not fill selected rows, the delegate and the branches lay a see through
+    // highlight over them and the row gets a frame
+    void initViewItemOption( QStyleOptionViewItem* option ) const override
+    {
+        QTreeWidget::initViewItemOption( option );
+        if ( hasTranslucentSelection( style() ) ) {
+            option->palette.setColor( QPalette::Highlight, Qt::transparent );
+        }
+    }
+
+    void drawBranches( QPainter* painter, const QRect& rect,
+                       const QModelIndex& index ) const override
+    {
+        QTreeWidget::drawBranches( painter, rect, index );
+        if ( hasTranslucentSelection( style() ) && selectionModel()->isSelected( index ) ) {
+            painter->fillRect( rect, selectionOverlay( palette() ) );
+        }
+    }
+
+    void drawRow( QPainter* painter, const QStyleOptionViewItem& option,
+                  const QModelIndex& index ) const override
+    {
+        QTreeWidget::drawRow( painter, option, index );
+        if ( hasTranslucentSelection( style() ) && selectionModel()->isSelected( index ) ) {
+            const QRect row( -header()->offset(), option.rect.top(), header()->length(),
+                             option.rect.height() );
+            painter->save();
+            painter->setPen( palette().color( QPalette::Active, QPalette::Highlight ) );
+            painter->setBrush( Qt::NoBrush );
+            painter->drawRect( row.adjusted( 0, 0, -1, -1 ) );
+            painter->restore();
+        }
+    }
+
     // All drops are handled inside the tree (QTreeWidget moves the items itself and so does
     // the drop below the last row), so unlike QAbstractItemView never remove the dragged
     // items once the drag is done.
