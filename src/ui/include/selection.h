@@ -24,7 +24,10 @@
 #include <QString>
 #include <cstddef>
 
+// moc can't parse the roaring headers (on Windows)
+#ifndef Q_MOC_RUN
 #include <roaring.hh>
+#endif
 
 #include "linetypes.h"
 
