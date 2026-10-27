@@ -375,6 +375,7 @@ void CrawlerWidget::doSetViewContext( const QString& view_context )
         filterTabState_ = FilterPanel::restoredTabState(
             filters.value( "file" ).toString(),
             filters::fromJson( QJsonObject::fromVariantMap( filters.value( "root" ).toMap() ) ) );
+        filterTabState_.collapsedGroups = filters.value( "collapsed" ).toStringList();
     }
 
     const auto savedMarks = context.marks();
@@ -388,6 +389,7 @@ std::shared_ptr<const ViewContextInterface> CrawlerWidget::doGetViewContext() co
     if ( filterTabState_.initialized ) {
         filters[ "file" ] = filterTabState_.file;
         filters[ "root" ] = filters::toJson( filterTabState_.root ).toVariantMap();
+        filters[ "collapsed" ] = filterTabState_.collapsedGroups;
     }
 
     auto context = std::make_shared<const CrawlerWidgetContext>(

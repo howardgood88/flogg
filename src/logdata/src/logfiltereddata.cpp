@@ -240,6 +240,51 @@ void LogFilteredData::iterateOverLines( const std::function<void( LineNumber )>&
         static_cast<void*>( const_cast<CallbackFn*>( &callback ) ) );
 }
 
+void LogFilteredData::countLinesInRanges( const std::vector<uint64_t>& bounds,
+                                          std::vector<uint64_t>& matchCounts,
+                                          std::vector<uint64_t>& markCounts ) const
+{
+    const auto nbRanges = bounds.size() > 1 ? bounds.size() - 1 : 0;
+    matchCounts.assign( nbRanges, 0 );
+    markCounts.assign( nbRanges, 0 );
+    if ( nbRanges == 0 ) {
+        return;
+    }
+
+    const auto showsMatches = visibility_.testFlag( VisibilityFlags::Matches );
+    const auto showsMarks = visibility_.testFlag( VisibilityFlags::Marks );
+
+    // Number of matches before the line
+    const auto matchesBefore = [ this ]( uint64_t line ) -> uint64_t {
+        return line == 0 ? 0 : matching_lines_.rank( line - 1 );
+    };
+
+    if ( showsMatches ) {
+        auto previous = matchesBefore( bounds.front() );
+        for ( size_t i = 0; i < nbRanges; ++i ) {
+            const auto next = matchesBefore( bounds[ i + 1 ] );
+            matchCounts[ i ] = next - previous;
+            previous = next;
+        }
+    }
+
+    if ( showsMarks ) {
+        for ( const auto line : marks_ ) {
+            if ( line < bounds.front() || line >= bounds.back() ) {
+                continue;
+            }
+            const auto range = static_cast<size_t>(
+                std::upper_bound( bounds.begin(), bounds.end(), line ) - bounds.begin() - 1 );
+            if ( !matching_lines_.contains( line ) ) {
+                markCounts[ range ]++;
+            }
+            else if ( !showsMatches ) {
+                matchCounts[ range ]++;
+            }
+        }
+    }
+}
+
 // Delegation to our Marks object
 
 void LogFilteredData::toggleMark( LineNumber line )

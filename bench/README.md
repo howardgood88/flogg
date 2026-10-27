@@ -80,3 +80,19 @@ FLOGG_BENCH_FILE=../bench/big.log ./output/klogg_itests -platform offscreen "[.b
 | 30 條 filter 第一次掃描 | 1.4 秒（修正前是 132 秒），22,495,530 筆命中 |
 | 開關 filter | 4～14 ms |
 | 修改 1 條 filter | 約 0.5 秒 |
+
+## UI 反應時間
+
+另有兩個隱藏的 test case（tag 為 `[.timing]`），用真實的大檔量測介面操作時，畫面最長被卡住多久：
+
+```sh
+cd build_root
+FLOGG_TIMING_FILTERS=<filter 檔> \
+FLOGG_TIMING_LOGS=../bench/big.log,../bench/mid.log,<big.log 的 hard link>,<mid.log 的 hard link> \
+  ./output/klogg_itests -platform offscreen "[.timing]"
+```
+
+- `Main window tab switch timing`：兩個分頁來回切換的時間（用前兩個檔案）。
+- `Main window operations with several big files`：兩個視窗各開兩個檔案，量測切換分頁、開關 filter、標記行、捲動、調整視窗大小、切換視窗、關閉分頁時，事件迴圈最長的停頓。同一個 instance 不能重複開同一個檔案，所以後兩個檔案要用不同路徑（例如 `ln bench/big.log /tmp/big2.log`）。
+
+參考結果（Apple Silicon Mac，2026-10-28）：所有操作的最長停頓都在 30 ms 以內。修正 overview 之前，切換分頁、開關 filter、標記行和調整視窗大小在 big.log 上會卡 210～290 ms，原因是 overview 每次重算都會走過所有符合的行，現在改成每個像素列用一次 rank 查詢。

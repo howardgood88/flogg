@@ -19,6 +19,7 @@
 
 #include <catch2/catch.hpp>
 
+#include <algorithm>
 #include <array>
 
 #include <QSignalSpy>
@@ -226,6 +227,11 @@ struct CrawlerWidget::access_by<CrawlerWidgetPrivate> {
     void findFilterMatch( const std::vector<FilterNode>& filterNodes )
     {
         crawler->findFilterMatch( filterNodes, false );
+    }
+
+    LogFilteredData* filteredData()
+    {
+        return crawler->logFilteredData_.get();
     }
 
     QString searchInfo()
@@ -611,4 +617,59 @@ SCENARIO( "Crawler widget ctrl+click selection", "[ui]" )
     // A plain click goes back to a single line
     click( 2, Qt::NoModifier );
     CHECK( selectedLines() == QStringList{ "02" } );
+}
+
+SCENARIO( "Crawler widget overview line counts", "[ui]" )
+{
+    QTemporaryFile file{ "crawler_test_XXXXXX" };
+    REQUIRE( generateDataFiles( file ) );
+
+    Session session;
+    CrawlerWidgetVisitor crawlerVisitor;
+    crawlerVisitor.crawler.reset( static_cast<CrawlerWidget*>(
+        session.open( file.fileName(), []() { return new CrawlerWidget(); } ) ) );
+    waitUiState( [ & ]() { return crawlerVisitor.isLoadingFinished(); } );
+
+    crawlerVisitor.setFilterMode( true );
+    auto filter = FilterNode::makeFilter( "line 0000[1-4][0-9]" );
+    filter.useRegex = true;
+    crawlerVisitor.setFilters( { filter } );
+    REQUIRE( waitUiState(
+        [ & ]() { return crawlerVisitor.searchInfo() == "40 matches found"; } ) );
+
+    auto* data = crawlerVisitor.filteredData();
+    // Marks inside and outside of the matches
+    for ( const auto line : { 3, 12, 15, 47, 60, 61, 99 } ) {
+        data->toggleMark( LineNumber( static_cast<LineNumber::UnderlyingType>( line ) ) );
+    }
+
+    // Uneven ranges, some of them empty
+    const std::vector<uint64_t> bounds = { 0, 0, 7, 13, 14, 30, 45, 61, 62, 90, 100 };
+    using Visibility = LogFilteredData::VisibilityFlags;
+    for ( const auto visibility :
+          { LogFilteredData::Visibility( Visibility::Matches ),
+            LogFilteredData::Visibility( Visibility::Marks ),
+            LogFilteredData::Visibility( Visibility::Matches ) | Visibility::Marks } ) {
+        data->setVisibility( visibility );
+
+        std::vector<uint64_t> expectedMatches( bounds.size() - 1 );
+        std::vector<uint64_t> expectedMarks( bounds.size() - 1 );
+        data->iterateOverLines( [ & ]( LineNumber line ) {
+            const auto range = static_cast<size_t>(
+                std::upper_bound( bounds.begin(), bounds.end(), line.get() ) - bounds.begin()
+                - 1 );
+            if ( data->lineTypeByLine( line ).testFlag( LogFilteredData::LineTypeFlags::Match ) ) {
+                expectedMatches[ range ]++;
+            }
+            else {
+                expectedMarks[ range ]++;
+            }
+        } );
+
+        std::vector<uint64_t> matches;
+        std::vector<uint64_t> marks;
+        data->countLinesInRanges( bounds, matches, marks );
+        CHECK( matches == expectedMatches );
+        CHECK( marks == expectedMarks );
+    }
 }

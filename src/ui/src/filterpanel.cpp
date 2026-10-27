@@ -39,6 +39,7 @@
 #include <QMenu>
 #include <QMessageBox>
 #include <QPainter>
+#include <QScrollBar>
 #include <QSettings>
 #include <QStandardPaths>
 #include <QStyle>
@@ -1356,7 +1357,50 @@ FilterTabState FilterPanel::tabState()
     state.root = buildTree();
     state.savedJson = savedJson_;
     state.snapshot = snapshot_;
+    saveTreeView( state );
     return state;
+}
+
+void FilterPanel::saveTreeView( FilterTabState& state ) const
+{
+    for ( QTreeWidgetItemIterator it( tree_ ); *it; ++it ) {
+        const auto id = ( *it )->data( PatternColumn, IdRole ).toString();
+        if ( isGroupItem( *it ) && !( *it )->isExpanded() ) {
+            state.collapsedGroups.append( id );
+        }
+        if ( ( *it )->isSelected() ) {
+            state.selectedItems.append( id );
+        }
+    }
+    if ( tree_->currentItem() ) {
+        state.currentItem = tree_->currentItem()->data( PatternColumn, IdRole ).toString();
+    }
+    state.scrollPosition = tree_->verticalScrollBar()->value();
+}
+
+void FilterPanel::restoreTreeView( const FilterTabState& state )
+{
+    const auto wasLoading = loading_;
+    loading_ = true;
+
+    tree_->clearSelection();
+    for ( QTreeWidgetItemIterator it( tree_ ); *it; ++it ) {
+        const auto id = ( *it )->data( PatternColumn, IdRole ).toString();
+        if ( state.collapsedGroups.contains( id ) ) {
+            ( *it )->setExpanded( false );
+        }
+        if ( id == state.currentItem ) {
+            tree_->setCurrentItem( *it, PatternColumn, QItemSelectionModel::NoUpdate );
+        }
+        if ( state.selectedItems.contains( id ) ) {
+            ( *it )->setSelected( true );
+        }
+    }
+    // The scroll range follows the collapsed groups only once the items are laid out
+    tree_->doItemsLayout();
+    tree_->verticalScrollBar()->setValue( state.scrollPosition );
+
+    loading_ = wasLoading;
 }
 
 void FilterPanel::setTabState( const FilterTabState& state )
@@ -1377,6 +1421,7 @@ void FilterPanel::setTabState( const FilterTabState& state )
     currentFile_ = state.file;
     savedJson_ = state.savedJson;
     setRoot( state.root );
+    restoreTreeView( state );
 
     if ( state.snapshot ) {
         // The tab already has these filters applied

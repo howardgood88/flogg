@@ -81,8 +81,12 @@ class Overview {
     // Set the visibility flag of this overview.
     void setVisible( bool visible )
     {
+        // Set again on every tab switch: only an overview becoming visible needs a new cache,
+        // changes of the data mark it dirty themselves (recalculating goes over every match)
+        if ( visible && !visible_ ) {
+            dirty_ = true;
+        }
         visible_ = visible;
-        dirty_ = visible;
     }
 
     // Update the current position in the file (to draw the view line)

@@ -27,6 +27,8 @@
 #include <QTemporaryFile>
 #include <QApplication>
 #include <QDropEvent>
+#include <QElapsedTimer>
+#include <QTreeWidgetItemIterator>
 #include <QTemporaryDir>
 #include <QTest>
 #include <QTreeWidget>
@@ -40,7 +42,12 @@
 
 #include "filtereditdialog.h"
 #include "styles.h"
+#include "abstractlogview.h"
+#include "crawlerwidget.h"
 #include "filterpanel.h"
+#include "mainwindow.h"
+#include "session.h"
+#include "tabbedcrawlerwidget.h"
 #include "filtertree.h"
 #include "persistentinfo.h"
 
@@ -1113,4 +1120,257 @@ SCENARIO( "Filter panel tab states and manual save", "[filters]" )
         FilterPanel::restoredTabState( filtersFile, panel.tabState().root ) ) );
 
     settings.setValue( "filterPanel/currentFile", previousFile );
+}
+
+SCENARIO( "Filter panel tab switch timing", "[.timing]" )
+{
+    const auto filtersFile = qEnvironmentVariable( "FLOGG_TIMING_FILTERS" );
+    if ( filtersFile.isEmpty() ) {
+        return;
+    }
+    auto& settings = PersistentInfo::getSettings( app_settings{} );
+    const auto previousFile = settings.value( "filterPanel/currentFile" );
+    settings.setValue( "filterPanel/currentFile", filtersFile );
+
+    FilterPanel panel;
+    panel.resize( 400, 800 );
+    panel.show();
+    QApplication::processEvents();
+
+    auto first = panel.tabState();
+    panel.setTabState( FilterTabState{} );
+    auto second = panel.tabState();
+
+    QElapsedTimer timer;
+    timer.start();
+    constexpr int Switches = 20;
+    for ( int i = 0; i < Switches; ++i ) {
+        auto& target = i % 2 ? second : first;
+        auto& previous = i % 2 ? first : second;
+        previous = panel.tabState();
+        const auto taken = timer.nsecsElapsed();
+        panel.setTabState( target );
+        const auto set = timer.nsecsElapsed();
+        QApplication::processEvents();
+        const auto painted = timer.nsecsElapsed();
+        if ( i < 4 ) {
+            WARN( "tabState " << taken / 1000 << " us, setTabState " << ( set - taken ) / 1000
+                              << " us, events " << ( painted - set ) / 1000 << " us" );
+        }
+        timer.restart();
+    }
+
+    settings.setValue( "filterPanel/currentFile", previousFile );
+}
+
+SCENARIO( "Main window tab switch timing", "[.timing]" )
+{
+    const auto filtersFile = qEnvironmentVariable( "FLOGG_TIMING_FILTERS" );
+    const auto logs = qEnvironmentVariable( "FLOGG_TIMING_LOGS" ).split( ',', Qt::SkipEmptyParts );
+    if ( filtersFile.isEmpty() || logs.size() < 2 ) {
+        return;
+    }
+    FilterPanel::setStartupFile( filtersFile );
+
+    auto appSession = std::make_shared<Session>();
+    WindowSession windowSession{ appSession, "Timing", 0 };
+    MainWindow mainWindow( windowSession );
+    mainWindow.resize( 1400, 900 );
+    mainWindow.show();
+    for ( const auto& log : logs ) {
+        mainWindow.loadInitialFile( log, false );
+    }
+    auto* tabArea = mainWindow.findChild<TabbedCrawlerWidget*>();
+    REQUIRE( waitUiState( [ & ] { return tabArea->count() == logs.size(); } ) );
+
+    // Every tab gets its filters applied once
+    for ( int i = 0; i < tabArea->count(); ++i ) {
+        tabArea->setCurrentIndex( i );
+        QTest::qWait( 8000 );
+    }
+
+    QElapsedTimer timer;
+    const auto switches = qEnvironmentVariableIntValue( "FLOGG_TIMING_SWITCHES" );
+    for ( int i = 0; i < std::max( 6, switches ); ++i ) {
+        timer.start();
+        tabArea->setCurrentIndex( i % tabArea->count() );
+        const auto switched = timer.nsecsElapsed();
+        QApplication::processEvents();
+        const auto painted = timer.nsecsElapsed();
+        WARN( "switch to tab " << i % tabArea->count() << ": " << switched / 1000 << " us, events "
+                               << ( painted - switched ) / 1000 << " us" );
+        QTest::qWait( switches ? 10 : 500 );
+    }
+
+    FilterPanel::setStartupFile( {} );
+}
+
+SCENARIO( "Filter panel tabs keep collapsed groups and selection", "[filters]" )
+{
+    QTemporaryDir dir;
+    auto root = FilterNode::makeGroup( "root" );
+    auto first = FilterNode::makeGroup( "first" );
+    first.children.push_back( FilterNode::makeFilter( "ERROR" ) );
+    auto second = FilterNode::makeGroup( "second" );
+    second.children.push_back( FilterNode::makeFilter( "WARN" ) );
+    root.children.push_back( first );
+    root.children.push_back( second );
+    const auto filtersFile = dir.filePath( "groups.flogg-filters.json" );
+    REQUIRE( filters::saveToFile( root, filtersFile ) );
+
+    auto& settings = PersistentInfo::getSettings( app_settings{} );
+    const auto previousFile = settings.value( "filterPanel/currentFile" );
+    settings.setValue( "filterPanel/currentFile", filtersFile );
+
+    FilterPanel panel;
+    auto* tree = panel.findChild<QTreeWidget*>();
+    REQUIRE( tree );
+    tree->topLevelItem( 0 )->setExpanded( false );
+    tree->setCurrentItem( tree->topLevelItem( 1 )->child( 0 ) );
+
+    const auto firstTab = panel.tabState();
+    panel.setTabState( FilterTabState{} );
+    CHECK( tree->topLevelItem( 0 )->isExpanded() );
+
+    panel.setTabState( firstTab );
+    CHECK_FALSE( tree->topLevelItem( 0 )->isExpanded() );
+    CHECK( tree->topLevelItem( 1 )->isExpanded() );
+    CHECK( tree->currentItem() == tree->topLevelItem( 1 )->child( 0 ) );
+    CHECK( tree->topLevelItem( 1 )->child( 0 )->isSelected() );
+
+    settings.setValue( "filterPanel/currentFile", previousFile );
+}
+
+// Longest time the event loop was blocked while the action and its follow up work ran
+namespace {
+qint64 longestStallMs( const std::function<void()>& action, int settleMs )
+{
+    QElapsedTimer clock;
+    qint64 last = 0;
+    qint64 longest = 0;
+    QTimer ticker;
+    ticker.setInterval( 1 );
+    QObject::connect( &ticker, &QTimer::timeout, [ & ] {
+        const auto now = clock.elapsed();
+        longest = std::max( longest, now - last );
+        last = now;
+    } );
+    clock.start();
+    ticker.start();
+    QTest::qWait( 50 );
+    longest = 0;
+    last = clock.elapsed();
+    action();
+    longest = std::max( longest, clock.elapsed() - last );
+    QTest::qWait( settleMs );
+    return longest;
+}
+} // namespace
+
+SCENARIO( "Main window operations with several big files", "[.timing]" )
+{
+    const auto filtersFile = qEnvironmentVariable( "FLOGG_TIMING_FILTERS" );
+    const auto logs = qEnvironmentVariable( "FLOGG_TIMING_LOGS" ).split( ',', Qt::SkipEmptyParts );
+    if ( filtersFile.isEmpty() || logs.size() < 4 ) {
+        return;
+    }
+    FilterPanel::setStartupFile( filtersFile );
+
+    auto appSession = std::make_shared<Session>();
+    WindowSession firstSession{ appSession, "Timing1", 0 };
+    WindowSession secondSession{ appSession, "Timing2", 1 };
+    MainWindow first( firstSession );
+    MainWindow second( secondSession );
+    // A file is open once per instance, the second window gets the files after the first ones
+    const auto half = logs.size() / 2;
+    for ( auto* window : { &first, &second } ) {
+        window->resize( 1400, 900 );
+        window->show();
+        const auto offset = window == &first ? 0 : half;
+        for ( auto i = offset; i < offset + half; ++i ) {
+            window->loadInitialFile( logs[ i ], false );
+        }
+    }
+    auto* tabs = first.findChild<TabbedCrawlerWidget*>();
+    auto* secondTabs = second.findChild<TabbedCrawlerWidget*>();
+    REQUIRE( waitUiState( [ & ] {
+        return tabs->count() == half && secondTabs->count() == half;
+    } ) );
+    for ( auto* tabArea : { tabs, secondTabs } ) {
+        for ( int i = 0; i < tabArea->count(); ++i ) {
+            tabArea->setCurrentIndex( i );
+            QTest::qWait( 8000 );
+        }
+    }
+
+    // The biggest file first
+    tabs->setCurrentIndex( 0 );
+    QTest::qWait( 500 );
+    QApplication::setActiveWindow( &first );
+    auto* panel = first.findChild<FilterPanel*>();
+    auto* tree = panel->findChild<QTreeWidget*>();
+    auto* crawler = qobject_cast<CrawlerWidget*>( tabs->currentWidget() );
+    auto views = crawler->findChildren<AbstractLogView*>();
+    AbstractLogView* mainView = nullptr;
+    for ( auto* view : views ) {
+        if ( view->inherits( "LogMainView" ) ) {
+            mainView = view;
+        }
+    }
+    REQUIRE( mainView );
+
+    const auto report = [ & ]( const char* name, qint64 ms ) { WARN( name << ": " << ms << " ms" ); };
+
+    report( "switch tab", longestStallMs( [ & ] { tabs->setCurrentIndex( 1 ); }, 1000 ) );
+    report( "switch back", longestStallMs( [ & ] { tabs->setCurrentIndex( 0 ); }, 1000 ) );
+
+    report( "uncheck one filter", longestStallMs( [ & ] {
+                QTreeWidgetItemIterator it( tree, QTreeWidgetItemIterator::Checked );
+                ( *it )->setCheckState( 0, Qt::Unchecked );
+            },
+                                                  3000 ) );
+    report( "check it again", longestStallMs( [ & ] {
+                QTreeWidgetItemIterator it( tree, QTreeWidgetItemIterator::NotChecked );
+                ( *it )->setCheckState( 0, Qt::Checked );
+            },
+                                              3000 ) );
+    report( "disable all filters", longestStallMs(
+                                       [ & ] {
+                                           QMetaObject::invokeMethod( panel, "setAllEnabled",
+                                                                      Q_ARG( bool, false ) );
+                                       },
+                                       3000 ) );
+    report( "enable all filters", longestStallMs(
+                                      [ & ] {
+                                          QMetaObject::invokeMethod( panel, "setAllEnabled",
+                                                                     Q_ARG( bool, true ) );
+                                      },
+                                      5000 ) );
+
+    mainView->setFocus();
+    report( "mark a line", longestStallMs( [ & ] { QTest::keyClick( mainView, Qt::Key_M ); }, 1000 ) );
+    report( "page down x20", longestStallMs(
+                                 [ & ] {
+                                     for ( int i = 0; i < 20; ++i ) {
+                                         QTest::keyClick( mainView, Qt::Key_PageDown );
+                                         QApplication::processEvents();
+                                     }
+                                 },
+                                 500 ) );
+    report( "jump to bottom",
+            longestStallMs( [ & ] { QTest::keyClick( mainView, Qt::Key_End, Qt::ControlModifier ); },
+                            500 ) );
+    report( "resize window", longestStallMs( [ & ] { first.resize( 1300, 850 ); }, 500 ) );
+    report( "activate other window", longestStallMs(
+                                         [ & ] {
+                                             QApplication::setActiveWindow( &second );
+                                             second.raise();
+                                         },
+                                         500 ) );
+    // Saved first, a changed filter file asks before the tab is closed
+    QMetaObject::invokeMethod( panel, "saveFile" );
+    report( "close big tab", longestStallMs( [ & ] { tabs->tabCloseRequested( 0 ); }, 1000 ) );
+    CHECK( tabs->count() == half - 1 );
+
+    FilterPanel::setStartupFile( {} );
 }

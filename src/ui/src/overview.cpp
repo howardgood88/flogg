@@ -115,31 +115,33 @@ void Overview::recalculatesLines()
         matchLines_.clear();
         markLines_.clear();
 
-        if ( linesInFile_.get() > 0 ) {
-            logFilteredData_->iterateOverLines( [ this ]( LineNumber line ) {
-                const auto lineType = logFilteredData_->lineTypeByLine( line );
-                const auto position = yFromFileLine( line );
-                if ( lineType.testFlag( LogFilteredData::LineTypeFlags::Match ) ) {
-                    if ( ( !matchLines_.empty() ) && matchLines_.back().position() == position ) {
-                        // If the line is already there, we increase its weight
-                        matchLines_.back().load();
-                    }
-                    else {
-                        // If not we just add it
-                        matchLines_.emplace_back( position );
-                    }
+        const auto nbLines = linesInFile_.get();
+        if ( nbLines > 0 && height_ > 0 ) {
+            // The lines drawn at y are the ones with line * height / nbLines == y, counted
+            // per row instead of going over every match
+            std::vector<uint64_t> bounds( height_ + 1 );
+            for ( uint64_t y = 0; y <= height_; ++y ) {
+                bounds[ y ] = ( y * nbLines + height_ - 1 ) / height_;
+            }
+
+            std::vector<uint64_t> matchCounts;
+            std::vector<uint64_t> markCounts;
+            logFilteredData_->countLinesInRanges( bounds, matchCounts, markCounts );
+
+            // The first line of a row has the lowest weight, each other one adds a step
+            const auto addRow = []( klogg::vector<WeightedLine>& lines, int y, uint64_t count ) {
+                if ( count == 0 ) {
+                    return;
                 }
-                else {
-                    if ( ( !markLines_.empty() ) && markLines_.back().position() == position ) {
-                        // If the line is already there, we increase its weight
-                        markLines_.back().load();
-                    }
-                    else {
-                        // If not we just add it
-                        markLines_.emplace_back( position );
-                    }
+                lines.emplace_back( y );
+                for ( uint64_t i = 1; i < count && i < WeightedLine::WEIGHT_STEPS; ++i ) {
+                    lines.back().load();
                 }
-            } );
+            };
+            for ( unsigned y = 0; y < height_; ++y ) {
+                addRow( matchLines_, static_cast<int>( y ), matchCounts[ y ] );
+                addRow( markLines_, static_cast<int>( y ), markCounts[ y ] );
+            }
         }
     }
     else

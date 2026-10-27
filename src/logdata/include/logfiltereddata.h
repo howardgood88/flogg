@@ -181,6 +181,13 @@ class LogFilteredData : public AbstractLogData {
     Visibility visibility() const;
 
     void iterateOverLines( const std::function<void( LineNumber )>& callback ) const;
+
+    // Lines of the filtered view in consecutive ranges of lines, range i being
+    // [bounds[i], bounds[i + 1]): matched lines, and marked lines that are not matched.
+    // Matches are counted from the ranks of the results, without going over them.
+    void countLinesInRanges( const std::vector<uint64_t>& bounds,
+                             std::vector<uint64_t>& matchCounts,
+                             std::vector<uint64_t>& markCounts ) const;
   Q_SIGNALS:
     // Sent when the search has progressed, give the number of matches (so far)
     // and the percentage of completion

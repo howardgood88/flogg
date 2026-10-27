@@ -28,6 +28,7 @@
 #include <QHash>
 #include <QKeySequence>
 #include <QList>
+#include <QStringList>
 #include <QTimer>
 #include <QWidget>
 
@@ -67,6 +68,12 @@ struct FilterTabState {
 
     // Empty when the filters still have to be applied
     std::shared_ptr<const FilterSnapshot> snapshot;
+
+    // How the tree was left: ids of the collapsed groups and of the selected items
+    QStringList collapsedGroups;
+    QStringList selectedItems;
+    QString currentItem;
+    int scrollPosition = 0;
 };
 
 // Number of matching lines per filter id
@@ -185,6 +192,8 @@ class FilterPanel : public QWidget {
     bool saveCurrentFile();
     void updateFileLabel();
     void restoreHeaderState();
+    void saveTreeView( FilterTabState& state ) const;
+    void restoreTreeView( const FilterTabState& state );
     void addRecentFile( const QString& path );
     void updateHitCounts();
     // Numbers the filters in priority order (FilterNode::number)
