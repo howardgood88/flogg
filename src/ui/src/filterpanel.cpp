@@ -32,6 +32,8 @@
 #include <QFileInfo>
 #include <QHeaderView>
 #include <QInputDialog>
+#include <QJsonDocument>
+#include <QKeyEvent>
 #include <QLabel>
 #include <QLayout>
 #include <QMenu>
@@ -89,6 +91,15 @@ QString& startupFile()
 {
     static QString path;
     return path;
+}
+
+// Compares the filters only, every tree built from the panel gets a new root
+QByteArray serialize( const FilterNode& root )
+{
+    auto filtersOnly = FilterNode::makeGroup( {} );
+    filtersOnly.id.clear();
+    filtersOnly.children = root.children;
+    return QJsonDocument( filters::toJson( filtersOnly ) ).toJson( QJsonDocument::Compact );
 }
 
 // Filter files in the folder of portable settings are remembered relative to it,
@@ -605,16 +616,21 @@ FilterPanel::FilterPanel( QWidget* parent )
     changeTimer_.setInterval( 150 );
     connect( &changeTimer_, &QTimer::timeout, this, &FilterPanel::publishChange );
 
+    loadFile( defaultFile(), startupFile().isEmpty() );
+}
+
+// File of the tabs shown for the first time
+QString FilterPanel::defaultFile()
+{
     if ( !startupFile().isEmpty() ) {
-        loadFile( startupFile(), false );
-        return;
+        return startupFile();
     }
 
     auto file = fromRememberedPath( settings().value( CurrentFileKey ).toString() );
     if ( file.isEmpty() ) {
         file = defaultFiltersFile();
     }
-    loadFile( file );
+    return file;
 }
 
 void FilterPanel::setStartupFile( const QString& path )
@@ -644,17 +660,13 @@ void FilterPanel::setupUi()
     tree_->setColumnWidth( DescriptionColumn, 200 );
     tree_->setColumnWidth( NumberColumn, 32 );
     header->moveSection( header->visualIndex( NumberColumn ), 0 );
-    const auto headerState = settings().value( HeaderStateKey ).toByteArray();
-    // A state saved before the number column existed would hide it or put it last
-    if ( !headerState.isEmpty() && header->restoreState( headerState )
-         && header->visualIndex( NumberColumn ) != 0 ) {
-        header->moveSection( header->visualIndex( NumberColumn ), 0 );
-        header->setSectionHidden( NumberColumn, false );
-        header->resizeSection( NumberColumn, 32 );
-    }
+    restoreHeaderState();
     header->setContextMenuPolicy( Qt::CustomContextMenu );
     connect( header, &QWidget::customContextMenuRequested, this, &FilterPanel::showHeaderMenu );
     connect( header, &QHeaderView::sectionResized, this, &FilterPanel::saveHeaderState );
+
+    // Save has the same default key as the focus of the search input, the panel takes it first
+    tree_->installEventFilter( this );
 
     connect( tree_, &QTreeWidget::itemChanged, this, &FilterPanel::onTreeChanged );
     connect( tree_, &QTreeWidget::itemDoubleClicked, this, &FilterPanel::editCurrent );
@@ -708,11 +720,15 @@ void FilterPanel::setupUi()
         const auto recentFiles = settings().value( RecentFilesKey ).toStringList();
         for ( const auto& rememberedFile : recentFiles ) {
             const auto file = fromRememberedPath( rememberedFile );
-            recentMenu->addAction( QDir::toNativeSeparators( file ), this,
-                                   [ this, file ] { loadFile( file ); } );
+            recentMenu->addAction( QDir::toNativeSeparators( file ), this, [ this, file ] {
+                if ( confirmClose( {} ) ) {
+                    loadFile( file );
+                }
+            } );
         }
         recentMenu->setEnabled( !recentFiles.isEmpty() );
     } );
+    saveAction_ = fileMenu->addAction( tr( "Save filters" ), this, &FilterPanel::saveFile );
     fileMenu->addAction( tr( "Save filters as..." ), this, &FilterPanel::saveFileAs );
     fileMenu->addSeparator();
     fileMenu->addAction( tr( "Import TextAnalysisTool filters (.tat)..." ), this,
@@ -792,6 +808,9 @@ void FilterPanel::updateShortcuts()
     setShortcuts( deleteAction_, ShortcutAction::FilterPanelDelete );
     setShortcuts( moveUpAction_, ShortcutAction::FilterPanelMoveUp );
     setShortcuts( moveDownAction_, ShortcutAction::FilterPanelMoveDown );
+
+    saveKeys_ = ShortcutAction::shortcutKeys( ShortcutAction::FilterPanelSave, shortcuts );
+    ShortcutAction::showInMenu( saveAction_, ShortcutAction::FilterPanelSave, shortcuts );
 
     // Tool tips of the tool bar buttons show the shortcut
     for ( auto* action : { moveUpAction_, moveDownAction_ } ) {
@@ -1074,6 +1093,10 @@ void FilterPanel::moveItem( QTreeWidgetItem* item, QTreeWidgetItem* newParent, i
 
 void FilterPanel::openFile()
 {
+    if ( !confirmClose( {} ) ) {
+        return;
+    }
+
     const auto path = QFileDialog::getOpenFileName(
         this, tr( "Open filters" ), QFileInfo( currentFile_ ).absolutePath(), tr( FileFilter ) );
     if ( !path.isEmpty() ) {
@@ -1081,12 +1104,17 @@ void FilterPanel::openFile()
     }
 }
 
-void FilterPanel::saveFileAs()
+bool FilterPanel::saveFile()
+{
+    return currentFile_.isEmpty() ? saveFileAs() : saveCurrentFile();
+}
+
+bool FilterPanel::saveFileAs()
 {
     auto path = QFileDialog::getSaveFileName( this, tr( "Save filters as" ), currentFile_,
                                               tr( FileFilter ) );
     if ( path.isEmpty() ) {
-        return;
+        return false;
     }
 
     if ( !path.endsWith( ".json" ) ) {
@@ -1096,8 +1124,7 @@ void FilterPanel::saveFileAs()
     currentFile_ = path;
     settings().setValue( CurrentFileKey, toRememberedPath( currentFile_ ) );
     addRecentFile( currentFile_ );
-    saveCurrentFile();
-    updateFileLabel();
+    return saveCurrentFile();
 }
 
 void FilterPanel::importTatFile()
@@ -1270,7 +1297,15 @@ void FilterPanel::scheduleChange()
     changeTimer_.start();
 }
 
-void FilterPanel::publishChange()
+void FilterPanel::flushChange()
+{
+    if ( changeTimer_.isActive() ) {
+        changeTimer_.stop();
+        publishChange();
+    }
+}
+
+void FilterPanel::updateLook()
 {
     loading_ = true;
     for ( int i = 0; i < tree_->topLevelItemCount(); ++i ) {
@@ -1278,6 +1313,13 @@ void FilterPanel::publishChange()
     }
     numberFilters();
     loading_ = false;
+
+    updateFileLabel();
+}
+
+void FilterPanel::publishChange()
+{
+    updateLook();
 
     const auto root = buildTree();
 
@@ -1301,9 +1343,138 @@ void FilterPanel::publishChange()
 
     snapshot_ = std::move( snapshot );
 
-    saveCurrentFile();
-
     Q_EMIT filtersChanged();
+}
+
+FilterTabState FilterPanel::tabState()
+{
+    flushChange();
+
+    FilterTabState state;
+    state.initialized = true;
+    state.file = currentFile_;
+    state.root = buildTree();
+    state.savedJson = savedJson_;
+    state.snapshot = snapshot_;
+    return state;
+}
+
+void FilterPanel::setTabState( const FilterTabState& state )
+{
+    changeTimer_.stop();
+
+    if ( !state.initialized ) {
+        if ( !loadFile( defaultFile(), false ) ) {
+            // The filters of the previous tab must not stay
+            currentFile_ = defaultFile();
+            savedJson_ = serialize( FilterNode::makeGroup( "root" ) );
+            setRoot( FilterNode::makeGroup( "root" ) );
+            publishChange();
+        }
+        return;
+    }
+
+    currentFile_ = state.file;
+    savedJson_ = state.savedJson;
+    setRoot( state.root );
+
+    if ( state.snapshot ) {
+        // The tab already has these filters applied
+        snapshot_ = state.snapshot;
+        updateLook();
+    }
+    else {
+        publishChange();
+    }
+}
+
+FilterTabState FilterPanel::restoredTabState( const QString& file, const FilterNode& root )
+{
+    FilterTabState state;
+    state.initialized = true;
+    state.file = file;
+    state.root = root;
+
+    const auto saved = QFileInfo::exists( file ) ? filters::loadFromFile( file )
+                                                 : FilterNode::makeGroup( "root" );
+    state.savedJson = serialize( saved.value_or( FilterNode::makeGroup( "root" ) ) );
+    return state;
+}
+
+bool FilterPanel::isModified( const FilterTabState& state )
+{
+    return state.initialized && serialize( state.root ) != state.savedJson;
+}
+
+bool FilterPanel::isModified() const
+{
+    return serialize( buildTree() ) != savedJson_;
+}
+
+bool FilterPanel::confirmClose( const QString& tabName )
+{
+    flushChange();
+    if ( !isModified() ) {
+        return true;
+    }
+
+    const auto fileName
+        = currentFile_.isEmpty() ? tr( "untitled" ) : QFileInfo( currentFile_ ).fileName();
+    const auto question
+        = tabName.isEmpty()
+              ? tr( "The filters of %1 have changed. Save them?" ).arg( fileName )
+              : tr( "The filters of %1 (used by %2) have changed. Save them?" )
+                    .arg( fileName, tabName );
+
+    const auto answer = QMessageBox::question(
+        this, tr( "Unsaved filters" ), question,
+        QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel, QMessageBox::Save );
+
+    if ( answer == QMessageBox::Save ) {
+        return saveFile();
+    }
+    if ( answer == QMessageBox::Discard ) {
+        setRoot( filters::fromJson( QJsonDocument::fromJson( savedJson_ ).object() ) );
+        publishChange();
+        return true;
+    }
+    return false;
+}
+
+void FilterPanel::reloadSettings()
+{
+    restoreHeaderState();
+    updateShortcuts();
+}
+
+void FilterPanel::restoreHeaderState()
+{
+    auto* header = tree_->header();
+    const auto headerState = settings().value( HeaderStateKey ).toByteArray();
+    // A state saved before the number column existed would hide it or put it last
+    if ( !headerState.isEmpty() && header->restoreState( headerState )
+         && header->visualIndex( NumberColumn ) != 0 ) {
+        header->moveSection( header->visualIndex( NumberColumn ), 0 );
+        header->setSectionHidden( NumberColumn, false );
+        header->resizeSection( NumberColumn, 32 );
+    }
+}
+
+bool FilterPanel::eventFilter( QObject* watched, QEvent* event )
+{
+    if ( watched == tree_
+         && ( event->type() == QEvent::ShortcutOverride || event->type() == QEvent::KeyPress ) ) {
+        const auto* keyEvent = static_cast<QKeyEvent*>( event );
+        if ( saveKeys_.contains( QKeySequence( keyEvent->keyCombination() ) ) ) {
+            event->accept();
+            if ( event->type() == QEvent::KeyPress ) {
+                saveFile();
+            }
+            return true;
+        }
+    }
+
+    return QWidget::eventFilter( watched, event );
 }
 
 void FilterPanel::numberFilters()
@@ -1517,7 +1688,7 @@ void FilterPanel::insertItem( QTreeWidgetItem* item )
     scheduleChange();
 }
 
-void FilterPanel::loadFile( const QString& path, bool remember )
+bool FilterPanel::loadFile( const QString& path, bool remember )
 {
     QString error;
     auto root = QFileInfo::exists( path ) ? filters::loadFromFile( path, &error )
@@ -1528,7 +1699,7 @@ void FilterPanel::loadFile( const QString& path, bool remember )
                   << error.toStdString();
         QMessageBox::warning( this, tr( "Open filters" ),
                               tr( "Can't load filters from %1: %2" ).arg( path, error ) );
-        return;
+        return false;
     }
 
     currentFile_ = path;
@@ -1537,25 +1708,34 @@ void FilterPanel::loadFile( const QString& path, bool remember )
         addRecentFile( currentFile_ );
     }
 
+    savedJson_ = serialize( *root );
     setRoot( *root );
-    updateFileLabel();
 
     // Publish right away, file loading should not wait for the debounce timer
     changeTimer_.stop();
     publishChange();
+    return true;
 }
 
-void FilterPanel::saveCurrentFile()
+bool FilterPanel::saveCurrentFile()
 {
     if ( currentFile_.isEmpty() ) {
-        return;
+        return false;
     }
 
+    const auto root = buildTree();
     QString error;
-    if ( !filters::saveToFile( buildTree(), currentFile_, &error ) ) {
+    if ( !filters::saveToFile( root, currentFile_, &error ) ) {
         LOG_ERROR << "Failed to save filters to " << currentFile_.toStdString() << ": "
                   << error.toStdString();
+        QMessageBox::warning( this, tr( "Save filters" ),
+                              tr( "Can't save filters to %1: %2" ).arg( currentFile_, error ) );
+        return false;
     }
+
+    savedJson_ = serialize( root );
+    updateFileLabel();
+    return true;
 }
 
 void FilterPanel::setHitCounts( const FilterHits& hits )
@@ -1614,6 +1794,8 @@ void FilterPanel::addRecentFile( const QString& path )
 
 void FilterPanel::updateFileLabel()
 {
-    fileLabel_->setText( QFileInfo( currentFile_ ).fileName() );
+    const auto fileName
+        = currentFile_.isEmpty() ? tr( "untitled" ) : QFileInfo( currentFile_ ).fileName();
+    fileLabel_->setText( isModified() ? fileName + " *" : fileName );
     fileLabel_->setToolTip( QDir::toNativeSeparators( currentFile_ ) );
 }

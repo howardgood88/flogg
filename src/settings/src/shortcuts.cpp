@@ -19,6 +19,7 @@
 
 #include <functional>
 
+#include <QAction>
 #include <QApplication>
 #include <QShortcut>
 #include <QWidget>
@@ -92,6 +93,14 @@ QList<QKeySequence> ShortcutAction::shortcutKeys( const std::string& action,
                     []( const QString& hotkeys ) { return QKeySequence( hotkeys ); } );
 
     return shortcuts;
+}
+
+void ShortcutAction::showInMenu( QAction* menuAction, const std::string& action,
+                                 const ConfiguredShortcuts& configuredShortcuts )
+{
+    const auto keys = shortcutKeys( action, configuredShortcuts );
+    menuAction->setShortcutContext( Qt::WidgetShortcut );
+    menuAction->setShortcut( keys.isEmpty() ? QKeySequence{} : keys.front() );
 }
 
 const ShortcutAction::ShortcutList& ShortcutAction::defaultShortcutList()
@@ -347,6 +356,13 @@ const ShortcutAction::ShortcutList& ShortcutAction::defaultShortcutList()
             {
                 QApplication::tr( "Filter panel: move filter or group down" ),
                 QStringList{ "Alt+Down" },
+            },
+        },
+        {
+            FilterPanelSave,
+            {
+                QApplication::tr( "Filter panel: save filters" ),
+                QStringList{ "Ctrl+S" },
             },
         },
         {

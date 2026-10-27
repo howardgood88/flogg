@@ -482,6 +482,15 @@ void AbstractLogView::mousePressEvent( QMouseEvent* mouseEvent )
             Q_EMIT newSelection( *line, 1_lcount, 0_lcol, 0_length );
             update();
         }
+        else if ( line.has_value() && mouseEvent->modifiers() & Qt::ControlModifier
+                  && mouseEvent->pos().x() >= bulletZoneWidthPx_
+                  && *line < logData_->getNbLine() ) {
+            // Ctrl+click (Cmd+click on macOS) adds or removes a single line
+            selection_.toggleLine( *line );
+            selectionCurrentEndPos_ = convertCoordToFilePos( mouseEvent->pos() );
+            Q_EMIT newSelection( *line, 1_lcount, 0_lcol, 0_length );
+            update();
+        }
         else if ( line.has_value() ) {
             if ( mouseEvent->pos().x() < bulletZoneWidthPx_ ) {
                 // Mark a line if it is clicked in the left margin
@@ -592,6 +601,13 @@ void AbstractLogView::mousePressEvent( QMouseEvent* mouseEvent )
                 = HighlighterSetCollection::get().quickHighlighters();
 
             colorLabelsMenu_->addSeparator();
+            static const std::array<std::string, 9> colorLabelShortcuts = {
+                ShortcutAction::LogViewAddColorLabel1, ShortcutAction::LogViewAddColorLabel2,
+                ShortcutAction::LogViewAddColorLabel3, ShortcutAction::LogViewAddColorLabel4,
+                ShortcutAction::LogViewAddColorLabel5, ShortcutAction::LogViewAddColorLabel6,
+                ShortcutAction::LogViewAddColorLabel7, ShortcutAction::LogViewAddColorLabel8,
+                ShortcutAction::LogViewAddColorLabel9,
+            };
             const auto maxLabel
                 = std::min( quickHighlighters_.size(),
                             static_cast<size_t>( quickHighlightersConfiguration.size() ) );
@@ -605,6 +621,10 @@ void AbstractLogView::mousePressEvent( QMouseEvent* mouseEvent )
                 colorLabelAction->setCheckable( true );
                 colorLabelAction->setChecked( currentLabel == i );
                 colorLabelAction->setData( i );
+                if ( i < colorLabelShortcuts.size() ) {
+                    ShortcutAction::showInMenu( colorLabelAction, colorLabelShortcuts[ i ],
+                                                Configuration::get().shortcuts() );
+                }
 
                 QPixmap pixmap( 20, 10 );
                 auto fillColor = currentLabelConfiguration.color.backColor;
@@ -615,11 +635,15 @@ void AbstractLogView::mousePressEvent( QMouseEvent* mouseEvent )
             }
             colorLabelsMenu_->addSeparator();
             auto clearAllAction = colorLabelsMenu_->addAction( tr( "Clear all" ) );
+            ShortcutAction::showInMenu( clearAllAction, ShortcutAction::LogViewClearColorLabels,
+                                        Configuration::get().shortcuts() );
             connect( clearAllAction, &QAction::triggered, this,
                      &AbstractLogView::clearColorLabels );
         }
         // Display the popup (blocking)
+        popupLine_ = line;
         popupMenu_->exec( QCursor::pos( activeScreen( this ) ) );
+        popupLine_ = {};
 
         colorLablesActionGroup->deleteLater();
     }
@@ -876,6 +900,23 @@ void AbstractLogView::doRegisterShortcuts()
                                     selectionCurrentEndPos_.column() );
         selectAndDisplayRange( newPosition );
     } );
+
+    // The context menu shows the keys of the shortcuts registered above
+    const auto& configuredShortcuts = Configuration::get().shortcuts();
+    const auto showInMenu = [ &configuredShortcuts ]( QAction* action, const std::string& name ) {
+        ShortcutAction::showInMenu( action, name, configuredShortcuts );
+    };
+    showInMenu( markAction_, ShortcutAction::LogViewMark );
+    showInMenu( copyAction_, ShortcutAction::MainWindowCopy );
+    showInMenu( sendToScratchpadAction_, ShortcutAction::LogViewSendSelectionToScratchpad );
+    showInMenu( replaceInScratchpadAction_,
+                ShortcutAction::LogViewReplaceScratchpadWithSelection );
+    showInMenu( findNextAction_, ShortcutAction::LogViewQfSelectedForward );
+    showInMenu( findPreviousAction_, ShortcutAction::LogViewQfSelectedBackward );
+    showInMenu( replaceSearchAction_, ShortcutAction::LogViewReplaceSearch );
+    showInMenu( addToSearchAction_, ShortcutAction::LogViewAddToSearch );
+    showInMenu( excludeFromSearchAction_, ShortcutAction::LogViewExcludeFromSearch );
+    showInMenu( addToFiltersAction_, ShortcutAction::LogViewAddAsFilter );
 }
 
 void AbstractLogView::keyPressEvent( QKeyEvent* keyEvent )
@@ -1224,6 +1265,8 @@ void AbstractLogView::setQuickFindResult( bool hasMatch, const Portion& portion 
     else if ( !hasMatch ) {
         selection_.clear();
     }
+
+    Q_EMIT quickFindDone( hasMatch );
 }
 
 void AbstractLogView::searchForward()
@@ -1476,11 +1519,9 @@ void AbstractLogView::markSelected()
 
 void AbstractLogView::saveToFile()
 {
-    auto start = 0_lnum;
-    const auto totalLines = logData_->getNbLine();
-    auto end = LineNumber{ totalLines.get() };
-
-    saveLinesToFile( start, end );
+    klogg::vector<std::pair<LineNumber, LinesCount>> offsets;
+    appendLinesToSave( offsets, 0_lnum, LineNumber{ logData_->getNbLine().get() } );
+    saveLinesToFile( offsets );
 }
 
 void AbstractLogView::saveSelectedToFile()
@@ -1490,13 +1531,34 @@ void AbstractLogView::saveSelectedToFile()
         return;
     }
 
-    const auto start = selectedLines.front();
-    const auto lastLine = selectedLines.back();
-    const auto end = lastLine + 1_lcount;
-    saveLinesToFile( start, end );
+    // Lines selected one by one are saved without the lines between them
+    klogg::vector<std::pair<LineNumber, LinesCount>> offsets;
+    auto runStart = selectedLines.front();
+    for ( auto i = 1u; i <= selectedLines.size(); ++i ) {
+        if ( i == selectedLines.size()
+             || selectedLines[ i ] != selectedLines[ i - 1 ] + 1_lcount ) {
+            appendLinesToSave( offsets, runStart, selectedLines[ i - 1 ] + 1_lcount );
+            if ( i < selectedLines.size() ) {
+                runStart = selectedLines[ i ];
+            }
+        }
+    }
+    saveLinesToFile( offsets );
 }
 
-void AbstractLogView::saveLinesToFile( LineNumber begin, LineNumber end )
+void AbstractLogView::appendLinesToSave( klogg::vector<std::pair<LineNumber, LinesCount>>& offsets,
+                                         LineNumber begin, LineNumber end )
+{
+    const auto chunkSize = 5000_lcount;
+    for ( auto lineOffset = begin; lineOffset < end; ) {
+        const auto count = LinesCount( std::min( chunkSize.get(), ( end - lineOffset ).get() ) );
+        offsets.emplace_back( lineOffset, count );
+        lineOffset += count;
+    }
+}
+
+void AbstractLogView::saveLinesToFile(
+    const klogg::vector<std::pair<LineNumber, LinesCount>>& offsets )
 {
     auto filename = QFileDialog::getSaveFileName( this, "Save content" );
     if ( filename.isEmpty() ) {
@@ -1512,15 +1574,6 @@ void AbstractLogView::saveLinesToFile( LineNumber begin, LineNumber end )
 
     QProgressDialog progressDialog( this );
     progressDialog.setLabelText( tr( "Saving content to %1" ).arg( filename ) );
-    klogg::vector<std::pair<LineNumber, LinesCount>> offsets;
-    auto lineOffset = begin;
-    const auto chunkSize = 5000_lcount;
-    offsets.reserve( ( end - ( lineOffset + chunkSize ) ).get() );
-
-    for ( ; lineOffset + chunkSize < end; lineOffset += LinesCount( chunkSize.get() ) ) {
-        offsets.emplace_back( lineOffset, chunkSize );
-    }
-    offsets.emplace_back( lineOffset, LinesCount( ( end - lineOffset ).get() % chunkSize.get() ) );
 
     const QTextCodec* codec = logData_->getDisplayEncoding();
     if ( !codec ) {
@@ -2090,17 +2143,13 @@ void AbstractLogView::createMenu()
     connect( saveSelectedToFileAction_, &QAction::triggered, this,
              [ this ]( auto ) { this->saveSelectedToFile(); } );
 
-    // For '#' and '*', shortcuts doesn't seem to work but
-    // at least it displays them in the menu, we manually handle those keys
-    // as keys event anyway (in keyPressEvent).
+    // The keys shown in the menu come from the shortcuts (doRegisterShortcuts)
     findNextAction_ = new QAction( tr( "Find &next" ), this );
-    findNextAction_->setShortcut( Qt::Key_Asterisk );
     findNextAction_->setStatusTip( tr( "Find the next occurrence" ) );
     connect( findNextAction_, &QAction::triggered, this,
              [ this ]( auto ) { this->findNextSelected(); } );
 
     findPreviousAction_ = new QAction( tr( "Find &previous" ), this );
-    findPreviousAction_->setShortcut( tr( "/" ) );
     findPreviousAction_->setStatusTip( tr( "Find the previous occurrence" ) );
     connect( findPreviousAction_, &QAction::triggered,
              [ this ]( auto ) { this->findPreviousSelected(); } );
@@ -2118,8 +2167,23 @@ void AbstractLogView::createMenu()
     addToFiltersAction_ = new QAction( tr( "Add as &filter..." ), this );
     addToFiltersAction_->setStatusTip( tr( "Create a filter from the selection" ) );
     connect( addToFiltersAction_, &QAction::triggered, this, [ this ]( auto ) {
-        Q_EMIT addToFilters( selection_.isPortion() ? selection_.getSelectedText( logData_ )
-                                                    : QString{} );
+        if ( selection_.isPortion() ) {
+            Q_EMIT addToFilters( selection_.getSelectedText( logData_ ) );
+            return;
+        }
+
+        // Without selected text the whole line is used: the one the menu was opened on,
+        // or the first selected one
+        auto line = popupLine_;
+        if ( !line ) {
+            const auto lines = selection_.getLines();
+            if ( !lines.empty() ) {
+                line = lines.front();
+            }
+        }
+        Q_EMIT addToFilters( line && *line < logData_->getNbLine()
+                                 ? logData_->getLineString( *line )
+                                 : QString{} );
     } );
 
     excludeFromSearchAction_ = new QAction( tr( "&Exclude from search" ), this );

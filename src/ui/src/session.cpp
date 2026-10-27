@@ -175,6 +175,8 @@ void WindowSession::save(
     }
 
     auto& session = SessionInfo::getSynced();
+    // Another instance closed last may have dropped this window
+    session.add( windowId_ );
     session.setOpenFiles( windowId_, session_files );
     session.setGeometry( windowId_, geometry );
     session.save();
@@ -220,11 +222,24 @@ void WindowSession::restoreGeometry( QByteArray* geometry ) const
     *geometry = session.geometry( windowId_ );
 }
 
+void Session::keepOnlyInstanceWindows()
+{
+    auto& session = SessionInfo::getSynced();
+    session.retain( instanceWindows_ );
+    session.save();
+}
+
 bool WindowSession::close()
 {
     LOG_INFO << "close window session " << windowId_;
 
     if ( appSession_->exitRequested() ) {
+        return true;
+    }
+
+    // The last window of this instance is kept as the session
+    if ( appSession_->instanceWindows_.size() <= 1 ) {
+        appSession_->keepOnlyInstanceWindows();
         return true;
     }
 

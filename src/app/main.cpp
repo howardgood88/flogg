@@ -49,6 +49,8 @@
 #endif // _WIN32
 
 #include <mimalloc.h>
+#include <QStyleHints>
+
 #include <roaring.hh>
 
 #ifdef KLOGG_HAS_HS
@@ -156,6 +158,10 @@ int main( int argc, char* argv[] )
     setApplicationAttributes( config.enableQtHighDpi(), config.scaleFactorRounding() );
 
     KloggApp app( argc, argv );
+    // macOS hides the keys in context menus by default (with both the attribute and the
+    // style hint), flogg shows them on every platform
+    QCoreApplication::setAttribute( Qt::AA_DontShowShortcutsInContextMenus, false );
+    QGuiApplication::styleHints()->setShowShortcutsInContextMenus( true );
 
 
     MainWindow::installLanguage( config.language() );
@@ -201,20 +207,16 @@ int main( int argc, char* argv[] )
         QThreadPool::globalInstance()->setMaxThreadCount( static_cast<int>( maxConcurrency ) );
     }
 
-    if ( !parameters.multi_instance && app.isSecondary() ) {
-        LOG_INFO << "Found another klogg, pid " << app.primaryPid();
-        app.sendFilesToPrimaryInstance( parameters.filenames );
-    }
-    else {
+    // Every start is a new instance (as with -m), the previous session is only restored by
+    // the first one
+    {
         StyleManager::applyStyle( config.style() );
 
-        auto startNewSession = true;
         MainWindow* mw = nullptr;
         if ( parameters.load_session
              || ( parameters.filenames.empty() && !parameters.new_session
-                  && config.loadLastSession() ) ) {
+                  && config.loadLastSession() && !app.isSecondary() ) ) {
             mw = app.reloadSession();
-            startNewSession = false;
         }
         else {
             mw = app.newWindow();
@@ -228,10 +230,6 @@ int main( int argc, char* argv[] )
 
         for ( const auto& filename : parameters.filenames ) {
             mw->loadInitialFile( filename, parameters.follow_file );
-        }
-
-        if ( startNewSession ) {
-            app.clearInactiveSessions();
         }
     }
 

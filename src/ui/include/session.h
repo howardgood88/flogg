@@ -29,6 +29,7 @@
 
 #include <QByteArray>
 #include <QDateTime>
+#include <QStringList>
 
 #include "log.h"
 #include "quickfindpattern.h"
@@ -106,6 +107,20 @@ class Session : public std::enable_shared_from_this<Session> {
         exitRequested_ = isRequested;
     }
 
+    // Windows open in this instance. Every start is a new instance: the one closed last
+    // leaves its windows as the session, the windows of the others are dropped
+    void addInstanceWindow( const QString& windowId )
+    {
+        instanceWindows_.append( windowId );
+    }
+
+    void removeInstanceWindow( const QString& windowId )
+    {
+        instanceWindows_.removeAll( windowId );
+    }
+
+    void keepOnlyInstanceWindows();
+
   private:
     struct OpenFile {
         QString fileName;
@@ -134,6 +149,8 @@ class Session : public std::enable_shared_from_this<Session> {
     std::shared_ptr<QuickFindPattern> quickFindPattern_;
 
     bool exitRequested_ = false;
+
+    QStringList instanceWindows_;
 
     friend class WindowSession;
 };

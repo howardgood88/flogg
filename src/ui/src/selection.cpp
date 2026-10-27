@@ -44,6 +44,7 @@ void Selection::selectPortion( LineNumber line, LineColumn startColumn, LineColu
     // First unselect any whole line or range
     selectedLine_ = {};
     selectedRange_.startLine = {};
+    selectedLines_ = {};
 
     selectedPartial_.line = line;
     selectedPartial_.startColumn = std::min( startColumn, endColumn );
@@ -55,6 +56,7 @@ void Selection::selectRange( LineNumber startLine, LineNumber endLine )
     // First unselect any whole line and portion
     selectedLine_ = {};
     selectedPartial_.line = {};
+    selectedLines_ = {};
 
     selectedRange_.startLine = std::min( startLine, endLine );
     selectedRange_.endLine = std::max( startLine, endLine );
@@ -72,10 +74,46 @@ void Selection::selectRangeFromPrevious( LineNumber line )
         previous_line = selectedRange_.firstLine;
     else if ( selectedPartial_.line.has_value() )
         previous_line = *selectedPartial_.line;
+    else if ( !selectedLines_.isEmpty() )
+        previous_line = lastToggledLine_;
     else
         previous_line = 0_lnum;
 
     selectRange( previous_line, line );
+}
+
+void Selection::toggleLine( LineNumber line )
+{
+    if ( selectedLines_.isEmpty() ) {
+        if ( selectedLine_.has_value() ) {
+            selectedLines_.add( static_cast<uint32_t>( selectedLine_->get() ) );
+        }
+        else if ( selectedRange_.startLine.has_value() ) {
+            selectedLines_.addRange( selectedRange_.startLine->get(),
+                                     selectedRange_.endLine.get() + 1 );
+        }
+        else if ( selectedPartial_.line.has_value() ) {
+            selectedLines_.add( static_cast<uint32_t>( selectedPartial_.line->get() ) );
+        }
+    }
+
+    const auto lineIndex = static_cast<uint32_t>( line.get() );
+    if ( selectedLines_.contains( lineIndex ) ) {
+        selectedLines_.remove( lineIndex );
+    }
+    else {
+        selectedLines_.add( lineIndex );
+    }
+    lastToggledLine_ = line;
+
+    selectedLine_ = {};
+    selectedPartial_.line = {};
+    selectedRange_.startLine = {};
+
+    // A single line left is a normal line selection
+    if ( selectedLines_.cardinality() == 1 ) {
+        selectLine( LineNumber( selectedLines_.minimum() ) );
+    }
 }
 
 void Selection::crop( LineNumber last_line )
@@ -91,6 +129,10 @@ void Selection::crop( LineNumber last_line )
 
     if ( selectedRange_.startLine.has_value() && *selectedRange_.startLine > last_line )
         selectedRange_.startLine = last_line;
+
+    if ( !selectedLines_.isEmpty() && selectedLines_.maximum() > last_line.get() ) {
+        selectedLines_.removeRange( last_line.get() + 1, uint64_t{ selectedLines_.maximum() } + 1 );
+    }
 }
 
 Portion Selection::getPortionForLine( LineNumber line ) const
@@ -109,6 +151,8 @@ bool Selection::isLineSelected( LineNumber line ) const
         return true;
     else if ( selectedRange_.startLine.has_value() )
         return ( ( line >= *selectedRange_.startLine ) && ( line <= selectedRange_.endLine ) );
+    else if ( !selectedLines_.isEmpty() )
+        return selectedLines_.contains( static_cast<uint32_t>( line.get() ) );
     else
         return false;
 }
@@ -147,12 +191,21 @@ klogg::vector<LineNumber> Selection::getLines() const
         selection.resize( selectedRange_.size().get() );
         std::iota( selection.begin(), selection.end(), *selectedRange_.startLine );
     }
+    else if ( !selectedLines_.isEmpty() ) {
+        selection.reserve( selectedLines_.cardinality() );
+        for ( const auto line : selectedLines_ ) {
+            selection.emplace_back( line );
+        }
+    }
 
     return selection;
 }
 
 LinesCount Selection::getSelectedLinesCount() const
 {
+    if ( !selectedLines_.isEmpty() ) {
+        return LinesCount( selectedLines_.cardinality() );
+    }
     return selectedRange_.size();
 }
 
@@ -214,6 +267,13 @@ Selection::getSelectionWithLineNumbers( const AbstractLogData* logData ) const
             ln++;
         }
     }
+    else if ( !selectedLines_.isEmpty() ) {
+        for ( const auto line : selectedLines_ ) {
+            const auto lineNumber = LineNumber( line );
+            selectionData.emplace( logData->getLineNumber( lineNumber ),
+                                   logData->getLineString( lineNumber ) );
+        }
+    }
 
     return selectionData;
 }
@@ -228,6 +288,9 @@ FilePosition Selection::getNextPosition() const
     }
     else if ( selectedRange_.startLine.has_value() ) {
         line = selectedRange_.endLine + 1_lcount;
+    }
+    else if ( !selectedLines_.isEmpty() ) {
+        line = LineNumber( selectedLines_.maximum() ) + 1_lcount;
     }
     else if ( selectedPartial_.line.has_value() ) {
         line = *selectedPartial_.line;
@@ -247,6 +310,9 @@ FilePosition Selection::getPreviousPosition() const
     }
     else if ( selectedRange_.startLine.has_value() ) {
         line = *selectedRange_.startLine;
+    }
+    else if ( !selectedLines_.isEmpty() ) {
+        line = LineNumber( selectedLines_.minimum() );
     }
     else if ( selectedPartial_.line.has_value() ) {
         line = *selectedPartial_.line;

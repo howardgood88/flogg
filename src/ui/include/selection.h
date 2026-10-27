@@ -24,6 +24,8 @@
 #include <QString>
 #include <cstddef>
 
+#include <roaring.hh>
+
 #include "linetypes.h"
 
 class AbstractLogData;
@@ -84,6 +86,7 @@ class Selection {
     {
         selectedPartial_.line = {};
         selectedLine_ = {};
+        selectedLines_ = {};
     }
 
     // Select one line
@@ -91,6 +94,7 @@ class Selection {
     {
         selectedPartial_.line = {};
         selectedRange_.startLine = {};
+        selectedLines_ = {};
         selectedLine_ = line;
     }
     // Select a portion of line (both start and end included)
@@ -106,19 +110,29 @@ class Selection {
     // of range (shift+click behaviour)
     void selectRangeFromPrevious( LineNumber line );
 
+    // Add the line to the selected lines or remove it (ctrl+click behaviour),
+    // the selected lines don't have to follow each other
+    void toggleLine( LineNumber line );
+
     // Crop selection so that in fit in the range ending with the line passed.
     void crop( LineNumber lastLine );
 
     // Returns whether the selection is empty
     bool isEmpty() const
     {
-        return ( !selectedPartial_.line ) && ( !selectedLine_ );
+        return ( !selectedPartial_.line ) && ( !selectedLine_ ) && selectedLines_.isEmpty();
     }
 
     // Returns whether the selection is a single line
     bool isSingleLine() const
     {
         return !!selectedLine_;
+    }
+
+    // Returns whether the selection is a set of lines not following each other
+    bool isMultiLine() const
+    {
+        return !selectedLines_.isEmpty();
     }
 
     // Returns whether the selection is a portion of line
@@ -193,6 +207,10 @@ class Selection {
     };
     struct SelectedPartial selectedPartial_;
     struct SelectedRange selectedRange_;
+
+    // Lines selected one by one, and the last one toggled (used for shift+click)
+    roaring::Roaring selectedLines_;
+    LineNumber lastToggledLine_;
 };
 
 #endif

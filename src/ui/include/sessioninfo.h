@@ -44,6 +44,7 @@
 
 #include <QByteArray>
 #include <QString>
+#include <QStringList>
 
 #include "persistable.h"
 
@@ -90,6 +91,16 @@ class SessionInfo : public Persistable<SessionInfo, session_settings> {
             windows_.emplace_back( Window{ windowId } );
             LOG_INFO << "Created window session info for " << windowId;
         }
+    }
+
+    // Drops the windows of the other instances
+    void retain( const QStringList& windowIds )
+    {
+        windows_.erase( std::remove_if( windows_.begin(), windows_.end(),
+                                        [ &windowIds ]( const auto& w ) {
+                                            return !windowIds.contains( w.id );
+                                        } ),
+                        windows_.end() );
     }
 
     bool remove( const QString& windowId )

@@ -177,8 +177,12 @@ void Configuration::retrieveFromStorage( QSettings& settings )
               .value( "filewatch.allowFollowOnScroll", DefaultConfiguration.allowFollowOnScroll_ )
               .toBool();
 
-    loadLastSession_
-        = settings.value( "session.loadLast", DefaultConfiguration.loadLastSession_ ).toBool();
+    // Every start is a new instance in flogg, the previous session is no longer restored by
+    // default: a new key leaves the value saved by klogg or older flogg versions behind
+    loadLastSession_ = settings
+                           .value( "session.restoreLastSession",
+                                   DefaultConfiguration.loadLastSession_ )
+                           .toBool();
     allowMultipleWindows_
         = settings.value( "session.multipleWindows", DefaultConfiguration.allowMultipleWindows_ )
               .toBool();
@@ -352,7 +356,8 @@ void Configuration::saveToStorage( QSettings& settings ) const
     settings.setValue( "filewatch.fastModificationDetection", fastModificationDetection_ );
     settings.setValue( "filewatch.allowFollowOnScroll", allowFollowOnScroll_ );
 
-    settings.setValue( "session.loadLast", loadLastSession_ );
+    settings.remove( "session.loadLast" );
+    settings.setValue( "session.restoreLastSession", loadLastSession_ );
     settings.setValue( "session.multipleWindows", allowMultipleWindows_ );
     settings.setValue( "session.followOnLoad", followFileOnLoad_ );
 

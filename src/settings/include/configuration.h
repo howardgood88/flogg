@@ -519,7 +519,7 @@ class Configuration final : public Persistable<Configuration> {
 
     bool fastModificationDetection_ = false;
 
-    bool loadLastSession_ = true;
+    bool loadLastSession_ = false;
     bool followFileOnLoad_ = false;
     bool allowMultipleWindows_ = false;
 

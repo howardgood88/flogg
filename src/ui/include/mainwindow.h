@@ -41,6 +41,7 @@
 
 #include <QMainWindow>
 #include <QMenu>
+#include <QPointer>
 #include <QSystemTrayIcon>
 #include <QTemporaryDir>
 
@@ -122,6 +123,9 @@ class MainWindow : public QMainWindow {
     void openClipboard();
     void openUrl();
     void options();
+    void applyOptions();
+    void importSettings();
+    void exportSettings();
     void about();
     void aboutQt();
     void documentation();
@@ -159,8 +163,8 @@ class MainWindow : public QMainWindow {
     // Update quick find searchable
     void handleFilteredViewChanged();
 
-    // Close the tab with the passed index
-    void closeTab( int index, ActionInitiator initiator );
+    // Close the tab with the passed index, false when the user keeps it open
+    bool closeTab( int index, ActionInitiator initiator );
     // Setup the tab with current index for view
     void currentTabChanged( int index );
 
@@ -189,6 +193,10 @@ class MainWindow : public QMainWindow {
   private:
     void setupFilterPanel();
     void applyFiltersToCurrentCrawler();
+    void switchFilterTab( CrawlerWidget* crawler );
+    // Asks to save the changed filters of the tab, false when the user cancels
+    bool confirmFiltersClose( CrawlerWidget* crawler );
+    bool confirmAllFiltersClose();
     void createActions();
     void loadIcons();
     void createMenus();
@@ -264,6 +272,8 @@ class MainWindow : public QMainWindow {
     QAction* reloadAction;
     QAction* stopAction;
     QAction* optionsAction;
+    QAction* importSettingsAction;
+    QAction* exportSettingsAction;
     QAction* showScratchPadAction;
     QAction* showDocumentationAction;
     QAction* aboutAction;
@@ -304,6 +314,8 @@ class MainWindow : public QMainWindow {
 
     QDockWidget* filterDock_ = nullptr;
     FilterPanel* filterPanel_ = nullptr;
+    // Tab whose filters are shown in the filter panel
+    QPointer<CrawlerWidget> filterTab_;
 
     TabbedScratchPad scratchPad_;
 

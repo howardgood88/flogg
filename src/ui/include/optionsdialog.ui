@@ -160,6 +160,9 @@
           </item>
           <item row="0" column="0">
            <widget class="QCheckBox" name="loadLastSessionCheckBox">
+            <property name="toolTip">
+             <string>Only the first flogg started without a file restores the windows and files of the last one closed</string>
+            </property>
             <property name="text">
              <string>Load last session</string>
             </property>

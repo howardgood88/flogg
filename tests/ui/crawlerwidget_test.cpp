@@ -19,6 +19,8 @@
 
 #include <catch2/catch.hpp>
 
+#include <array>
+
 #include <QSignalSpy>
 #include <QTemporaryFile>
 #include <QTest>
@@ -36,6 +38,7 @@
 
 #include "crawlerwidget.h"
 #include "filterpanel.h"
+#include "infoline.h"
 #include "styles.h"
 
 #include <QToolTip>
@@ -191,6 +194,44 @@ struct CrawlerWidget::access_by<CrawlerWidgetPrivate> {
     QWidget* mainViewport()
     {
         return crawler->logMainView_->viewport();
+    }
+
+    void addFiltersToSearch( const std::vector<FilterNode>& filterNodes, FilterSearchMode mode )
+    {
+        crawler->addFiltersToSearch( filterNodes, mode );
+    }
+
+    void setSearchText( const QString& text )
+    {
+        crawler->searchLineEdit_->setEditText( text );
+    }
+
+    QString searchText()
+    {
+        return crawler->searchLineEdit_->currentText();
+    }
+
+    // Regex, boolean, inverse and match case buttons
+    std::array<bool, 4> searchOptions()
+    {
+        return { crawler->useRegexpButton_->isChecked(), crawler->booleanButton_->isChecked(),
+                 crawler->inverseButton_->isChecked(), crawler->matchCaseButton_->isChecked() };
+    }
+
+    void setFilterMode( bool filterMode )
+    {
+        crawler->setFilterMode( filterMode );
+    }
+
+    void findFilterMatch( const std::vector<FilterNode>& filterNodes )
+    {
+        crawler->findFilterMatch( filterNodes, false );
+    }
+
+    QString searchInfo()
+    {
+        return !crawler->searchInfoLine_->isHidden() ? crawler->searchInfoLine_->text()
+                                                     : QString{};
     }
 };
 
@@ -439,4 +480,135 @@ SCENARIO( "Crawler widget filter tool tip", "[ui]" )
         QApplication::setPalette( previousPalette );
         QToolTip::setPalette( previousPalette );
     }
+}
+
+SCENARIO( "Crawler widget filters added to search", "[ui]" )
+{
+    QTemporaryFile file{ "crawler_test_XXXXXX" };
+    REQUIRE( generateDataFiles( file ) );
+
+    Session session;
+    CrawlerWidgetVisitor crawlerVisitor;
+    crawlerVisitor.crawler.reset( static_cast<CrawlerWidget*>(
+        session.open( file.fileName(), []() { return new CrawlerWidget(); } ) ) );
+    waitUiState( [ & ]() { return crawlerVisitor.isLoadingFinished(); } );
+
+    auto plain = FilterNode::makeFilter( "line 000010" );
+    auto regex = FilterNode::makeFilter( "line 00001[0-2]" );
+    regex.useRegex = true;
+    auto dotted = FilterNode::makeFilter( "a.b" );
+    auto caseSensitive = FilterNode::makeFilter( "Bar" );
+    caseSensitive.caseSensitive = true;
+    auto excluded = FilterNode::makeFilter( "glogg" );
+    excluded.exclude = true;
+
+    using Options = std::array<bool, 4>;
+
+    // A single plain filter stays plain text
+    crawlerVisitor.addFiltersToSearch( { plain }, FilterSearchMode::Replace );
+    CHECK( crawlerVisitor.searchText() == "line 000010" );
+    CHECK( crawlerVisitor.searchOptions() == Options{ false, false, false, false } );
+
+    // The match case button carries the case of the filters when they agree
+    crawlerVisitor.addFiltersToSearch( { caseSensitive }, FilterSearchMode::Replace );
+    CHECK( crawlerVisitor.searchText() == "Bar" );
+    CHECK( crawlerVisitor.searchOptions() == Options{ false, false, false, true } );
+
+    // Several filters become a regex alternative
+    crawlerVisitor.addFiltersToSearch( { regex, dotted }, FilterSearchMode::Replace );
+    CHECK( crawlerVisitor.searchText() == "line 00001[0-2]|a\\.b" );
+    CHECK( crawlerVisitor.searchOptions() == Options{ true, false, false, false } );
+
+    // Added to a plain search, only a filter of another case gets an inline flag
+    crawlerVisitor.addFiltersToSearch( { plain }, FilterSearchMode::Replace );
+    crawlerVisitor.setSearchText( "foo.bar" );
+    crawlerVisitor.addFiltersToSearch( { caseSensitive, dotted }, FilterSearchMode::Add );
+    CHECK( crawlerVisitor.searchText() == "foo\\.bar|(?-i:Bar)|a\\.b" );
+    CHECK( crawlerVisitor.searchOptions() == Options{ true, false, false, false } );
+
+    // Excluded from an empty search, the search is inverted
+    crawlerVisitor.setSearchText( {} );
+    crawlerVisitor.addFiltersToSearch( { plain }, FilterSearchMode::Exclude );
+    CHECK( crawlerVisitor.searchText() == "line 000010" );
+    CHECK( crawlerVisitor.searchOptions() == Options{ false, false, true, false } );
+
+    // Includes and excludes together need a boolean expression
+    crawlerVisitor.addFiltersToSearch( { plain, excluded }, FilterSearchMode::Replace );
+    CHECK( crawlerVisitor.searchText()
+           == "(\"(?i:line\\ 000010)\") and not(\"(?i:glogg)\")" );
+    CHECK( crawlerVisitor.searchOptions() == Options{ true, true, false, false } );
+}
+
+SCENARIO( "Crawler widget filter jump in the filtered view", "[ui]" )
+{
+    QTemporaryFile file{ "crawler_test_XXXXXX" };
+    REQUIRE( generateDataFiles( file ) );
+
+    Session session;
+    CrawlerWidgetVisitor crawlerVisitor;
+    crawlerVisitor.crawler.reset( static_cast<CrawlerWidget*>(
+        session.open( file.fileName(), []() { return new CrawlerWidget(); } ) ) );
+    waitUiState( [ & ]() { return crawlerVisitor.isLoadingFinished(); } );
+
+    auto shown = FilterNode::makeFilter( "line 00001" );
+    auto notShown = FilterNode::makeFilter( "line 000050" );
+    crawlerVisitor.setFilterMode( true );
+    crawlerVisitor.setFilters( { shown } );
+    REQUIRE( waitUiState( [ & ]() { return crawlerVisitor.searchInfo() == "10 matches found"; } ) );
+
+    // Without a focused main view, the next match is selected in the filtered view
+    crawlerVisitor.findFilterMatch( { shown } );
+    CHECK( crawlerVisitor.filteredViewSelectedText().endsWith( "line 000011" ) );
+
+    // A filter without cached results is searched in the filtered view
+    crawlerVisitor.findFilterMatch( { notShown } );
+    CHECK( waitUiState( [ & ]() {
+        return crawlerVisitor.searchInfo() == "No match of the filter in the filtered view";
+    } ) );
+}
+
+SCENARIO( "Crawler widget ctrl+click selection", "[ui]" )
+{
+    QTemporaryFile file{ "crawler_test_XXXXXX" };
+    REQUIRE( generateDataFiles( file ) );
+
+    Session session;
+    CrawlerWidgetVisitor crawlerVisitor;
+    crawlerVisitor.crawler.reset( static_cast<CrawlerWidget*>(
+        session.open( file.fileName(), []() { return new CrawlerWidget(); } ) ) );
+    waitUiState( [ & ]() { return crawlerVisitor.isLoadingFinished(); } );
+
+    crawlerVisitor.crawler->resize( 900, 600 );
+    crawlerVisitor.crawler->show();
+    crawlerVisitor.crawler->grab();
+    auto* viewport = crawlerVisitor.mainViewport();
+    const auto rowHeight = crawlerVisitor.rowHeight();
+    const auto click = [ & ]( int row, Qt::KeyboardModifiers modifiers ) {
+        QTest::mouseClick( viewport, Qt::LeftButton, modifiers,
+                           QPoint( 200, rowHeight * row + rowHeight / 2 ) );
+    };
+    const auto selectedLines = [ & ]() {
+        QStringList numbers;
+        for ( const auto& line : crawlerVisitor.mainViewSelectedText().split( QChar::LineFeed ) ) {
+            numbers.append( line.trimmed().right( 2 ) );
+        }
+        return numbers;
+    };
+
+    click( 1, Qt::NoModifier );
+    click( 5, Qt::ControlModifier );
+    click( 3, Qt::ControlModifier );
+    CHECK( selectedLines() == QStringList{ "01", "03", "05" } );
+
+    // Clicked again, a line leaves the selection
+    click( 5, Qt::ControlModifier );
+    CHECK( selectedLines() == QStringList{ "01", "03" } );
+
+    // Shift+click selects a range from the line clicked last
+    click( 6, Qt::ShiftModifier );
+    CHECK( selectedLines() == QStringList{ "05", "06" } );
+
+    // A plain click goes back to a single line
+    click( 2, Qt::NoModifier );
+    CHECK( selectedLines() == QStringList{ "02" } );
 }

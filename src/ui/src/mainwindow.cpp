@@ -69,6 +69,7 @@
 #include <QMimeData>
 #include <QProgressDialog>
 #include <QResource>
+#include <QSettings>
 #include <QScreen>
 #include <QShortcut>
 #include <QSortFilterProxyModel>
@@ -90,6 +91,7 @@
 #include "downloader.h"
 #include "encodings.h"
 #include "favoritefiles.h"
+#include "highlighterset.h"
 #include "issuereporter.h"
 #include "klogg_version.h"
 #include "logger.h"
@@ -584,6 +586,14 @@ void MainWindow::createActions()
     optionsAction->setStatusTip( tr( action::optionsStatusTip ) );
     connect( optionsAction, &QAction::triggered, this, [ this ]( auto ) { this->options(); } );
 
+    importSettingsAction = new QAction( tr( "Import settings..." ), this );
+    importSettingsAction->setStatusTip( tr( "Replace the settings with a flogg.conf file" ) );
+    connect( importSettingsAction, &QAction::triggered, this, &MainWindow::importSettings );
+
+    exportSettingsAction = new QAction( tr( "Export settings..." ), this );
+    exportSettingsAction->setStatusTip( tr( "Save the settings to a flogg.conf file" ) );
+    connect( exportSettingsAction, &QAction::triggered, this, &MainWindow::exportSettings );
+
     showDocumentationAction = new QAction( tr( action::showDocumentationText ), this );
     showDocumentationAction->setStatusTip( tr( action::showDocumentationStatusTip ) );
     connect( showDocumentationAction, &QAction::triggered, this,
@@ -738,6 +748,8 @@ void MainWindow::createMenus()
     fileMenu->addSeparator();
 
     fileMenu->addAction( optionsAction );
+    fileMenu->addAction( importSettingsAction );
+    fileMenu->addAction( exportSettingsAction );
     fileMenu->addSeparator();
 
     fileMenu->addSeparator();
@@ -1018,7 +1030,9 @@ void MainWindow::closeTab( ActionInitiator initiator )
 void MainWindow::closeAll( ActionInitiator initiator )
 {
     while ( mainTabWidget_.count() ) {
-        closeTab( 0, initiator );
+        if ( !closeTab( 0, initiator ) ) {
+            break;
+        }
     }
 }
 
@@ -1119,20 +1133,113 @@ void MainWindow::options()
     OptionsDialog dialog( this );
     signalMux_.connect( &dialog, SIGNAL( optionsChanged() ), SLOT( applyConfiguration() ) );
 
-    connect( &dialog, &OptionsDialog::optionsChanged, [ this ]() {
-        const auto& config = Configuration::get();
-        logging::enableFileLogging( config.enableLogging(),
-                                    static_cast<logging::LogLevel>( config.loggingLevel() ) );
-
-        newWindowAction->setVisible( config.allowMultipleWindows() );
-        followAction->setEnabled( config.anyFileWatchEnabled() );
-
-        updateShortcuts();
-        updateRecentFileActions();
-    } );
+    connect( &dialog, &OptionsDialog::optionsChanged, this, &MainWindow::applyOptions );
     dialog.exec();
 
     signalMux_.disconnect( &dialog, SIGNAL( optionsChanged() ), SLOT( applyConfiguration() ) );
+}
+
+void MainWindow::applyOptions()
+{
+    const auto& config = Configuration::get();
+    logging::enableFileLogging( config.enableLogging(),
+                                static_cast<logging::LogLevel>( config.loggingLevel() ) );
+
+    newWindowAction->setVisible( config.allowMultipleWindows() );
+    followAction->setEnabled( config.anyFileWatchEnabled() );
+
+    updateShortcuts();
+    updateRecentFileActions();
+}
+
+namespace {
+constexpr auto SettingsFileFilter = "flogg settings (*.conf);;All files (*)";
+
+bool isSettingsInUse( const QString& path )
+{
+    const auto inUse = PersistentInfo::getSettings( app_settings{} ).fileName();
+    return QFileInfo( path ).absoluteFilePath() == QFileInfo( inUse ).absoluteFilePath();
+}
+
+void copySettings( const QSettings& from, QSettings& to )
+{
+    to.clear();
+    for ( const auto& key : from.allKeys() ) {
+        to.setValue( key, from.value( key ) );
+    }
+    to.sync();
+}
+} // namespace
+
+// The session is kept in its own file and is neither exported nor replaced
+void MainWindow::exportSettings()
+{
+    auto path = QFileDialog::getSaveFileName( this, tr( "Export settings" ), "flogg.conf",
+                                              tr( SettingsFileFilter ) );
+    if ( path.isEmpty() ) {
+        return;
+    }
+    if ( isSettingsInUse( path ) ) {
+        QMessageBox::warning( this, tr( "Export settings" ),
+                              tr( "%1 holds the settings in use, choose another file." )
+                                  .arg( QDir::toNativeSeparators( path ) ) );
+        return;
+    }
+
+    // The layout of this window is otherwise only saved when it is closed
+    auto& settings = PersistentInfo::getSettings( app_settings{} );
+    settings.setValue( "filterPanel/windowState", saveState() );
+    settings.sync();
+
+    QSettings exported( path, QSettings::IniFormat );
+    copySettings( settings, exported );
+    if ( exported.status() != QSettings::NoError ) {
+        QMessageBox::warning( this, tr( "Export settings" ),
+                              tr( "Can't write the settings to %1" ).arg( path ) );
+    }
+}
+
+void MainWindow::importSettings()
+{
+    const auto path = QFileDialog::getOpenFileName( this, tr( "Import settings" ), {},
+                                                    tr( SettingsFileFilter ) );
+    if ( path.isEmpty() || isSettingsInUse( path ) ) {
+        return;
+    }
+
+    const QSettings imported( path, QSettings::IniFormat );
+    if ( imported.status() != QSettings::NoError || imported.allKeys().isEmpty() ) {
+        QMessageBox::warning( this, tr( "Import settings" ),
+                              tr( "%1 is not a flogg settings file" ).arg( path ) );
+        return;
+    }
+
+    if ( QMessageBox::question(
+             this, tr( "Import settings" ),
+             tr( "Replace all the current settings with the ones in %1?" ).arg( path ) )
+         != QMessageBox::Yes ) {
+        return;
+    }
+
+    copySettings( imported, PersistentInfo::getSettings( app_settings{} ) );
+
+    Configuration::getSynced();
+    HighlighterSetCollection::getSynced();
+    filterPanel_->reloadSettings();
+
+    const auto windowState
+        = PersistentInfo::getSettings( app_settings{} ).value( "filterPanel/windowState" );
+    if ( windowState.isValid() ) {
+        restoreState( windowState.toByteArray() );
+    }
+
+    applyOptions();
+    Q_EMIT optionsChanged();
+
+    QMessageBox::information(
+        this, tr( "Import settings" ),
+        tr( "The settings are imported. The language, the style and the high DPI options "
+            "take effect after flogg is restarted." ) );
 }
 
 void MainWindow::about()
@@ -1355,11 +1462,15 @@ void MainWindow::handleFilteredViewChanged()
     }
 }
 
-void MainWindow::closeTab( int index, ActionInitiator initiator )
+bool MainWindow::closeTab( int index, ActionInitiator initiator )
 {
     auto widget = qobject_cast<CrawlerWidget*>( mainTabWidget_.widget( index ) );
 
     assert( widget );
+
+    if ( initiator == ActionInitiator::User && !confirmFiltersClose( widget ) ) {
+        return false;
+    }
 
     widget->stopLoading();
     mainTabWidget_.removeCrawler( index );
@@ -1373,6 +1484,7 @@ void MainWindow::closeTab( int index, ActionInitiator initiator )
     updateOpenedFilesMenu();
 
     widget->deleteLater();
+    return true;
 }
 
 void MainWindow::currentTabChanged( int index )
@@ -1390,6 +1502,7 @@ void MainWindow::currentTabChanged( int index )
         updateMenuBarFromDocument( crawler_widget );
         updateTitleBar( session_.getFilename( crawler_widget ) );
         crawler_widget->setMainViewVisible( mainViewVisibleAction->isChecked() );
+        switchFilterTab( crawler_widget );
         applyFiltersToCurrentCrawler();
         updateFavoritesMenu();
 
@@ -1397,6 +1510,7 @@ void MainWindow::currentTabChanged( int index )
     }
     else {
         // No tab left
+        switchFilterTab( nullptr );
         signalMux_.setCurrentDocument( nullptr );
         quickFindMux_.registerSelector( nullptr );
 
@@ -1471,6 +1585,11 @@ void MainWindow::closeEvent( QCloseEvent* event )
         this->hide();
     }
     else {
+        if ( !confirmAllFiltersClose() ) {
+            event->ignore();
+            return;
+        }
+
         const auto saveSettings = session_.close();
         if ( saveSettings ) {
             writeSettings();
@@ -2097,6 +2216,11 @@ void MainWindow::showInfoLabels( bool show )
 // Write settings to permanent storage
 void MainWindow::writeSettings()
 {
+    // The session keeps the filters of every tab
+    if ( filterTab_ && filterPanel_ ) {
+        filterTab_->setFilterTabState( filterPanel_->tabState() );
+    }
+
     // Save the session
     // Generate the ordered list of widgets and their topLine
     std::vector<
@@ -2149,6 +2273,61 @@ void MainWindow::setupFilterPanel()
                      crawler->findFilterMatch( filters, backward );
                  }
              } );
+}
+
+// The panel shows the filters of the current tab, the filters shown before stay with
+// their tab
+void MainWindow::switchFilterTab( CrawlerWidget* crawler )
+{
+    if ( !filterPanel_ || crawler == filterTab_ ) {
+        return;
+    }
+
+    const auto hadTab = !filterTab_.isNull();
+    if ( hadTab ) {
+        filterTab_->setFilterTabState( filterPanel_->tabState() );
+    }
+    filterTab_ = crawler;
+
+    // Filters set up while no file was open go to the first file opened
+    if ( crawler && !hadTab && !crawler->filterTabState().initialized ) {
+        return;
+    }
+
+    filterPanel_->setTabState( crawler ? crawler->filterTabState() : FilterTabState{} );
+}
+
+bool MainWindow::confirmFiltersClose( CrawlerWidget* crawler )
+{
+    if ( !filterPanel_ ) {
+        return true;
+    }
+
+    if ( crawler != filterTab_ ) {
+        if ( !FilterPanel::isModified( crawler->filterTabState() ) ) {
+            return true;
+        }
+        // Show the tab the question is about
+        mainTabWidget_.setCurrentWidget( crawler );
+    }
+
+    return filterPanel_->confirmClose(
+        QFileInfo( session_.getFilename( crawler ) ).fileName() );
+}
+
+bool MainWindow::confirmAllFiltersClose()
+{
+    if ( mainTabWidget_.count() == 0 ) {
+        return !filterPanel_ || filterPanel_->confirmClose( {} );
+    }
+
+    for ( int i = 0; i < mainTabWidget_.count(); ++i ) {
+        auto* crawler = qobject_cast<CrawlerWidget*>( mainTabWidget_.widget( i ) );
+        if ( crawler && !confirmFiltersClose( crawler ) ) {
+            return false;
+        }
+    }
+    return true;
 }
 
 // Filters are applied lazily: background tabs get them when they become current

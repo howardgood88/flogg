@@ -99,28 +99,6 @@ class KloggApp : public QApplication {
         return singleApplication_.primaryPid();
     }
 
-    void sendFilesToPrimaryInstance( std::vector<QString> filenames )
-    {
-#ifdef Q_OS_WIN
-        // TODO: fix pid passing
-        ::AllowSetForegroundWindow( static_cast<DWORD>( primaryPid() ) );
-#endif
-
-        QTimer::singleShot( 100, [ files = std::move( filenames ), this ] {
-            QStringList filesToOpen;
-            std::copy( files.cbegin(), files.cend(), std::back_inserter( filesToOpen ) );
-
-            QVariantMap data;
-            data.insert( "version", kloggVersion() );
-            data.insert( "files", QVariant{ filesToOpen } );
-
-            auto cbor = QCborValue::fromVariant( data );
-            singleApplication_.sendMessageWithTimeout( cbor.toCbor(), 5000 );
-
-            QTimer::singleShot( 100, this, &QApplication::quit );
-        } );
-    }
-
     void initCrashHandler()
     {
         crashHandler_ = std::make_unique<CrashHandler>();
@@ -145,27 +123,6 @@ class KloggApp : public QApplication {
         }
 
         return mainWindows_.back().second;
-    }
-
-    void clearInactiveSessions()
-    {
-        LOG_INFO << "Clear inactive sessions";
-
-        auto existingSessions = session_->windowSessions();
-        existingSessions.erase( std::remove_if( existingSessions.begin(), existingSessions.end(),
-                                                [ this ]( const auto& session ) {
-                                                    return std::any_of(
-                                                        mainWindows_.begin(), mainWindows_.end(),
-                                                        [ &session ]( const auto& window ) {
-                                                            return window.first.windowId()
-                                                                   == session.windowId();
-                                                        } );
-                                                } ),
-                                existingSessions.end() );
-
-        for ( auto& session : existingSessions ) {
-            session.close();
-        }
     }
 
     MainWindow* newWindow()
@@ -207,12 +164,7 @@ class KloggApp : public QApplication {
             QFileOpenEvent* openEvent = static_cast<QFileOpenEvent*>( event );
             LOG_INFO << "File open request " << openEvent->file();
 
-            if ( !isSecondary() ) {
-                loadFileNonInteractive( openEvent->file() );
-            }
-            else {
-                sendFilesToPrimaryInstance( { openEvent->file() } );
-            }
+            loadFileNonInteractive( openEvent->file() );
         }
 
         return QApplication::event( event );
@@ -222,6 +174,7 @@ class KloggApp : public QApplication {
   private:
     MainWindow* newWindow( WindowSession&& session )
     {
+        session_->addInstanceWindow( session.windowId() );
         mainWindows_.emplace_back( session, new MainWindow( session ) );
 
         auto& window = mainWindows_.back().second;
@@ -252,6 +205,7 @@ class KloggApp : public QApplication {
                                [ &window ]( const auto& p ) { return p.second == &window; } );
 
         if ( w != mainWindows_.end() ) {
+            session_->removeInstanceWindow( w->first.windowId() );
             mainWindows_.erase( w );
         }
     }
@@ -260,11 +214,16 @@ class KloggApp : public QApplication {
     {
         LOG_INFO << "exit application";
         session_->setExitRequested( true );
+        session_->keepOnlyInstanceWindows();
         auto mainWindows = mainWindows_;
         mainWindows.reverse();
         for ( const auto& [ session, window ] : mainWindows ) {
             Q_UNUSED( session );
-            window->close();
+            // Kept open when the user cancels saving its filters
+            if ( !window->close() ) {
+                session_->setExitRequested( false );
+                return;
+            }
         }
 
         QTimer::singleShot( 100, this, &QCoreApplication::quit );

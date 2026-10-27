@@ -1055,3 +1055,62 @@ SCENARIO( "Filter panel move up and down across groups", "[filters]" )
 
     settings.setValue( "filterPanel/currentFile", previousFile );
 }
+
+SCENARIO( "Filter panel tab states and manual save", "[filters]" )
+{
+    QTemporaryDir dir;
+    auto root = FilterNode::makeGroup( "root" );
+    root.children.push_back( FilterNode::makeFilter( "ERROR" ) );
+    root.children.push_back( FilterNode::makeFilter( "WARN" ) );
+    const auto filtersFile = dir.filePath( "tabs.flogg-filters.json" );
+    REQUIRE( filters::saveToFile( root, filtersFile ) );
+    const auto fileContent = [ & ]() {
+        QFile file( filtersFile );
+        REQUIRE( file.open( QIODevice::ReadOnly ) );
+        return file.readAll();
+    };
+    const auto savedContent = fileContent();
+
+    auto& settings = PersistentInfo::getSettings( app_settings{} );
+    const auto previousFile = settings.value( "filterPanel/currentFile" );
+    settings.setValue( "filterPanel/currentFile", filtersFile );
+
+    FilterPanel panel;
+    QSignalSpy changed( &panel, &FilterPanel::filtersChanged );
+    REQUIRE_FALSE( panel.isModified() );
+
+    changed.clear();
+    REQUIRE( QMetaObject::invokeMethod( &panel, "setAllEnabled", Q_ARG( bool, false ) ) );
+    REQUIRE( changed.wait( 2000 ) );
+
+    // Changes stay in the panel until saved
+    CHECK( panel.isModified() );
+    CHECK( fileContent() == savedContent );
+
+    const auto firstTab = panel.tabState();
+    CHECK( FilterPanel::isModified( firstTab ) );
+    CHECK( firstTab.snapshot->filters.empty() );
+
+    // A tab shown for the first time gets the default file as it is saved
+    panel.setTabState( FilterTabState{} );
+    CHECK_FALSE( panel.isModified() );
+    CHECK( panel.snapshot()->filters.size() == 2 );
+    const auto secondTab = panel.tabState();
+
+    // Back to the first tab, its filters are shown without being applied again
+    panel.setTabState( firstTab );
+    CHECK( panel.isModified() );
+    CHECK( panel.snapshot() == firstTab.snapshot );
+
+    REQUIRE( QMetaObject::invokeMethod( &panel, "saveFile" ) );
+    CHECK_FALSE( panel.isModified() );
+    CHECK( fileContent() != savedContent );
+
+    // The other tab now differs from the file
+    CHECK( FilterPanel::isModified(
+        FilterPanel::restoredTabState( filtersFile, secondTab.root ) ) );
+    CHECK_FALSE( FilterPanel::isModified(
+        FilterPanel::restoredTabState( filtersFile, panel.tabState().root ) ) );
+
+    settings.setValue( "filterPanel/currentFile", previousFile );
+}

@@ -26,6 +26,7 @@
 #include <QKeySequence>
 #include <QStringList>
 
+class QAction;
 class QWidget;
 class QShortcut;
 
@@ -85,6 +86,7 @@ struct ShortcutAction {
     static constexpr auto FilterPanelDelete = "filterpanel.delete";
     static constexpr auto FilterPanelMoveUp = "filterpanel.move_up";
     static constexpr auto FilterPanelMoveDown = "filterpanel.move_down";
+    static constexpr auto FilterPanelSave = "filterpanel.save";
 
     static constexpr auto LogViewMark = "logview.mark";
     static constexpr auto LogViewNextMark = "logview.next_mark";
@@ -185,6 +187,11 @@ public:
 
     static QList<QKeySequence> shortcutKeys( const std::string& action,
                                              const ConfiguredShortcuts& configuredShortcuts );
+
+    // Shows the configured key of an action handled by a QShortcut next to it in menus,
+    // the menu action itself never triggers on the key while the menu is hidden
+    static void showInMenu( QAction* menuAction, const std::string& action,
+                            const ConfiguredShortcuts& configuredShortcuts );
 
 private:
     static QStringList defaultShortcutKeys( const std::string& action );

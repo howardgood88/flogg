@@ -36,7 +36,6 @@
 struct CliParameters {
     bool new_session = false;
     bool load_session = false;
-    bool multi_instance = false;
     bool log_to_file = false;
     bool follow_file = false;
 
@@ -86,8 +85,7 @@ struct CliParameters {
         const QCommandLineOption multiInstanceOption(
             QStringList() << "m"
                           << "multi",
-            "allow multiple instance of flogg to run simultaneously (use together with -s, "
-            "--config or --filters)" );
+            "kept for compatibility: every start is a new instance of flogg" );
 
         const QCommandLineOption configOption(
             ConfigOptionName,
@@ -102,12 +100,13 @@ struct CliParameters {
         const QCommandLineOption loadSessionOption(
             QStringList() << "s"
                           << "load-session",
-            "load the previous session (default when no file is passed)" );
+            "load the previous session" );
 
         const QCommandLineOption newSessionOption(
             QStringList() << "n"
                           << "new-session",
-            "do not load the previous session (default when a file is passed)" );
+            "do not load the previous session (default unless enabled in the options for "
+            "the first flogg started)" );
 
         const QCommandLineOption logToFileOption( QStringList() << "l"
                                                                 << "log",
@@ -164,10 +163,6 @@ struct CliParameters {
         log_level += parser.value( debugOption ).toInt();
 
         if ( !console ) {
-            if ( parser.isSet( multiInstanceOption ) ) {
-                multi_instance = true;
-            }
-
             if ( parser.isSet( loadSessionOption ) ) {
                 load_session = true;
             }

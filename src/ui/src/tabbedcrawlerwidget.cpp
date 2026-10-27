@@ -37,6 +37,7 @@
 #include "iconloader.h"
 #include "log.h"
 #include "openfilehelper.h"
+#include "shortcuts.h"
 #include "styles.h"
 #include "tabnamemapping.h"
 
@@ -183,10 +184,13 @@ void CrawlerTabBar::mouseReleaseEvent( QMouseEvent* mouseEvent )
         if ( tab != -1 ) {
             Q_EMIT showTabContextMenu( tab, mapToGlobal( mouseEvent->pos() ) );
             mouseEvent->accept();
+            return;
         }
     }
 
-    mouseEvent->ignore();
+    // QTabBar finishes moving a dragged tab on release, without it the tab stays where
+    // the mouse left it
+    QTabBar::mouseReleaseEvent( mouseEvent );
 }
 
 void TabbedCrawlerWidget::showContextMenu( int tab, QPoint globalPoint )
@@ -204,34 +208,53 @@ void TabbedCrawlerWidget::showContextMenu( int tab, QPoint globalPoint )
     auto renameTab = menu.addAction( tr( "Rename tab" ) );
     auto resetTabName = menu.addAction( tr( "Reset tab name" ) );
 
+    const auto& shortcuts = Configuration::get().shortcuts();
+    ShortcutAction::showInMenu( closeThis, ShortcutAction::MainWindowCloseFile, shortcuts );
+    ShortcutAction::showInMenu( closeAll, ShortcutAction::MainWindowCloseAll, shortcuts );
+    ShortcutAction::showInMenu( copyFullPath, ShortcutAction::MainWindowCopyPathToClipboard,
+                                shortcuts );
+    ShortcutAction::showInMenu( openContainingFolder,
+                                ShortcutAction::MainWindowOpenContainingFolder, shortcuts );
+
     connect( closeThis, &QAction::triggered, [ tab, this ] { Q_EMIT tabCloseRequested( tab ); } );
 
-    connect( closeOthers, &QAction::triggered, [ tabWidget = widget( tab ), this ] {
+    // A tab stays open when the user cancels saving its filters, the loops stop there
+    const auto requestClose = [ this ]( int index ) {
+        const auto tabsBefore = count();
+        Q_EMIT tabCloseRequested( index );
+        return count() < tabsBefore;
+    };
+
+    connect( closeOthers, &QAction::triggered, [ tabWidget = widget( tab ), this, requestClose ] {
         while ( count() != 1 ) {
-            for ( int i = 0; i < count(); ++i ) {
-                if ( i != indexOf( tabWidget ) ) {
-                    Q_EMIT tabCloseRequested( i );
-                    break;
-                }
+            const auto other = indexOf( tabWidget ) == 0 ? 1 : 0;
+            if ( !requestClose( other ) ) {
+                break;
             }
         }
     } );
 
-    connect( closeLeft, &QAction::triggered, [ tabWidget = widget( tab ), this ] {
-        while ( indexOf( tabWidget ) != 0 ) {
-            Q_EMIT tabCloseRequested( 0 );
+    connect( closeLeft, &QAction::triggered, [ tabWidget = widget( tab ), this, requestClose ] {
+        while ( indexOf( tabWidget ) > 0 ) {
+            if ( !requestClose( 0 ) ) {
+                break;
+            }
         }
     } );
 
-    connect( closeRight, &QAction::triggered, [ tab, this ] {
-        while ( count() > tab + 1 ) {
-            Q_EMIT tabCloseRequested( tab + 1 );
+    connect( closeRight, &QAction::triggered, [ tabWidget = widget( tab ), this, requestClose ] {
+        while ( count() > indexOf( tabWidget ) + 1 ) {
+            if ( !requestClose( indexOf( tabWidget ) + 1 ) ) {
+                break;
+            }
         }
     } );
 
-    connect( closeAll, &QAction::triggered, [ this ] {
+    connect( closeAll, &QAction::triggered, [ this, requestClose ] {
         while ( count() ) {
-            Q_EMIT tabCloseRequested( 0 );
+            if ( !requestClose( 0 ) ) {
+                break;
+            }
         }
     } );
 

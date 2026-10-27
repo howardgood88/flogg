@@ -488,31 +488,47 @@ void OptionsDialog::checkShortcutsOnDuplicate() const
         shortcutsTable->item( shortcutRow, SECONDARY_COL )->setBackground( DEFAULT_BACKGROUND );
     }
 
-    std::unordered_map<std::string, std::pair<int, int>> uniqueShortcuts;
+    // The filter panel takes the save key first while it has the focus, the key only has to
+    // be unique among the filter panel shortcuts
+    using UniqueShortcuts = std::unordered_map<std::string, std::pair<int, int>>;
+    UniqueShortcuts uniqueShortcuts;
+    UniqueShortcuts uniquePanelShortcuts;
     bool hasDuplicateShortcuts = false;
     for ( auto shortcutRow = 0; shortcutRow < shortcutsTable->rowCount(); ++shortcutRow ) {
+        const auto action
+            = shortcutsTable->item( shortcutRow, 0 )->data( Qt::UserRole ).toString();
+        const auto isPanelSave = action == ShortcutAction::FilterPanelSave;
+        const auto isPanel = action.startsWith( "filterpanel." );
 
-        auto hasDuplicates = [ &uniqueShortcuts, shortcutRow, this ]( int ncol ) {
+        auto hasDuplicates = [ &, shortcutRow, this ]( int ncol ) {
             auto keySequence = static_cast<KeySequencePresenter*>(
                                    shortcutsTable->cellWidget( shortcutRow, ncol ) )
                                    ->keySequence();
 
-            if ( !keySequence.isEmpty() ) {
-                if ( auto it = uniqueShortcuts.find( keySequence.toStdString() );
-                     it != uniqueShortcuts.end() ) {
+            if ( keySequence.isEmpty() ) {
+                return false;
+            }
 
+            auto duplicate = false;
+            const auto check = [ & ]( UniqueShortcuts& unique ) {
+                if ( auto it = unique.find( keySequence.toStdString() ); it != unique.end() ) {
                     shortcutsTable->item( it->second.first, it->second.second )
                         ->setBackground( Qt::red );
                     shortcutsTable->item( shortcutRow, ncol )->setBackground( Qt::red );
-
-                    return true;
+                    duplicate = true;
                 }
+                unique.try_emplace( keySequence.toStdString(),
+                                    std::make_pair( shortcutRow, ncol ) );
+            };
 
-                uniqueShortcuts.try_emplace( keySequence.toStdString(),
-                                             std::make_pair( shortcutRow, ncol ) );
+            if ( !isPanelSave ) {
+                check( uniqueShortcuts );
+            }
+            if ( isPanel ) {
+                check( uniquePanelShortcuts );
             }
 
-            return false;
+            return duplicate;
         };
 
         if ( hasDuplicates( PRIMARY_COL ) || hasDuplicates( SECONDARY_COL ) ) {

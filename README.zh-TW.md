@@ -31,19 +31,24 @@ Windows（x64）與 macOS（Apple Silicon）的安裝檔請到 [Releases 頁面]
 - 主視窗與過濾視窗支援 `Ctrl+1-8` 標記書籤，`Alt+1-8` / `Shift+Alt+1-8` 可跳到下一個 / 上一個對應書籤行。
   (建議至 `File > Preferences > Shortcuts` 修改按鍵設定，flogg 預設保留 klogg 原生 shortcuts)
 - `Ctrl+H`（macOS：`Control+H`）可隱藏主視窗，只顯示過濾視窗。
+- `Ctrl+左鍵`（macOS：`Cmd+左鍵`）可逐行加入或移除選取，選取不連續的多行來複製、標記或另存。
+- 右鍵選單的項目會顯示目前設定的快捷鍵。
 
 ### Filter / conf 檔
 
-- Filter 的每次修改都會自動存到目前使用的 JSON filter 檔，預設為 `filters.flogg-filters.json`（位置見下方[命令列](#命令列)）。
+- 每個分頁各自保存 filter：清單、啟用／停用／暫停狀態，以及使用的 JSON filter 檔。新開的檔案載入預設 filter 檔，即 `filters.flogg-filters.json` 或最近一次開啟／另存的 filter 檔（位置見下方[命令列](#命令列)）。
+- Filter 只在 `Save filters`（filter panel 中按 `Ctrl+S`）時才寫入檔案；檔名後的 `*` 表示有未儲存的修改，關閉分頁或 flogg 時會詢問是否儲存。
 - 支援匯入 TextAnalysisTool 的 `.tat` 檔。
 - 支援匯入 klogg 的 predefined filters 與 highlighters。
 - 應用相關設定（UI、shortcuts 等等）預設儲存於 `flogg.conf`（位置見下方[命令列](#命令列)）。
+  `File > Import settings...` 與 `File > Export settings...` 可從其他 `.conf` 檔匯入或匯出設定，不含 session。
 
 ### 命令列
 
 - `--config <file>`：改用指定的設定檔讀寫設定，不影響預設的 `flogg.conf`；對應 session 存在同目錄的 `<name>_session.conf`。
 - `--filters <file>`：以指定的 filter 檔開啟 flogg，但不把它設為預設 filter 檔。
-- 搭配 `-m` 可開啟多個視窗，各自使用自己的設定與 filter。
+- 不論以何種方式啟動（雙擊、工作列、檔案關聯、命令列），每次啟動都是新的 flogg instance（等同 klogg 的 `-m`）。
+- 預設不恢復上次的 session。在 `File > Preferences` 勾選 `Load last session` 後，第一個不帶檔案啟動的 flogg 會恢復最後關閉的 flogg 的視窗、檔案與各分頁的 filter；`-s`／`-n` 可強制開啟或關閉。
 - Windows 版的設定（`flogg.conf`）與預設 filter 檔放在 `flogg.exe` 旁邊，整個資料夾為 portable。
 - macOS 版依照系統慣例存放：設定在 `~/Library/Preferences/com.flogg.flogg.plist`，預設 filter 檔在
   `~/Library/Application Support/flogg/filters.flogg-filters.json`；使用 `--config` 時，預設 filter 檔改放在該設定檔旁邊。
@@ -79,7 +84,8 @@ Predefined filters、highlighter sets、搜尋結果高亮、清空檔案、版�
 | Suspend／Resume、全部 Suspend／全部 Resume | | 右鍵選單 |
 | 加入搜尋、從搜尋排除、取代搜尋 | | 右鍵選單 |
 | 選擇要顯示的欄位 | | 在欄位標題按右鍵 |
-| 開啟、儲存、匯入 filter 檔 | | `File` 按鈕 |
+| 儲存 filter | `Ctrl+S` | `File` 按鈕 |
+| 開啟、另存、匯入 filter 檔 | | `File` 按鈕 |
 
 ### Log 檢視
 
@@ -90,7 +96,7 @@ Predefined filters、highlighter sets、搜尋結果高亮、清空檔案、版�
 | 在選取的行設定／移除書籤 N（1-8） | `Ctrl+1` … `Ctrl+8` | |
 | 跳到下一個有書籤 N 的行 | `Alt+1` … `Alt+8` | |
 | 跳到上一個有書籤 N 的行 | `Alt+Shift+1` … `Alt+Shift+8` | |
-| 將選取文字加為 filter | 預設無 | Log 檢視右鍵選單的 `Add as filter...` |
+| 將選取文字（未選取時為整行）加為 filter | 預設無 | Log 檢視右鍵選單的 `Add as filter...` |
 | 將搜尋文字加為 filter | | 搜尋框右鍵選單的 `Add as filter...` |
 
 ## 建置

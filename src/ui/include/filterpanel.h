@@ -24,7 +24,10 @@
 #include <unordered_map>
 #include <vector>
 
+#include <QByteArray>
 #include <QHash>
+#include <QKeySequence>
+#include <QList>
 #include <QTimer>
 #include <QWidget>
 
@@ -49,6 +52,23 @@ struct FilterSnapshot {
     std::shared_ptr<const HighlighterSet> highlighters;
 };
 
+// Filters of one tab, kept with the tab while another tab is shown
+struct FilterTabState {
+    // False until the tab is shown the first time, it then gets the default filter file
+    bool initialized = false;
+
+    // File loaded or saved last
+    QString file;
+    FilterNode root;
+
+    // Filters as loaded from or saved to the file, the tab has unsaved changes when the
+    // filters differ
+    QByteArray savedJson;
+
+    // Empty when the filters still have to be applied
+    std::shared_ptr<const FilterSnapshot> snapshot;
+};
+
 // Number of matching lines per filter id
 using FilterHits = QHash<QString, qint64>;
 
@@ -60,7 +80,8 @@ enum class FilterSearchMode {
     Replace,
 };
 
-// Tree of filters and filter groups, shared by all the tabs of a window.
+// Tree of filters and filter groups of the current tab of a window. Changes are only
+// written to the filter file when saved.
 class FilterPanel : public QWidget {
     Q_OBJECT
 
@@ -87,6 +108,25 @@ class FilterPanel : public QWidget {
     // Hit counts of the current tab, filters without a count are shown blank
     void setHitCounts( const FilterHits& hits );
 
+    // Filters shown in the panel, to keep with their tab when another tab is shown
+    FilterTabState tabState();
+
+    // Shows the filters of a tab
+    void setTabState( const FilterTabState& state );
+
+    // State of a tab restored from the session, compared to the file as it is now
+    static FilterTabState restoredTabState( const QString& file, const FilterNode& root );
+
+    static bool isModified( const FilterTabState& state );
+    bool isModified() const;
+
+    // Asks to save the changed filters before they are closed: false when the user cancels,
+    // discarded changes are reverted to the file
+    bool confirmClose( const QString& tabName );
+
+    // Reads the settings of the panel again after they were replaced
+    void reloadSettings();
+
     // Applies the configured keyboard shortcuts
     void updateShortcuts();
 
@@ -107,7 +147,8 @@ class FilterPanel : public QWidget {
     void setSelectedEnabled( bool enabled );
     void moveCurrent( bool up );
     void openFile();
-    void saveFileAs();
+    bool saveFile();
+    bool saveFileAs();
     void importTatFile();
     void importKloggSettings();
     void showContextMenu( const QPoint& pos );
@@ -118,6 +159,7 @@ class FilterPanel : public QWidget {
 
   private:
     void setupUi();
+    static QString defaultFile();
     void setRoot( const FilterNode& root );
     FilterNode buildTree() const;
     FilterNode buildNode( const QTreeWidgetItem* item ) const;
@@ -133,11 +175,16 @@ class FilterPanel : public QWidget {
     void insertItem( QTreeWidgetItem* item );
     std::vector<FilterNode> selectedFiltersForSearch() const;
 
+    bool eventFilter( QObject* watched, QEvent* event ) override;
+
     void scheduleChange();
     void publishChange();
-    void loadFile( const QString& path, bool remember = true );
-    void saveCurrentFile();
+    void flushChange();
+    void updateLook();
+    bool loadFile( const QString& path, bool remember = true );
+    bool saveCurrentFile();
     void updateFileLabel();
+    void restoreHeaderState();
     void addRecentFile( const QString& path );
     void updateHitCounts();
     // Numbers the filters in priority order (FilterNode::number)
@@ -157,12 +204,15 @@ class FilterPanel : public QWidget {
     QAction* deleteAction_;
     QAction* moveUpAction_;
     QAction* moveDownAction_;
+    QAction* saveAction_;
+    QList<QKeySequence> saveKeys_;
 
     // Per item filter properties (the tree structure and check states
     // are held by the QTreeWidget itself)
     std::unordered_map<QString, FilterNode> nodes_;
 
     QString currentFile_;
+    QByteArray savedJson_;
     FilterHits hits_;
     bool loading_ = false;
     uint64_t revision_ = 0;

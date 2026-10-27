@@ -31,19 +31,24 @@ Downloads for Windows (x64) and macOS (Apple Silicon) are on the [releases page]
 - In the main and filtered views, `Ctrl+1-8` sets bookmarks and `Alt+1-8` / `Shift+Alt+1-8` jump to the next / previous line with that bookmark.
   (Shortcuts can be changed in `File > Preferences > Shortcuts`; flogg keeps klogg's own shortcuts by default.)
 - `Ctrl+H` (macOS: `Control+H`) hides the main view and shows the filtered view only.
+- `Ctrl+click` (macOS: `Cmd+click`) adds or removes single lines from the selection, for copying, marking or saving lines that do not follow each other.
+- Context menu entries show their current shortcut.
 
 ### Filter and conf files
 
-- Every change to the filters is saved automatically to the current JSON filter file, `filters.flogg-filters.json` by default (see [Command line](#command-line) for where it is).
+- Each tab has its own filters: the list, enabled, disabled and suspended states, and the JSON filter file it uses. A newly opened file gets the default filter file, `filters.flogg-filters.json` unless another one was opened or saved last (see [Command line](#command-line) for where it is).
+- Filters are saved to their file only with `Save filters` (`Ctrl+S` in the filter panel); a `*` after the file name marks unsaved changes, and closing a tab or flogg asks to save them.
 - Import TextAnalysisTool `.tat` files.
 - Import klogg predefined filters and highlighters.
 - Application settings (UI, shortcuts and so on) are kept in `flogg.conf` by default (see [Command line](#command-line) for where it is).
+  `File > Import settings...` and `File > Export settings...` copy them from or to another `.conf` file; the session is not included.
 
 ### Command line
 
 - `--config <file>` reads and writes the settings in that file (any name) instead of the default `flogg.conf`; the session goes to `<name>_session.conf` next to it.
 - `--filters <file>` opens flogg with that filter file without making it the default one.
-- Together with `-m` this starts several windows, each with its own settings and filters.
+- Every start of flogg is a new instance (as with klogg's `-m`), however it is started: double click, taskbar, file association or command line.
+- The previous session is not restored by default. With `Load last session` in `File > Preferences`, the first flogg started without a file restores the windows, files and per tab filters of the flogg closed last; `-s` / `-n` force it on or off.
 - On Windows the settings (`flogg.conf`) and the default filter file are kept next to `flogg.exe`, so the whole folder is portable.
 - On macOS they follow the system conventions: the settings are in `~/Library/Preferences/com.flogg.flogg.plist` and the default filter file in
   `~/Library/Application Support/flogg/filters.flogg-filters.json`; with `--config` the default filter file goes next to that settings file.
@@ -79,7 +84,8 @@ These work while the filter panel has the focus.
 | Suspend / resume, suspend all / resume all | | Context menu |
 | Add to search, exclude from search, replace search | | Context menu |
 | Choose visible columns | | Right click the column header |
-| Open, save, import filter files | | `File` button |
+| Save filters | `Ctrl+S` | `File` button |
+| Open, save as, import filter files | | `File` button |
 
 ### Log views
 
@@ -90,7 +96,7 @@ These work while the filter panel has the focus.
 | Set/remove bookmark N (1-8) on the selected lines | `Ctrl+1` ... `Ctrl+8` | |
 | Next line with bookmark N | `Alt+1` ... `Alt+8` | |
 | Previous line with bookmark N | `Alt+Shift+1` ... `Alt+Shift+8` | |
-| Add selection as filter | none by default | `Add as filter...` in the log view context menu |
+| Add selection (or the whole line) as filter | none by default | `Add as filter...` in the log view context menu |
 | Add search text as filter | | `Add as filter...` in the search box context menu |
 
 ## Building

@@ -118,6 +118,16 @@ class CrawlerWidget : public QSplitter,
     void setFilters( std::shared_ptr<const FilterSnapshot> filters );
     uint64_t filtersRevision() const;
 
+    // Filters of the tab, kept here while the filter panel shows another tab
+    const FilterTabState& filterTabState() const
+    {
+        return filterTabState_;
+    }
+    void setFilterTabState( FilterTabState state )
+    {
+        filterTabState_ = std::move( state );
+    }
+
     void addFiltersToSearch( const std::vector<FilterNode>& filters, FilterSearchMode mode );
 
     // Hit counts of the current filters (when in filter mode)
@@ -465,6 +475,7 @@ class CrawlerWidget : public QSplitter,
     // otherwise the result of the search line.
     bool filterMode_ = true;
     std::shared_ptr<const FilterSnapshot> filters_;
+    FilterTabState filterTabState_;
 };
 
 #endif

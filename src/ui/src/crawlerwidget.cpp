@@ -55,6 +55,7 @@
 #include <QCompleter>
 #include <QInputDialog>
 #include <QJsonDocument>
+#include <QJsonObject>
 #include <QKeySequence>
 #include <QLineEdit>
 #include <QListView>
@@ -92,7 +93,7 @@ public:
     // Construct from the value passsed
     CrawlerWidgetContext( QList<int> sizes, bool ignoreCase, bool autoRefresh, bool followFile,
                           bool useRegexp, bool inverseRegexp, bool useBooleanCombination,
-                          QList<LineNumber> markedLines )
+                          QList<LineNumber> markedLines, QVariantMap filters )
         : sizes_( sizes )
         , ignoreCase_( ignoreCase )
         , autoRefresh_( autoRefresh )
@@ -100,6 +101,7 @@ public:
         , useRegexp_( useRegexp )
         , inverseRegexp_( inverseRegexp )
         , useBooleanCombination_( useBooleanCombination )
+        , filters_( std::move( filters ) )
     {
         std::transform( markedLines.cbegin(), markedLines.cend(), std::back_inserter( marks_ ),
                         []( const auto& m ) { return m.get(); } );
@@ -144,6 +146,12 @@ public:
         return marks_;
     }
 
+    // Filter file and filters of the tab, empty for tabs that never showed their filters
+    QVariantMap filters() const
+    {
+        return filters_;
+    }
+
 private:
     void loadFromString( const QString& string );
     void loadFromJson( const QString& json );
@@ -159,6 +167,8 @@ private:
     bool useBooleanCombination_;
 
     QList<LineNumber::UnderlyingType> marks_;
+
+    QVariantMap filters_;
 };
 
 // Constructor only does trivial construction. The real work is done once
@@ -360,6 +370,13 @@ void CrawlerWidget::doSetViewContext( const QString& view_context )
     const auto& config = Configuration::get();
     logMainView_->followSet( context.followFile() && config.anyFileWatchEnabled() );
 
+    const auto filters = context.filters();
+    if ( !filters.isEmpty() ) {
+        filterTabState_ = FilterPanel::restoredTabState(
+            filters.value( "file" ).toString(),
+            filters::fromJson( QJsonObject::fromVariantMap( filters.value( "root" ).toMap() ) ) );
+    }
+
     const auto savedMarks = context.marks();
     std::transform( savedMarks.cbegin(), savedMarks.cend(), std::back_inserter( savedMarkedLines_ ),
                     []( const auto& l ) { return LineNumber( l ); } );
@@ -367,10 +384,16 @@ void CrawlerWidget::doSetViewContext( const QString& view_context )
 
 std::shared_ptr<const ViewContextInterface> CrawlerWidget::doGetViewContext() const
 {
+    QVariantMap filters;
+    if ( filterTabState_.initialized ) {
+        filters[ "file" ] = filterTabState_.file;
+        filters[ "root" ] = filters::toJson( filterTabState_.root ).toVariantMap();
+    }
+
     auto context = std::make_shared<const CrawlerWidgetContext>(
         sizes(), ( !matchCaseButton_->isChecked() ), searchRefreshButton_->isChecked(),
         logMainView_->isFollowEnabled(), useRegexpButton_->isChecked(), inverseButton_->isChecked(),
-        booleanButton_->isChecked(), logFilteredData_->getMarks() );
+        booleanButton_->isChecked(), logFilteredData_->getMarks(), filters );
 
     return static_cast<std::shared_ptr<const ViewContextInterface>>( context );
 }
@@ -1972,7 +1995,8 @@ void CrawlerWidgetContext::loadFromString( const QString& string )
 
 void CrawlerWidgetContext::loadFromJson( const QString& json )
 {
-    const auto properties = QJsonDocument::fromJson( json.toLatin1() ).toVariant().toMap();
+    // Filter patterns are not limited to Latin-1
+    const auto properties = QJsonDocument::fromJson( json.toUtf8() ).toVariant().toMap();
 
     if ( properties.contains( "S" ) ) {
         const auto sizes = properties.value( "S" ).toList();
@@ -2011,6 +2035,8 @@ void CrawlerWidgetContext::loadFromJson( const QString& json )
             marks_.append( m.toUInt() );
         }
     }
+
+    filters_ = properties.value( "FL" ).toMap();
 }
 
 QString CrawlerWidgetContext::toString() const
@@ -2033,6 +2059,9 @@ QString CrawlerWidgetContext::toString() const
     properies[ "IR" ] = inverseRegexp_;
     properies[ "BC" ] = useBooleanCombination_;
     properies[ "M" ] = toVariantList( marks_ );
+    if ( !filters_.isEmpty() ) {
+        properies[ "FL" ] = filters_;
+    }
 
     return QJsonDocument::fromVariant( properies ).toJson( QJsonDocument::Compact );
 }
@@ -2157,6 +2186,76 @@ void CrawlerWidget::addFiltersToSearch( const std::vector<FilterNode>& filters,
         ( exclude ? excludes : includes ).push_back( &filter );
     }
 
+    const auto currentText = searchLineEdit_->currentText();
+    const auto replace = mode == FilterSearchMode::Replace || currentText.isEmpty();
+
+    // A boolean expression is only built when the search can't be written as a plain
+    // pattern: includes and excludes together, or a search that is already boolean or
+    // inverted
+    const auto plainSearch = !booleanButton_->isChecked() && !inverseButton_->isChecked();
+    const auto onlyIncludes = excludes.empty() && ( replace || plainSearch );
+    const auto onlyExcludes = includes.empty() && replace;
+
+    if ( onlyIncludes || onlyExcludes ) {
+        const auto& subFilters = onlyIncludes ? includes : excludes;
+
+        // The match case button carries the case of the filters when they agree,
+        // the others get an inline flag
+        auto matchCase = matchCaseButton_->isChecked();
+        if ( replace ) {
+            const auto caseSensitive = subFilters.front()->caseSensitive;
+            if ( std::all_of( subFilters.begin(), subFilters.end(),
+                              [ caseSensitive ]( const FilterNode* filter ) {
+                                  return filter->caseSensitive == caseSensitive;
+                              } ) ) {
+                matchCase = caseSensitive;
+            }
+        }
+
+        const auto plainText = replace && subFilters.size() == 1
+                               && !subFilters.front()->useRegex
+                               && subFilters.front()->caseSensitive == matchCase;
+
+        QString expression;
+        if ( plainText ) {
+            expression = subFilters.front()->pattern;
+        }
+        else {
+            // Inline options inside an alternative would leak into the following ones
+            const auto toAlternative = []( QString regex ) {
+                return regex.contains( "(?" ) ? "(?:" + regex + ")" : regex;
+            };
+
+            QStringList alternatives;
+            if ( !replace ) {
+                alternatives.append(
+                    toAlternative( useRegexpButton_->isChecked()
+                                       ? currentText
+                                       : QRegularExpression::escape( currentText ) ) );
+            }
+            for ( const auto* filter : subFilters ) {
+                const auto regex = filter->useRegex ? filter->pattern
+                                                    : QRegularExpression::escape( filter->pattern );
+                if ( filter->caseSensitive == matchCase ) {
+                    alternatives.append( toAlternative( regex ) );
+                }
+                else {
+                    alternatives.append( QString( filter->caseSensitive ? "(?-i:%1)" : "(?i:%1)" )
+                                             .arg( regex ) );
+                }
+            }
+            expression = alternatives.join( '|' );
+        }
+
+        matchCaseButton_->setChecked( matchCase );
+        useRegexpButton_->setChecked( !plainText );
+        booleanButton_->setChecked( false );
+        inverseButton_->setChecked( onlyExcludes );
+
+        setSearchPattern( expression );
+        return;
+    }
+
     const auto joinSubPatterns = []( const std::vector<const FilterNode*>& subFilters ) {
         QStringList subPatterns;
         for ( const auto* filter : subFilters ) {
@@ -2165,8 +2264,10 @@ void CrawlerWidget::addFiltersToSearch( const std::vector<FilterNode>& filters,
         return subPatterns.join( " or " );
     };
 
-    auto expression
-        = mode == FilterSearchMode::Replace ? QString{} : searchTextAsRegexBoolean();
+    auto expression = replace ? QString{} : searchTextAsRegexBoolean();
+    if ( !expression.isEmpty() && inverseButton_->isChecked() ) {
+        expression = "not(" + expression + ")";
+    }
 
     if ( !includes.empty() ) {
         expression = expression.isEmpty()
@@ -2202,7 +2303,9 @@ void CrawlerWidget::findFilterMatch( const std::vector<FilterNode>& filters, boo
         return;
     }
 
-    const auto inFilteredView = filteredView_->hasFocus();
+    // Triggered from the filter panel the jump goes to the filtered view, only a focused
+    // main view keeps it
+    const auto inFilteredView = !logMainView_->hasFocus();
 
     std::vector<RegularExpressionPattern> patterns;
     for ( const auto& filter : filters ) {
@@ -2210,9 +2313,10 @@ void CrawlerWidget::findFilterMatch( const std::vector<FilterNode>& filters, boo
     }
 
     // Use the cached results of the filters when available, no need to read the file
-    const auto fromLine = inFilteredView ? logFilteredData_->getMatchingLineNumber(
-                                               filteredView_->getViewPosition() )
-                                         : logMainView_->getViewPosition();
+    const auto fromLine
+        = inFilteredView && logFilteredData_->getNbLine() > 0_lcount
+              ? logFilteredData_->getMatchingLineNumber( filteredView_->getViewPosition() )
+              : logMainView_->getViewPosition();
     const auto cachedMatch = logFilteredData_->findFilterMatch( patterns, fromLine, backward );
     if ( cachedMatch ) {
         if ( !cachedMatch->has_value() ) {
@@ -2222,13 +2326,19 @@ void CrawlerWidget::findFilterMatch( const std::vector<FilterNode>& filters, boo
         }
 
         const auto line = **cachedMatch;
+        if ( !inFilteredView ) {
+            logMainView_->selectAndDisplayLine( line );
+            return;
+        }
+
         const auto filteredIndex = logFilteredData_->getLineIndexNumber( line );
-        if ( inFilteredView
+        if ( filteredIndex < logFilteredData_->getNbLine()
              && logFilteredData_->getMatchingLineNumber( filteredIndex ) == line ) {
             filteredView_->selectAndDisplayLine( filteredIndex );
         }
         else {
-            logMainView_->selectAndDisplayLine( line );
+            searchInfoLine_->setText( tr( "No match of the filter in the filtered view" ) );
+            searchInfoLine_->show();
         }
         return;
     }
@@ -2236,6 +2346,15 @@ void CrawlerWidget::findFilterMatch( const std::vector<FilterNode>& filters, boo
     AbstractLogView* view = logMainView_;
     if ( inFilteredView ) {
         view = filteredView_;
+        connect(
+            filteredView_, &AbstractLogView::quickFindDone, this,
+            [ this ]( bool hasMatch ) {
+                if ( !hasMatch ) {
+                    searchInfoLine_->setText( tr( "No match of the filter in the filtered view" ) );
+                    searchInfoLine_->show();
+                }
+            },
+            Qt::SingleShotConnection );
     }
     view->searchUsingMatcher( QuickFindMatcher( true, regex ), backward );
 }

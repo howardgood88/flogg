@@ -225,6 +225,8 @@ class AbstractLogView : public QAbstractScrollArea, public SearchableWidgetInter
   Q_SIGNALS:
     // Sent up to the MainWindow to enable/disable the follow mode
     void followModeChanged( bool enabled );
+    // Sent when a QuickFind search in this view is finished
+    void quickFindDone( bool hasMatch );
     // Sent when the view wants the QuickFind widget pattern to change.
     void changeQuickFind( const QString& newPattern, QuickFindMux::QFDirection newDirection );
     // Sent when a new line has been selected by the user
@@ -382,6 +384,9 @@ class AbstractLogView : public QAbstractScrollArea, public SearchableWidgetInter
     bool markingClickInitiated_ = false;
     OptionalLineNumber markingClickLine_;
 
+    // Line the context menu was opened on, while it is shown
+    OptionalLineNumber popupLine_;
+
     Selection selection_;
     RegularExpressionPattern searchPattern_;
 
@@ -497,7 +502,9 @@ class AbstractLogView : public QAbstractScrollArea, public SearchableWidgetInter
     LineLength maxLineLength( const klogg::vector<LineNumber>& lines ) const;
 
     // Save specified lines in range [begin, end) to a file
-    void saveLinesToFile( LineNumber begin, LineNumber end );
+    void saveLinesToFile( const klogg::vector<std::pair<LineNumber, LinesCount>>& offsets );
+    static void appendLinesToSave( klogg::vector<std::pair<LineNumber, LinesCount>>& offsets,
+                                   LineNumber begin, LineNumber end );
 
     // Search functions (for n/N)
     using QuickFindSearchFn = void ( QuickFind::* )( Selection, QuickFindMatcher );
