@@ -1288,6 +1288,8 @@ SCENARIO( "Filter panel tab switch builds the tree without per item model change
     const auto secondId = tree->topLevelItem( 0 )->child( 1 )->data( 0, Qt::UserRole ).toString();
     panel.setHitCounts( { { secondId, 42 } } );
     auto firstTab = panel.tabState();
+    // Unchanged filters keep a single copy of their serialized tree
+    CHECK( firstTab.json.constData() == firstTab.savedJson.constData() );
 
     panel.setTabState( FilterTabState{} );
     CHECK( tree->topLevelItem( 0 )->child( 1 )->text( 1 ).isEmpty() );

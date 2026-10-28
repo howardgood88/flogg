@@ -8,6 +8,10 @@ millions of lines); flogg must keep it.
 
 Every new feature or change must be evaluated for its impact on klogg's native performance
 before it is implemented, and the evaluation must be stated when the work is handed over.
+The evaluation covers both time (speed, UI stalls) and space (memory used per file, per
+tab, per filter, caches kept around). Time matters more: memory may be traded for speed,
+but the extra memory must be stated with its size (e.g. per tab for N filters), kept
+bounded, and not wasted when it can be avoided (e.g. sharing identical data).
 
 Hot paths to protect:
 
@@ -27,6 +31,8 @@ Guidelines:
   they are cached.
 - Features triggered by the user (a shortcut, a tool tip, a menu) may do bounded work on
   demand, but must not add cost to loading, searching or painting when unused.
+- Memory that grows with the file size (indexes, per line data, result bitmaps) needs the
+  most care; per tab or per filter data should stay small next to it.
 - When a change touches a hot path, measure it with the benchmark
   (`FLOGG_BENCH_FILE=<log> klogg_itests "[.benchmark]"`, logs from
   `python3 bench/gen_bench_log.py`, see `bench/README.md`) before and after.

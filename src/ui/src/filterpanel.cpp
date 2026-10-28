@@ -1325,6 +1325,10 @@ void FilterPanel::publishChange()
 {
     const auto root = buildTree();
     treeJson_ = serialize( root );
+    if ( treeJson_ == savedJson_ ) {
+        // Unchanged filters share the saved copy instead of holding their own
+        treeJson_ = savedJson_;
+    }
 
     updateLook();
 
