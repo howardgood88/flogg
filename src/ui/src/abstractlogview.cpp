@@ -1123,6 +1123,9 @@ void AbstractLogView::paintEvent( QPaintEvent* paintEvent )
 
     auto start = std::chrono::system_clock::now();
 
+    // Highlighters compiled while the view was hidden
+    applyCompiledHighlighterSet();
+
     // Can we use our cache?
     auto deltaY = textAreaCache_.first_line_.get() - firstLine_.get();
 
@@ -1324,8 +1327,24 @@ void AbstractLogView::setQuickHighlighters(
 void AbstractLogView::setFilterHighlighterSet(
     std::shared_ptr<const HighlighterSet> highlighterSet )
 {
+    if ( highlighterSet && filterHighlighterSet_ && !highlighterSet->isEmpty()
+         && !highlighterSet->isCompiled() ) {
+        pendingHighlighterSet_ = std::move( highlighterSet );
+        return;
+    }
+
+    pendingHighlighterSet_.reset();
     filterHighlighterSet_ = std::move( highlighterSet );
     forceRefresh();
+}
+
+void AbstractLogView::applyCompiledHighlighterSet()
+{
+    if ( pendingHighlighterSet_ && pendingHighlighterSet_->isCompiled() ) {
+        filterHighlighterSet_ = std::move( pendingHighlighterSet_ );
+        pendingHighlighterSet_.reset();
+        forceRefresh();
+    }
 }
 
 void AbstractLogView::setLineToolTipProvider( std::function<QString( LineNumber )> provider )

@@ -254,12 +254,20 @@ bool HighlighterSet::isEmpty() const
 
 void HighlighterSet::compile() const
 {
-    klogg::vector<RegularExpressionPattern> patterns(
-        static_cast<size_t>( highlighterList_.size() ) );
-    std::transform( highlighterList_.begin(), highlighterList_.end(), patterns.begin(),
-                    []( const Highlighter& hl ) { return hl.expressionPattern(); } );
+    std::call_once( compiled_->once, [ this ] {
+        klogg::vector<RegularExpressionPattern> patterns(
+            static_cast<size_t>( highlighterList_.size() ) );
+        std::transform( highlighterList_.begin(), highlighterList_.end(), patterns.begin(),
+                        []( const Highlighter& hl ) { return hl.expressionPattern(); } );
 
-    compiledExpression_ = std::make_shared<MultiRegularExpression>( patterns );
+        compiled_->expression = std::make_shared<MultiRegularExpression>( patterns );
+        compiled_->done = true;
+    } );
+}
+
+bool HighlighterSet::isCompiled() const
+{
+    return compiled_->done;
 }
 
 HighlighterMatchType HighlighterSet::matchLine( const QString& line,
@@ -279,11 +287,8 @@ std::unique_ptr<MultiPatternMatcher> HighlighterSet::createMatcher() const
         return {};
     }
 
-    if ( !compiledExpression_ ) {
-        compile();
-    }
-
-    return compiledExpression_->createMatcher();
+    compile();
+    return compiled_->expression->createMatcher();
 }
 
 HighlighterMatchType HighlighterSet::matchLine( const QString& line,
@@ -299,14 +304,19 @@ HighlighterMatchType HighlighterSet::matchLine( const QString& line,
         = simdutf::convert_utf16_to_utf8( reinterpret_cast<const char16_t*>( line.utf16() ),
                                           static_cast<size_t>( line.size() ), utf8Data.data() );
 
-    klogg::vector<std::pair<RegularExpressionPattern, bool>> matchedPatterns
-        = matcher.match( std::string_view{ utf8Data.data(), resultSize } );
+    // One char per highlighter, without copying the patterns for each drawn line
+    const auto matchedPatterns
+        = matcher.matchAll( std::string_view{ utf8Data.data(), resultSize } );
+    if ( matchedPatterns.size() < static_cast<size_t>( highlighterList_.size() ) ) {
+        // No result per pattern (matcher without a usable database)
+        return HighlighterMatchType::NoMatch;
+    }
 
     auto matchType = HighlighterMatchType::NoMatch;
 
     for ( int index = static_cast<int>( highlighterList_.size() ) - 1; index >= 0; --index ) {
         const Highlighter& hl = highlighterList_[ index ];
-        if ( !matchedPatterns[ static_cast<size_t>( index ) ].second ) {
+        if ( !matchedPatterns[ static_cast<size_t>( index ) ] ) {
             continue;
         }
 

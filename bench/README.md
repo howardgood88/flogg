@@ -95,7 +95,7 @@ FLOGG_BENCH_FILE=../bench/mid.log ./output/klogg_itests -platform offscreen "Sce
 | `FLOGG_BENCH_FILTERS` | 要測的 filter 數量，逗號分隔，預設 `343,2000`。 |
 | `FLOGG_BENCH_FILE` | 選填。有設定才跑搜尋的部分（第一次搜尋、suspend 一半、全部恢復）。 |
 
-輸出的項目：面板載入、切換分頁（含重繪）的平均與最長時間、每次切換的 model 變更次數（`dataChanged`，應該維持個位數，不隨 filter 數量增加）、suspend / resume 全部、更新命中數，以及搜尋時間。
+輸出的項目：面板載入、切換分頁（含重繪）的平均與最長時間、每次切換的 model 變更次數（`dataChanged`，應該維持個位數，不隨 filter 數量增加）、suspend / resume 全部、更新命中數、highlighter 的建立與編譯、畫 60 行的 highlight 比對，以及搜尋時間。
 
 參考結果（Apple Silicon Mac，`mid.log`，2026-10-28）：
 
@@ -105,6 +105,10 @@ FLOGG_BENCH_FILE=../bench/mid.log ./output/klogg_itests -platform offscreen "Sce
 | suspend / resume 全部 | 2～7 ms | 13～30 ms |
 | 第一次搜尋 | 0.37 秒 | 1.0 秒 |
 | suspend 一半 / 全部恢復 | 1～2 ms | 7～13 ms |
+| highlighter 編譯（在背景執行緒） | 27～41 ms | 40～50 ms |
+| 畫 60 行的 highlight 比對 | 0.4 ms | 0.3 ms |
+
+highlighter 的 Hyperscan 編譯原本在 log view 第一次重繪時於 UI 執行緒進行，每次修改 filter 都會讓畫面卡住這段時間。現在 filter 面板發布 filter 後交給背景執行緒編譯，log view 在編譯完成前繼續用舊的 highlighter 繪製。用 343 條 filter、4 個大檔跑 `Main window operations with several big files`，勾選或取消一條 filter 的最長停頓從 78～89 ms 降到 25～40 ms；剩下的主要是在 UI 執行緒合併各 filter 的結果 bitmap（`LogFilteredData::composeFilterResults`）和重繪。
 
 修正前，343 條 filter 每切換一次分頁，filter 樹會產生約 2000 次 `dataChanged` 和 120 次 `rowsInserted`（每條 filter 的每個欄位都觸發一次 view 更新，Windows 上還會觸發 accessibility 事件），現在是 1 次插入。一般測試裡的 `Filter panel tab switch builds the tree without per item model changes` 會檢查這件事。
 

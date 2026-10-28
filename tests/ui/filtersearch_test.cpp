@@ -49,6 +49,7 @@
 #include "session.h"
 #include "tabbedcrawlerwidget.h"
 #include "filtertree.h"
+#include "highlighterset.h"
 #include "persistentinfo.h"
 
 namespace {
@@ -1324,6 +1325,52 @@ SCENARIO( "Filter panel tab switch builds the tree without per item model change
     settings.setValue( "filterPanel/currentFile", previousFile );
 }
 
+SCENARIO( "Filter highlighters are compiled in the background", "[filters]" )
+{
+    QTemporaryDir dir;
+    auto root = FilterNode::makeGroup( "root" );
+    auto error = FilterNode::makeFilter( "ERROR" );
+    error.backColor = QColor( Qt::red );
+    root.children.push_back( error );
+    auto word = FilterNode::makeFilter( "wlan" );
+    word.colorMode = FilterNode::ColorMode::MatchOnly;
+    word.foreColor = QColor( Qt::blue );
+    root.children.push_back( word );
+    const auto filtersFile = dir.filePath( "colors.flogg-filters.json" );
+    REQUIRE( filters::saveToFile( root, filtersFile ) );
+
+    auto& settings = PersistentInfo::getSettings( app_settings{} );
+    const auto previousFile = settings.value( "filterPanel/currentFile" );
+    settings.setValue( "filterPanel/currentFile", filtersFile );
+
+    FilterPanel panel;
+    QSignalSpy compiled( &panel, &FilterPanel::highlightersCompiled );
+    REQUIRE( ( compiled.count() > 0 || compiled.wait( 5000 ) ) );
+    const auto highlighters = panel.snapshot()->highlighters;
+    CHECK( highlighters->isCompiled() );
+
+    const auto matcher = highlighters->createMatcher();
+    HighlightedMatchRanges matches;
+    CHECK( highlighters->matchLine( "an ERROR here", matches, *matcher )
+           == HighlighterMatchType::LineMatch );
+    matches = {};
+    CHECK( highlighters->matchLine( "wlan0 up", matches, *matcher )
+           == HighlighterMatchType::WordMatch );
+    matches = {};
+    CHECK( highlighters->matchLine( "nothing", matches, *matcher )
+           == HighlighterMatchType::NoMatch );
+
+    // A change compiles a new set
+    compiled.clear();
+    REQUIRE( QMetaObject::invokeMethod( &panel, "setAllEnabled", Q_ARG( bool, false ) ) );
+    REQUIRE( QMetaObject::invokeMethod( &panel, "setAllEnabled", Q_ARG( bool, true ) ) );
+    REQUIRE( compiled.wait( 5000 ) );
+    CHECK( panel.snapshot()->highlighters != highlighters );
+    CHECK( panel.snapshot()->highlighters->isCompiled() );
+
+    settings.setValue( "filterPanel/currentFile", previousFile );
+}
+
 SCENARIO( "Filter panel saves the suspended filters", "[filters]" )
 {
     QTemporaryDir dir;
@@ -1429,6 +1476,31 @@ SCENARIO( "many filters benchmark", "[.benchmark]" )
         panel.setHitCounts( hits );
         QApplication::processEvents();
         WARN( count << " filters, hit counts update: " << ms( timer ).toStdString() << " ms" );
+
+        // The log views compile the highlighters of new filters on the UI thread when they
+        // paint, then match every drawn line against them
+        const auto effective = filters::effectiveFilters( root );
+        timer.restart();
+        const auto highlighters = filters::buildHighlighterSet( effective );
+        WARN( count << " filters, highlighters creation: " << ms( timer ).toStdString()
+                    << " ms (" << effective.size() << " effective)" );
+        timer.restart();
+        const auto matcher = highlighters.createMatcher();
+        WARN( count << " filters, highlighters compile: " << ms( timer ).toStdString()
+                    << " ms" );
+        QStringList lines;
+        for ( int i = 0; i < 60; ++i ) {
+            lines.append( QString( "2026-10-22 10:00:00.003 INFO  [wlan1] tid=7955 word %1 "
+                                   "crash in module 9156" )
+                              .arg( i * 7 ) );
+        }
+        timer.restart();
+        for ( const auto& line : lines ) {
+            HighlightedMatchRanges matches;
+            highlighters.matchLine( line, matches, *matcher );
+        }
+        WARN( count << " filters, highlighting 60 drawn lines: " << ms( timer ).toStdString()
+                    << " ms" );
     }
     settings.setValue( "filterPanel/currentFile", previousFile );
 

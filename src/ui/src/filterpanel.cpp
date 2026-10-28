@@ -30,6 +30,7 @@
 #include <QDropEvent>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QFutureWatcher>
 #include <QHeaderView>
 #include <QInputDialog>
 #include <QJsonDocument>
@@ -48,6 +49,7 @@
 #include <QToolButton>
 #include <QTreeWidget>
 #include <QTreeWidgetItemIterator>
+#include <QtConcurrent>
 #include <QVBoxLayout>
 
 #include "configuration.h"
@@ -1347,10 +1349,22 @@ void FilterPanel::publishChange()
     if ( !effective.empty() ) {
         snapshot->searchPattern = filters::buildSearchPattern( effective );
     }
-    snapshot->highlighters
+    const auto highlighters
         = std::make_shared<HighlighterSet>( filters::buildHighlighterSet( effective ) );
+    snapshot->highlighters = highlighters;
 
     snapshot_ = std::move( snapshot );
+
+    // Compiling hundreds of highlighters takes tens of ms, the views keep drawing with the
+    // previous ones meanwhile instead of compiling them on the UI thread when they paint
+    if ( !highlighters->isEmpty() ) {
+        auto* watcher = new QFutureWatcher<void>( this );
+        connect( watcher, &QFutureWatcher<void>::finished, this, [ this, watcher ] {
+            watcher->deleteLater();
+            Q_EMIT highlightersCompiled();
+        } );
+        watcher->setFuture( QtConcurrent::run( [ highlighters ] { highlighters->compile(); } ) );
+    }
 
     Q_EMIT filtersChanged();
 }

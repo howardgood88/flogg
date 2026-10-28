@@ -146,6 +146,8 @@ class FilterPanel : public QWidget {
 
   Q_SIGNALS:
     void filtersChanged();
+    // The highlighters of the published filters are compiled (in the background)
+    void highlightersCompiled();
     void searchFragmentRequested( const std::vector<FilterNode>& filters, FilterSearchMode mode );
     void findRequested( const std::vector<FilterNode>& filters, bool backward );
 

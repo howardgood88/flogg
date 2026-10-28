@@ -118,6 +118,9 @@ class CrawlerWidget : public QSplitter,
     void setFilters( std::shared_ptr<const FilterSnapshot> filters );
     uint64_t filtersRevision() const;
 
+    // Redraws the views with the filter highlighters compiled since they were set
+    void applyCompiledHighlighters();
+
     // Filters of the tab, kept here while the filter panel shows another tab
     const FilterTabState& filterTabState() const
     {

@@ -42,7 +42,9 @@
 #include <QColor>
 #include <QMetaType>
 #include <QRegularExpression>
+#include <atomic>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <qcolor.h>
 #include <qregularexpression.h>
@@ -138,7 +140,10 @@ class HighlighterSet {
 
     bool isEmpty() const;
 
+    // Compiles the set once, can be called from another thread: the filter panel
+    // compiles new sets in the background, the views wait for it to be done
     void compile() const;
+    bool isCompiled() const;
 
   private:
     explicit HighlighterSet( const QString& name );
@@ -147,7 +152,13 @@ class HighlighterSet {
     QString name_;
     QList<Highlighter> highlighterList_;
 
-    mutable std::shared_ptr<MultiRegularExpression> compiledExpression_;
+    // Shared by the copies of the set, they have the same highlighters
+    struct Compiled {
+        std::once_flag once;
+        std::shared_ptr<MultiRegularExpression> expression;
+        std::atomic<bool> done{ false };
+    };
+    std::shared_ptr<Compiled> compiled_ = std::make_shared<Compiled>();
 };
 
 struct QuickHighlighter {

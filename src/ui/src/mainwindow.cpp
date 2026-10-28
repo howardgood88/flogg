@@ -2259,6 +2259,11 @@ void MainWindow::setupFilterPanel()
 
     connect( filterPanel_, &FilterPanel::filtersChanged, this,
              &MainWindow::applyFiltersToCurrentCrawler );
+    connect( filterPanel_, &FilterPanel::highlightersCompiled, this, [ this ] {
+        if ( auto* crawler = currentCrawlerWidget() ) {
+            crawler->applyCompiledHighlighters();
+        }
+    } );
 
     connect( filterPanel_, &FilterPanel::searchFragmentRequested, this,
              [ this ]( const std::vector<FilterNode>& filters, FilterSearchMode mode ) {

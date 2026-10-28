@@ -2099,6 +2099,14 @@ FilterHits CrawlerWidget::filterHits() const
     return hits;
 }
 
+void CrawlerWidget::applyCompiledHighlighters()
+{
+    logMainView_->applyCompiledHighlighterSet();
+    for ( const auto& view : filteredViewsData_ ) {
+        view.first->applyCompiledHighlighterSet();
+    }
+}
+
 uint64_t CrawlerWidget::filtersRevision() const
 {
     return filters_ ? filters_->revision : 0;

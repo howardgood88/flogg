@@ -158,7 +158,10 @@ class AbstractLogView : public QAbstractScrollArea, public SearchableWidgetInter
     void setQuickHighlighters( const std::vector<QuickHighlighters>& wordHighlighters );
 
     // Colouring rules built from the filter panel
+    // A set still compiling keeps the previous one drawn until it is compiled
     void setFilterHighlighterSet( std::shared_ptr<const HighlighterSet> highlighterSet );
+    // Draws with the set passed last once it is compiled
+    void applyCompiledHighlighterSet();
 
     // Rich text tool tip shown over a line (passed as a line number of the file),
     // nothing is shown when it returns an empty string
@@ -393,6 +396,7 @@ class AbstractLogView : public QAbstractScrollArea, public SearchableWidgetInter
     std::vector<QuickHighlighters> quickHighlighters_ = std::vector<QuickHighlighters>{ 9 };
 
     std::shared_ptr<const HighlighterSet> filterHighlighterSet_;
+    std::shared_ptr<const HighlighterSet> pendingHighlighterSet_;
     std::function<QString( LineNumber )> lineToolTipProvider_;
 
     // Position of the view, those are crucial to control drawing
