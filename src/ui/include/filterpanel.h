@@ -220,6 +220,10 @@ class FilterPanel : public QWidget {
     // are held by the QTreeWidget itself)
     std::unordered_map<QString, FilterNode> nodes_;
 
+    // Whether a regex filter is fully handled by the fast regex engine, by case flag and
+    // pattern: compiling it is too slow to repeat for every item on each tab switch
+    QHash<QString, bool> acceleratedPatterns_;
+
     QString currentFile_;
     QByteArray savedJson_;
     FilterHits hits_;

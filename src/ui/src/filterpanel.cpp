@@ -1643,8 +1643,17 @@ void FilterPanel::updateItem( QTreeWidgetItem* item )
         item->setToolTip( DescriptionColumn, description );
 
         // Same check as the search: such patterns are verified line by line with Qt regex
-        const MultiRegularExpression expression{ { filters::toPattern( node ) } };
-        const auto isSlow = node.useRegex && !expression.isFullyAccelerated();
+        auto isSlow = false;
+        if ( node.useRegex ) {
+            const auto key = ( node.caseSensitive ? QStringLiteral( "1" ) : QStringLiteral( "0" ) )
+                             + node.pattern;
+            auto accelerated = acceleratedPatterns_.find( key );
+            if ( accelerated == acceleratedPatterns_.end() ) {
+                const MultiRegularExpression expression{ { filters::toPattern( node ) } };
+                accelerated = acceleratedPatterns_.insert( key, expression.isFullyAccelerated() );
+            }
+            isSlow = !*accelerated;
+        }
         item->setIcon( PatternColumn, isSlow
                                           ? style()->standardIcon( QStyle::SP_MessageBoxWarning )
                                           : QIcon{} );
