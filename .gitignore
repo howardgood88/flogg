@@ -63,3 +63,4 @@ website/resources/
 
 # Benchmark logs (regenerate with bench/gen_bench_log.py)
 /bench/*.log
+/bench/*.flogg-filters.json

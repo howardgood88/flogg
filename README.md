@@ -14,7 +14,7 @@ Downloads for Windows (x64) and macOS (Apple Silicon) are on the [releases page]
 
 - Filters are organised in a tree of nested groups.
 - Each filter has a pattern (text or regex), case sensitivity, an exclude option and foreground/background colours, applied to the whole line or to the match only.
-- Enable or disable single filters, whole groups, or everything at once; a filter can also be suspended temporarily without changing whether it is enabled.
+- Enable or disable single filters, whole groups, or everything at once; a filter can also be suspended temporarily without changing whether it is enabled. Saving the filter file keeps both the enabled and the suspended states.
 - With filters selected, `F8` / `Shift+F8` in the main or filtered view jumps between their matching lines.
 - Hovering a line of the log views lists the filters matching it with their numbers, in priority order.
 - Right click the column header to choose the visible columns; each column resizes independently and the widths are saved.

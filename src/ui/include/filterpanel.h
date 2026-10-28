@@ -26,6 +26,7 @@
 
 #include <QByteArray>
 #include <QHash>
+#include <QIcon>
 #include <QKeySequence>
 #include <QList>
 #include <QStringList>
@@ -66,6 +67,9 @@ struct FilterTabState {
     // filters differ
     QByteArray savedJson;
 
+    // Filters of the tab serialized like savedJson, empty when not computed yet
+    QByteArray json;
+
     // Empty when the filters still have to be applied
     std::shared_ptr<const FilterSnapshot> snapshot;
 
@@ -74,6 +78,9 @@ struct FilterTabState {
     QStringList selectedItems;
     QString currentItem;
     int scrollPosition = 0;
+
+    // Hit counts shown when the tab was left
+    QHash<QString, qint64> hits;
 };
 
 // Number of matching lines per filter id
@@ -196,8 +203,11 @@ class FilterPanel : public QWidget {
     void restoreTreeView( const FilterTabState& state );
     void addRecentFile( const QString& path );
     void updateHitCounts();
+    void updateHitCounts( const QList<QTreeWidgetItem*>& items );
     // Numbers the filters in priority order (FilterNode::number)
     void numberFilters();
+    void numberFilters( const QList<QTreeWidgetItem*>& items );
+    QList<QTreeWidgetItem*> topLevelItems() const;
     void updateNumberToolTip( QTreeWidgetItem* item, const FilterNode& node );
 
   private:
@@ -224,8 +234,14 @@ class FilterPanel : public QWidget {
     // pattern: compiling it is too slow to repeat for every item on each tab switch
     QHash<QString, bool> acceleratedPatterns_;
 
+    // Style icons are slow to get on Windows, fetched once
+    QIcon groupIcon_;
+    QIcon slowIcon_;
+
     QString currentFile_;
     QByteArray savedJson_;
+    // Tree as last published, serialized like savedJson_
+    QByteArray treeJson_;
     FilterHits hits_;
     bool loading_ = false;
     uint64_t revision_ = 0;

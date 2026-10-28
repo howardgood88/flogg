@@ -67,6 +67,10 @@ QJsonObject nodeToJson( const FilterNode& node )
 {
     QJsonObject json;
     json[ "id" ] = node.id;
+    // Only written when set, files without it load as not suspended
+    if ( node.suspended ) {
+        json[ "suspended" ] = true;
+    }
 
     if ( node.isGroup() ) {
         json[ "type" ] = "group";
@@ -105,6 +109,7 @@ FilterNode nodeFromJson( const QJsonObject& json )
     if ( node.id.isEmpty() ) {
         node.id = generateIdFromUuid();
     }
+    node.suspended = json[ "suspended" ].toBool( false );
 
     if ( json[ "type" ].toString() == "group" ) {
         node.kind = FilterNode::Kind::Group;

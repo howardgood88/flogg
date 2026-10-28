@@ -81,6 +81,40 @@ FLOGG_BENCH_FILE=../bench/big.log ./output/klogg_itests -platform offscreen "[.b
 | 開關 filter | 4～14 ms |
 | 修改 1 條 filter | 約 0.5 秒 |
 
+## 大量 filter
+
+另一個隱藏的 benchmark（`many filters benchmark`，同樣是 `[.benchmark]` tag）量測 filter 數量很多時的介面與搜尋。filter 由測試程式自己產生（每 16 條一組、約 5% regex、部分停用或 suspend、多數有顏色），不需要 filter 檔：
+
+```sh
+cd build_root
+FLOGG_BENCH_FILE=../bench/mid.log ./output/klogg_itests -platform offscreen "Scenario: many filters benchmark"
+```
+
+| 變數 | 說明 |
+|---|---|
+| `FLOGG_BENCH_FILTERS` | 要測的 filter 數量，逗號分隔，預設 `343,2000`。 |
+| `FLOGG_BENCH_FILE` | 選填。有設定才跑搜尋的部分（第一次搜尋、suspend 一半、全部恢復）。 |
+
+輸出的項目：面板載入、切換分頁（含重繪）的平均與最長時間、每次切換的 model 變更次數（`dataChanged`，應該維持個位數，不隨 filter 數量增加）、suspend / resume 全部、更新命中數，以及搜尋時間。
+
+參考結果（Apple Silicon Mac，`mid.log`，2026-10-28）：
+
+| 項目 | 343 條 | 2000 條 |
+|---|---|---|
+| 切換分頁（含重繪） | 3.2 ms | 7.2 ms |
+| suspend / resume 全部 | 2～7 ms | 13～30 ms |
+| 第一次搜尋 | 0.37 秒 | 1.0 秒 |
+| suspend 一半 / 全部恢復 | 1～2 ms | 7～13 ms |
+
+修正前，343 條 filter 每切換一次分頁，filter 樹會產生約 2000 次 `dataChanged` 和 120 次 `rowsInserted`（每條 filter 的每個欄位都觸發一次 view 更新，Windows 上還會觸發 accessibility 事件），現在是 1 次插入。一般測試裡的 `Filter panel tab switch builds the tree without per item model changes` 會檢查這件事。
+
+要拿同樣的 filter 跑下面的 `[.timing]` 測試，可以用 `bench/gen_bench_filters.py` 產生 filter 檔：
+
+```sh
+python3 bench/gen_bench_filters.py                                  # 343 條，bench/many.flogg-filters.json
+python3 bench/gen_bench_filters.py 2000 bench/huge.flogg-filters.json
+```
+
 ## UI 反應時間
 
 另有兩個隱藏的 test case（tag 為 `[.timing]`），用真實的大檔量測介面操作時，畫面最長被卡住多久：

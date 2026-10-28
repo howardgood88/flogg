@@ -1143,7 +1143,7 @@ SCENARIO( "Filter panel tab switch timing", "[.timing]" )
 
     QElapsedTimer timer;
     timer.start();
-    constexpr int Switches = 20;
+    const int Switches = std::max( 20, qEnvironmentVariableIntValue( "FLOGG_TIMING_SWITCHES" ) );
     for ( int i = 0; i < Switches; ++i ) {
         auto& target = i % 2 ? second : first;
         auto& previous = i % 2 ? first : second;
@@ -1239,6 +1239,260 @@ SCENARIO( "Filter panel tabs keep collapsed groups and selection", "[filters]" )
     CHECK( tree->topLevelItem( 1 )->child( 0 )->isSelected() );
 
     settings.setValue( "filterPanel/currentFile", previousFile );
+}
+
+namespace {
+// Filters like a big user filter file: groups of 16 filters, every fifth one outside a group,
+// some suspended, disabled, colored or regex
+FilterNode manyFilters( int count )
+{
+    auto root = FilterNode::makeGroup( "root" );
+    FilterNode* group = nullptr;
+    for ( int i = 0; i < count; ++i ) {
+        auto filter = FilterNode::makeFilter( QString( "word %1" ).arg( i ) );
+        filter.useRegex = i % 20 == 0;
+        filter.enabled = i % 7 != 0;
+        filter.suspended = i % 11 == 0;
+        filter.exclude = i % 25 == 0;
+        filter.foreColor = i % 2 ? QColor( Qt::red ) : QColor{};
+        filter.backColor = i % 3 ? QColor( Qt::yellow ) : QColor{};
+        if ( i % 5 == 4 ) {
+            root.children.push_back( filter );
+            group = nullptr;
+            continue;
+        }
+        if ( !group || group->children.size() >= 16 ) {
+            root.children.push_back( FilterNode::makeGroup( QString( "group %1" ).arg( i ) ) );
+            group = &root.children.back();
+        }
+        group->children.push_back( filter );
+    }
+    return root;
+}
+} // namespace
+
+SCENARIO( "Filter panel tab switch builds the tree without per item model changes", "[filters]" )
+{
+    QTemporaryDir dir;
+    const auto filtersFile = dir.filePath( "many.flogg-filters.json" );
+    REQUIRE( filters::saveToFile( manyFilters( 300 ), filtersFile ) );
+
+    auto& settings = PersistentInfo::getSettings( app_settings{} );
+    const auto previousFile = settings.value( "filterPanel/currentFile" );
+    settings.setValue( "filterPanel/currentFile", filtersFile );
+
+    FilterPanel panel;
+    auto* tree = panel.findChild<QTreeWidget*>();
+    REQUIRE( tree );
+    // The first filter is disabled and suspended, the second one is shown normally
+    const auto secondId = tree->topLevelItem( 0 )->child( 1 )->data( 0, Qt::UserRole ).toString();
+    panel.setHitCounts( { { secondId, 42 } } );
+    auto firstTab = panel.tabState();
+
+    panel.setTabState( FilterTabState{} );
+    CHECK( tree->topLevelItem( 0 )->child( 1 )->text( 1 ).isEmpty() );
+    const auto secondTab = panel.tabState();
+
+    QSignalSpy dataChanged( tree->model(), &QAbstractItemModel::dataChanged );
+    QSignalSpy rowsInserted( tree->model(), &QAbstractItemModel::rowsInserted );
+    panel.setTabState( firstTab );
+
+    // Hundreds of filters are added at once, with their look already set
+    CHECK( dataChanged.count() <= 2 );
+    CHECK( rowsInserted.count() == 1 );
+
+    // Number, hits, suspended look and modified state come back with the tab
+    const auto* firstFilter = tree->topLevelItem( 0 )->child( 0 );
+    const auto* secondFilter = tree->topLevelItem( 0 )->child( 1 );
+    CHECK( firstFilter->text( 3 ) == "1" );
+    CHECK( secondFilter->text( 3 ) == "2" );
+    CHECK( secondFilter->text( 1 ) == "42" );
+    CHECK( firstFilter->data( 0, Qt::UserRole + 1 ).toBool() );
+    CHECK( firstFilter->font( 0 ).strikeOut() );
+    CHECK_FALSE( secondFilter->font( 0 ).strikeOut() );
+    CHECK( tree->topLevelItem( 0 )->text( 1 ) == "42" );
+    CHECK_FALSE( panel.isModified() );
+
+    // Switching again changes nothing either
+    dataChanged.clear();
+    panel.setTabState( secondTab );
+    panel.setHitCounts( {} );
+    CHECK( dataChanged.count() <= 2 );
+
+    settings.setValue( "filterPanel/currentFile", previousFile );
+}
+
+SCENARIO( "Filter panel saves the suspended filters", "[filters]" )
+{
+    QTemporaryDir dir;
+    auto root = FilterNode::makeGroup( "root" );
+    root.children.push_back( FilterNode::makeFilter( "ERROR" ) );
+    root.children.push_back( FilterNode::makeFilter( "WARN" ) );
+    const auto filtersFile = dir.filePath( "suspend.flogg-filters.json" );
+    REQUIRE( filters::saveToFile( root, filtersFile ) );
+
+    auto& settings = PersistentInfo::getSettings( app_settings{} );
+    const auto previousFile = settings.value( "filterPanel/currentFile" );
+    settings.setValue( "filterPanel/currentFile", filtersFile );
+
+    {
+        FilterPanel panel;
+        QSignalSpy changed( &panel, &FilterPanel::filtersChanged );
+        REQUIRE( QMetaObject::invokeMethod( &panel, "toggleSuspendAll" ) );
+        REQUIRE( changed.wait( 2000 ) );
+        CHECK( panel.isModified() );
+        REQUIRE( QMetaObject::invokeMethod( &panel, "saveFile" ) );
+        CHECK_FALSE( panel.isModified() );
+    }
+
+    const auto saved = filters::loadFromFile( filtersFile );
+    REQUIRE( saved );
+    CHECK( saved->children[ 0 ].suspended );
+    CHECK( saved->children[ 1 ].suspended );
+
+    FilterPanel panel;
+    CHECK( panel.snapshot()->filters.empty() );
+    CHECK_FALSE( panel.isModified() );
+
+    settings.setValue( "filterPanel/currentFile", previousFile );
+}
+
+// Hidden benchmark of the filter panel and the filter search with many filters:
+// FLOGG_BENCH_FILTERS=<counts, default 343,2000> [FLOGG_BENCH_FILE=<log>] klogg_itests
+// "[.benchmark]". The search part runs only with a log.
+SCENARIO( "many filters benchmark", "[.benchmark]" )
+{
+    auto counts = qEnvironmentVariable( "FLOGG_BENCH_FILTERS", "343,2000" ).split( ',' );
+    QTemporaryDir dir;
+    auto& settings = PersistentInfo::getSettings( app_settings{} );
+    const auto previousFile = settings.value( "filterPanel/currentFile" );
+
+    const auto ms = []( const QElapsedTimer& timer ) {
+        return QString::number( static_cast<double>( timer.nsecsElapsed() ) / 1e6, 'f', 2 );
+    };
+
+    for ( const auto& countText : counts ) {
+        const auto count = countText.toInt();
+        const auto root = manyFilters( count );
+        const auto filtersFile = dir.filePath( countText + ".flogg-filters.json" );
+        REQUIRE( filters::saveToFile( root, filtersFile ) );
+        settings.setValue( "filterPanel/currentFile", filtersFile );
+
+        QElapsedTimer timer;
+        timer.start();
+        FilterPanel panel;
+        panel.resize( 400, 800 );
+        panel.show();
+        QApplication::processEvents();
+        WARN( count << " filters, panel load: " << ms( timer ).toStdString() << " ms" );
+
+        auto* tree = panel.findChild<QTreeWidget*>();
+        QSignalSpy dataChanged( tree->model(), &QAbstractItemModel::dataChanged );
+
+        // Two tabs with the same filters, as when switching between log files
+        auto first = panel.tabState();
+        panel.setTabState( FilterTabState{} );
+        auto second = panel.tabState();
+        constexpr int Switches = 20;
+        qint64 longest = 0;
+        qint64 total = 0;
+        dataChanged.clear();
+        for ( int i = 0; i < Switches; ++i ) {
+            timer.restart();
+            ( i % 2 ? first : second ) = panel.tabState();
+            panel.setTabState( i % 2 ? second : first );
+            QApplication::processEvents();
+            longest = std::max( longest, timer.nsecsElapsed() );
+            total += timer.nsecsElapsed();
+        }
+        WARN( count << " filters, tab switch with painting: average "
+                    << total / Switches / 1000 << " us, longest " << longest / 1000
+                    << " us, model changes per switch " << dataChanged.count() / Switches );
+
+        for ( const auto* method : { "toggleSuspendAll", "toggleSuspendAll" } ) {
+            QSignalSpy changed( &panel, &FilterPanel::filtersChanged );
+            timer.restart();
+            REQUIRE( QMetaObject::invokeMethod( &panel, method ) );
+            REQUIRE( changed.wait( 5000 ) );
+            // Without the 150 ms debounce delay
+            WARN( count << " filters, suspend or resume all: "
+                        << ( timer.nsecsElapsed() / 1000 - 150'000 ) / 1000 << " ms" );
+        }
+
+        FilterHits hits;
+        for ( const auto* filter : filters::effectiveFilters( root ) ) {
+            hits.insert( filter->id, 12345 );
+        }
+        timer.restart();
+        panel.setHitCounts( hits );
+        QApplication::processEvents();
+        WARN( count << " filters, hit counts update: " << ms( timer ).toStdString() << " ms" );
+    }
+    settings.setValue( "filterPanel/currentFile", previousFile );
+
+    const auto benchFile = qEnvironmentVariable( "FLOGG_BENCH_FILE" );
+    if ( benchFile.isEmpty() ) {
+        WARN( "FLOGG_BENCH_FILE is not set, no search benchmark" );
+        return;
+    }
+
+    LogData logData;
+    SafeQSignalSpy loadEndSpy( &logData, SIGNAL( loadingFinished( LoadingStatus ) ) );
+    logData.attachFile( benchFile );
+    REQUIRE( loadEndSpy.safeWait( 600000 ) );
+    const auto nbLines = logData.getNbLine();
+
+    const auto runAndWait = []( LogFilteredData& data, const std::function<void()>& launch ) {
+        SafeQSignalSpy progressSpy( &data,
+                                    SIGNAL( searchProgressed( LinesCount, int, LineNumber ) ) );
+        launch();
+        while ( progressSpy.isEmpty() || progressSpy.last().at( 1 ).toInt() < 100 ) {
+            const auto recorded = progressSpy.count();
+            REQUIRE( ( progressSpy.wait( 600000 ) || progressSpy.count() > recorded ) );
+        }
+    };
+
+    // Words of the benchmark logs, most filters match few lines like real ones
+    const QStringList words = { "wlan0", "hci0", "ERROR", "WARN", "crash", "timeout",
+                                "retry", "login", "cache", "state", "scan", "[db]" };
+    for ( const auto& countText : counts ) {
+        const auto count = countText.toInt();
+        std::vector<LogFilteredData::FilterSpec> specs;
+        for ( int i = 0; i < count; ++i ) {
+            const auto& word = words[ i % words.size() ];
+            specs.push_back( i % 20 == 0
+                                 ? LogFilteredData::FilterSpec{ RegularExpressionPattern(
+                                                                    word + R"( \d{2})", true,
+                                                                    false, false, false ),
+                                                                false }
+                                 : spec( i % 3 ? QString( "%1 %2" ).arg( word ).arg( i ) : word,
+                                         i % 25 == 0, i % 2 == 0 ) );
+        }
+
+        auto filteredData = logData.getNewFilteredData();
+        QElapsedTimer timer;
+        timer.start();
+        runAndWait( *filteredData, [ & ] {
+            filteredData->runFilterSearch( specs, 0_lnum, LineNumber( nbLines.get() ) );
+        } );
+        WARN( count << " filters, first search: " << timer.elapsed() << " ms, "
+                    << filteredData->getNbMatches().get() << " matches" );
+
+        // Suspending half of them only recombines the cached results
+        auto half = specs;
+        half.resize( specs.size() / 2 );
+        timer.restart();
+        runAndWait( *filteredData, [ & ] {
+            filteredData->runFilterSearch( half, 0_lnum, LineNumber( nbLines.get() ) );
+        } );
+        WARN( count << " filters, suspend half: " << timer.elapsed() << " ms" );
+
+        timer.restart();
+        runAndWait( *filteredData, [ & ] {
+            filteredData->runFilterSearch( specs, 0_lnum, LineNumber( nbLines.get() ) );
+        } );
+        WARN( count << " filters, resume all: " << timer.elapsed() << " ms" );
+    }
 }
 
 // Longest time the event loop was blocked while the action and its follow up work ran

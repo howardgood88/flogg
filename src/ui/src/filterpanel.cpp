@@ -611,6 +611,9 @@ FilterPanel::FilterPanel( QWidget* parent )
     : QWidget( parent )
     , snapshot_( std::make_shared<FilterSnapshot>() )
 {
+    groupIcon_ = style()->standardIcon( QStyle::SP_DirIcon );
+    slowIcon_ = style()->standardIcon( QStyle::SP_MessageBoxWarning );
+
     setupUi();
 
     changeTimer_.setSingleShot( true );
@@ -1320,9 +1323,10 @@ void FilterPanel::updateLook()
 
 void FilterPanel::publishChange()
 {
-    updateLook();
-
     const auto root = buildTree();
+    treeJson_ = serialize( root );
+
+    updateLook();
 
     auto snapshot = std::make_shared<FilterSnapshot>();
     snapshot->revision = ++revision_;
@@ -1356,7 +1360,9 @@ FilterTabState FilterPanel::tabState()
     state.file = currentFile_;
     state.root = buildTree();
     state.savedJson = savedJson_;
+    state.json = treeJson_;
     state.snapshot = snapshot_;
+    state.hits = hits_;
     saveTreeView( state );
     return state;
 }
@@ -1407,6 +1413,9 @@ void FilterPanel::setTabState( const FilterTabState& state )
 {
     changeTimer_.stop();
 
+    // Shown while the tree is built, until the tab gets its own counts
+    hits_ = state.hits;
+
     if ( !state.initialized ) {
         if ( !loadFile( defaultFile(), false ) ) {
             // The filters of the previous tab must not stay
@@ -1420,13 +1429,14 @@ void FilterPanel::setTabState( const FilterTabState& state )
 
     currentFile_ = state.file;
     savedJson_ = state.savedJson;
+    treeJson_ = state.json.isEmpty() ? serialize( state.root ) : state.json;
     setRoot( state.root );
     restoreTreeView( state );
 
     if ( state.snapshot ) {
-        // The tab already has these filters applied
+        // The tab already has these filters applied, setRoot gave the items their look
         snapshot_ = state.snapshot;
-        updateLook();
+        updateFileLabel();
     }
     else {
         publishChange();
@@ -1448,12 +1458,14 @@ FilterTabState FilterPanel::restoredTabState( const QString& file, const FilterN
 
 bool FilterPanel::isModified( const FilterTabState& state )
 {
-    return state.initialized && serialize( state.root ) != state.savedJson;
+    return state.initialized
+           && ( state.json.isEmpty() ? serialize( state.root ) : state.json ) != state.savedJson;
 }
 
 bool FilterPanel::isModified() const
 {
-    return serialize( buildTree() ) != savedJson_;
+    // The tree as last published, unless a change is still pending
+    return ( changeTimer_.isActive() ? serialize( buildTree() ) : treeJson_ ) != savedJson_;
 }
 
 bool FilterPanel::confirmClose( const QString& tabName )
@@ -1524,10 +1536,13 @@ bool FilterPanel::eventFilter( QObject* watched, QEvent* event )
 
 void FilterPanel::numberFilters()
 {
+    numberFilters( topLevelItems() );
+}
+
+void FilterPanel::numberFilters( const QList<QTreeWidgetItem*>& items )
+{
     int number = 0;
-    QTreeWidgetItemIterator it( tree_ );
-    while ( *it ) {
-        auto* item = *it;
+    const std::function<void( QTreeWidgetItem* )> numberItem = [ & ]( QTreeWidgetItem* item ) {
         auto& node = nodes_.at( item->data( PatternColumn, IdRole ).toString() );
         if ( !node.isGroup() ) {
             node.number = ++number;
@@ -1535,8 +1550,23 @@ void FilterPanel::numberFilters()
             item->setText( NumberColumn, QString::number( node.number ) );
             item->setTextAlignment( NumberColumn, Qt::AlignRight | Qt::AlignVCenter );
         }
-        ++it;
+        for ( int i = 0; i < item->childCount(); ++i ) {
+            numberItem( item->child( i ) );
+        }
+    };
+    for ( auto* item : items ) {
+        numberItem( item );
     }
+}
+
+QList<QTreeWidgetItem*> FilterPanel::topLevelItems() const
+{
+    QList<QTreeWidgetItem*> items;
+    items.reserve( tree_->topLevelItemCount() );
+    for ( int i = 0; i < tree_->topLevelItemCount(); ++i ) {
+        items.append( tree_->topLevelItem( i ) );
+    }
+    return items;
 }
 
 void FilterPanel::updateNumberToolTip( QTreeWidgetItem* item, const FilterNode& node )
@@ -1554,9 +1584,21 @@ void FilterPanel::setRoot( const FilterNode& root )
     tree_->clear();
     nodes_.clear();
 
+    // The items get their whole look before they are added to the tree: each change of an
+    // item shown in the tree is a model change with its view update (and accessibility
+    // event), too slow for hundreds of filters on each tab switch
+    QList<QTreeWidgetItem*> items;
+    items.reserve( static_cast<int>( root.children.size() ) );
     for ( const auto& child : root.children ) {
-        tree_->addTopLevelItem( createItem( child ) );
+        items.append( createItem( child ) );
     }
+    for ( auto* item : items ) {
+        updateSuspendedLook( item, false );
+    }
+    numberFilters( items );
+    updateHitCounts( items );
+
+    tree_->insertTopLevelItems( 0, items );
     tree_->expandAll();
 
     loading_ = false;
@@ -1627,7 +1669,7 @@ void FilterPanel::updateItem( QTreeWidgetItem* item )
 
     if ( node.isGroup() ) {
         item->setText( PatternColumn, node.name );
-        item->setIcon( PatternColumn, style()->standardIcon( QStyle::SP_DirIcon ) );
+        item->setIcon( PatternColumn, groupIcon_ );
         auto font = item->font( PatternColumn );
         font.setBold( true );
         item->setFont( PatternColumn, font );
@@ -1654,9 +1696,7 @@ void FilterPanel::updateItem( QTreeWidgetItem* item )
             }
             isSlow = !*accelerated;
         }
-        item->setIcon( PatternColumn, isSlow
-                                          ? style()->standardIcon( QStyle::SP_MessageBoxWarning )
-                                          : QIcon{} );
+        item->setIcon( PatternColumn, isSlow ? slowIcon_ : QIcon{} );
 
         QStringList properties;
         properties.append( node.useRegex ? tr( "regex" ) : tr( "plain text" ) );
@@ -1788,6 +1828,7 @@ bool FilterPanel::saveCurrentFile()
     }
 
     savedJson_ = serialize( root );
+    treeJson_ = savedJson_;
     updateFileLabel();
     return true;
 }
@@ -1799,6 +1840,11 @@ void FilterPanel::setHitCounts( const FilterHits& hits )
 }
 
 void FilterPanel::updateHitCounts()
+{
+    updateHitCounts( topLevelItems() );
+}
+
+void FilterPanel::updateHitCounts( const QList<QTreeWidgetItem*>& items )
 {
     const auto wasLoading = loading_;
     loading_ = true;
@@ -1827,8 +1873,8 @@ void FilterPanel::updateHitCounts()
         return count;
     };
 
-    for ( int i = 0; i < tree_->topLevelItemCount(); ++i ) {
-        update( tree_->topLevelItem( i ) );
+    for ( auto* item : items ) {
+        update( item );
     }
 
     loading_ = wasLoading;

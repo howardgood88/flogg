@@ -19,7 +19,9 @@
 
 #include <catch2/catch.hpp>
 
+#include <QJsonArray>
 #include <QJsonDocument>
+#include <QJsonObject>
 #include <QRegularExpression>
 #include <QSettings>
 #include <QTemporaryDir>
@@ -203,7 +205,7 @@ SCENARIO( "Filter tree serialization", "[filtertree]" )
     const auto& restoredGroup = restored.children[ 0 ];
     REQUIRE( restoredGroup.isGroup() );
     REQUIRE( restoredGroup.name == "Common" );
-    REQUIRE_FALSE( restoredGroup.suspended );
+    REQUIRE( restoredGroup.suspended );
 
     REQUIRE( restoredGroup.children.size() == 1 );
     const auto& restoredFilter = restoredGroup.children[ 0 ];
@@ -217,7 +219,16 @@ SCENARIO( "Filter tree serialization", "[filtertree]" )
     REQUIRE( restoredFilter.foreColor == QColor( Qt::red ) );
     REQUIRE_FALSE( restoredFilter.backColor.isValid() );
     REQUIRE( restoredFilter.colorMode == FilterNode::ColorMode::MatchOnly );
-    REQUIRE_FALSE( restoredFilter.suspended );
+    REQUIRE( restoredFilter.suspended );
+
+    // Not written when unset, older files load as not suspended
+    auto plain = FilterNode::makeGroup( "root" );
+    plain.children.push_back( filter( "WARN", true, false ) );
+    const auto plainJson = filters::toJson( plain );
+    const auto plainFilter
+        = plainJson[ "root" ].toObject()[ "children" ].toArray().at( 0 ).toObject();
+    REQUIRE_FALSE( plainFilter.contains( "suspended" ) );
+    REQUIRE_FALSE( filters::fromJson( plainJson ).children[ 0 ].suspended );
 }
 
 SCENARIO( "TextAnalysisTool filters import", "[filtertree]" )

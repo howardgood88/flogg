@@ -48,7 +48,6 @@ struct FilterNode {
     bool enabled = true;
 
     // Temporarily disabled without touching the check state.
-    // Runtime only, never written to a filter file.
     bool suspended = false;
 
     // Unique number of a filter: its 1 based position among all the filters of the tree,
