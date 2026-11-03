@@ -1,5 +1,12 @@
 # flogg changes
 
+## 1.1.6 (2026-11-04)
+
+- Icon easier to see on the Windows taskbar: a dark tile again, brighter log lines and blade,
+  and three thicker log lines below 30 px
+- Windows: the scroll bar handle no longer shows black or broken corners around it, also while
+  it is dragged
+
 ## 1.1.5 (2026-11-04)
 
 - New icon look: a light slate tile filling the whole square (it no longer sinks into a dark

@@ -56,11 +56,19 @@ class RoundedScrollBarStyle : public QProxyStyle {
             return;
         }
 
+        const auto handle = subControlRect( control, option, SC_ScrollBarSlider, widget );
+
+        // The groove under the handle too: styles drawing it in pages (Windows, Windows
+        // Vista) paint nothing there, black on Windows. The window colour first in case a
+        // style does not ask its proxy for the page rectangle.
+        painter->fillRect( handle, option->palette.window() );
         auto withoutHandle = *scrollBar;
         withoutHandle.subControls &= ~SC_ScrollBarSlider;
+        withoutHandle.subControls |= SC_ScrollBarSubPage;
+        subPageWithHandle_ = true;
         QProxyStyle::drawComplexControl( control, &withoutHandle, painter, widget );
+        subPageWithHandle_ = false;
 
-        const auto handle = subControlRect( control, option, SC_ScrollBarSlider, widget );
         if ( handle.isEmpty() || !option->state.testFlag( State_Enabled ) ) {
             return;
         }
@@ -83,6 +91,20 @@ class RoundedScrollBarStyle : public QProxyStyle {
         painter->drawRoundedRect( rect, radius, radius );
         painter->restore();
     }
+
+    QRect subControlRect( ComplexControl control, const QStyleOptionComplex* option,
+                          SubControl subControl, const QWidget* widget ) const override
+    {
+        auto rect = QProxyStyle::subControlRect( control, option, subControl, widget );
+        if ( subPageWithHandle_ && control == CC_ScrollBar && subControl == SC_ScrollBarSubPage ) {
+            rect |= QProxyStyle::subControlRect( control, option, SC_ScrollBarSlider, widget );
+        }
+        return rect;
+    }
+
+  private:
+    // Only while the groove is drawn, on the GUI thread
+    mutable bool subPageWithHandle_ = false;
 
   protected:
     enum class HandleState { Normal, Hovered, Pressed };

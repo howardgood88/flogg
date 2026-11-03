@@ -23,6 +23,9 @@
 #include <array>
 
 #include <QPainter>
+#include <QScrollBar>
+#include <QStyleFactory>
+#include <QStyleOptionSlider>
 #include <QSignalSpy>
 #include <QTemporaryFile>
 #include <QTest>
@@ -945,4 +948,85 @@ SCENARIO( "Crawler widget overview draws a single match in a big file", "[ui]" )
     INFO( "red rows: " << rows.size() );
     REQUIRE( rows.size() == 1 );
     CHECK( std::abs( rows.front() - overviewWidget->height() / 2 ) <= 1 );
+}
+
+// Every style paints the groove under the rounded handle: styles that draw the groove in pages
+// (Windows, Windows Vista) used to leave the handle's area unpainted, black on Windows
+TEST_CASE( "Scroll bar groove is painted under the rounded handle", "[ui]" )
+{
+    const auto previousPalette = QApplication::palette();
+    const auto previousStyle = QApplication::style()->name();
+
+    QStringList styles = { StyleManager::LightStyleKey, StyleManager::DarkStyleKey,
+                           StyleManager::DarkWindowsStyleKey, StyleManager::FusionKey };
+    for ( const auto& key : QStyleFactory::keys() ) {
+        if ( key.compare( StyleManager::WindowsKey, Qt::CaseInsensitive ) == 0
+             || key.compare( StyleManager::VistaKey, Qt::CaseInsensitive ) == 0 ) {
+            styles << key;
+        }
+    }
+
+    for ( const auto& style : styles ) {
+        StyleManager::applyStyle( style );
+        QApplication::processEvents();
+
+        QScrollBar bar( Qt::Vertical );
+        bar.setRange( 0, 100 );
+        bar.setPageStep( 50 );
+        bar.setValue( 50 );
+        bar.resize( bar.sizeHint().width(), 300 );
+
+        QImage image( bar.size(), QImage::Format_ARGB32 );
+        image.fill( Qt::transparent );
+        bar.render( &image, {}, {}, QWidget::DrawChildren );
+
+        QStyleOptionSlider option;
+        option.initFrom( &bar );
+        option.orientation = bar.orientation();
+        option.minimum = bar.minimum();
+        option.maximum = bar.maximum();
+        option.sliderPosition = bar.sliderPosition();
+        option.sliderValue = bar.value();
+        option.singleStep = bar.singleStep();
+        option.pageStep = bar.pageStep();
+        option.upsideDown = bar.invertedAppearance();
+        option.subControls = QStyle::SC_All;
+        const auto handle = bar.style()->subControlRect( QStyle::CC_ScrollBar, &option,
+                                                         QStyle::SC_ScrollBarSlider, &bar );
+        REQUIRE_FALSE( handle.isEmpty() );
+
+        int unpainted = 0;
+        for ( int y = handle.top(); y <= handle.bottom(); ++y ) {
+            for ( int x = handle.left(); x <= handle.right(); ++x ) {
+                if ( qAlpha( image.pixel( x, y ) ) == 0 ) {
+                    ++unpainted;
+                }
+            }
+        }
+        INFO( "style " << style.toStdString() << ", handle " << handle.width() << "x"
+                       << handle.height() );
+        CHECK( unpainted == 0 );
+
+        // Dragged: the new position painted over the old one leaves nothing of it, like
+        // the backing store of Windows keeping the previous frame. Translucent pixels (the
+        // rounded groove frame of Fusion) get the parent's background under them in a window.
+        bar.setValue( 20 );
+        QImage fresh( bar.size(), QImage::Format_ARGB32 );
+        fresh.fill( Qt::transparent );
+        bar.render( &fresh, {}, {}, QWidget::DrawChildren );
+        bar.render( &image, {}, {}, QWidget::DrawChildren );
+        int stale = 0;
+        for ( int y = 0; y < fresh.height(); ++y ) {
+            for ( int x = 0; x < fresh.width(); ++x ) {
+                if ( qAlpha( fresh.pixel( x, y ) ) == 255
+                     && image.pixel( x, y ) != fresh.pixel( x, y ) ) {
+                    ++stale;
+                }
+            }
+        }
+        CHECK( stale == 0 );
+    }
+
+    StyleManager::applyStyle( previousStyle );
+    QApplication::setPalette( previousPalette );
 }
