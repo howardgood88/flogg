@@ -780,6 +780,28 @@ bool confirmUnsavedFilters( QWidget* parent, const QString& text,
         return true;
     }
 
+    const auto fileName = []( const UnsavedFilters& filter ) {
+        return filter.file.isEmpty() ? QObject::tr( "untitled" )
+                                     : QFileInfo( filter.file ).fileName();
+    };
+
+    // One file to save: the plain question, like closing the shared filters
+    if ( filters.size() == 1 ) {
+        const auto& filter = filters.front();
+        const auto answer = QMessageBox::question(
+            parent, QObject::tr( "Unsaved filters" ),
+            QObject::tr( "%1 (%2) have changed. Save them?" ).arg( filter.name, fileName( filter ) ),
+            QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel, QMessageBox::Save );
+        if ( answer == QMessageBox::Save ) {
+            return filter.save();
+        }
+        if ( answer == QMessageBox::Discard ) {
+            filter.discard();
+            return true;
+        }
+        return false;
+    }
+
     QDialog dialog( parent );
     dialog.setObjectName( "unsavedFilters" );
     dialog.setWindowTitle( QObject::tr( "Unsaved filters" ) );
@@ -790,8 +812,7 @@ bool confirmUnsavedFilters( QWidget* parent, const QString& text,
     for ( const auto& filter : filters ) {
         auto* item = new QTreeWidgetItem( list );
         item->setText( 0, filter.name );
-        item->setText( 1, filter.file.isEmpty() ? QObject::tr( "untitled" )
-                                                : QFileInfo( filter.file ).fileName() );
+        item->setText( 1, fileName( filter ) );
         item->setToolTip( 1, QDir::toNativeSeparators( filter.file ) );
         item->setCheckState( 0, Qt::Checked );
     }

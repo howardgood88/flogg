@@ -56,9 +56,9 @@ set(README_FILE ${CMAKE_CURRENT_SOURCE_DIR}/README.md)
 
 
 if(WIN32)
-  set(ICON_NAME klogg.ico)
+  set(ICON_NAME flogg.ico)
 elseif(APPLE)
-  set(ICON_NAME klogg.icns)
+  set(ICON_NAME flogg.icns)
 endif()
 
 if(NOT
@@ -218,7 +218,6 @@ add_custom_target(ci_build)
 
 add_subdirectory(3rdparty)
 add_subdirectory(src)
-add_subdirectory(website)
 
 enable_testing()
 add_test(NAME flogg_smoke COMMAND flogg -platform offscreen -v)
@@ -252,23 +251,15 @@ if(UNIX)
     set(CPACK_DMG_FORMAT "UDBZ")
     set(CPACK_DMG_VOLUME_NAME "${PROJECT_NAME}")
     set(CPACK_SYSTEM_NAME "OSX")
-    set(CPACK_DMG_BACKGROUND_IMAGE "${CMAKE_CURRENT_SOURCE_DIR}/packaging/osx/dmg_background.tif")
-    set(CPACK_DMG_DS_STORE_SETUP_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/packaging/osx/dmg_setup.scpt")
 
   else()
-    install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/src/app/images/hicolor/16x16/klogg.png
-            DESTINATION share/icons/hicolor/16x16/apps
-    )
+    foreach(ICON_SIZE 16 24 32 48 64 128 256)
+      install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/src/app/images/hicolor/${ICON_SIZE}x${ICON_SIZE}/flogg.png
+              DESTINATION share/icons/hicolor/${ICON_SIZE}x${ICON_SIZE}/apps
+      )
+    endforeach()
 
-    install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/src/app/images/hicolor/32x32/klogg.png
-            DESTINATION share/icons/hicolor/32x32/apps
-    )
-
-    install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/src/app/images/hicolor/48x48/klogg.png
-            DESTINATION share/icons/hicolor/48x48/apps
-    )
-
-    install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/src/app/images/hicolor/scalable/klogg.svg
+    install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/src/app/images/hicolor/scalable/flogg.svg
             DESTINATION share/icons/hicolor/scalable/apps
     )
 
@@ -279,7 +270,7 @@ if(UNIX)
       DESTINATION ${CMAKE_INSTALL_DOCDIR}
     )
 
-    install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/packaging/linux/klogg.desktop DESTINATION share/applications)
+    install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/packaging/linux/flogg.desktop DESTINATION share/applications)
 
     set(CPACK_GENERATOR DEB)
 
@@ -302,8 +293,18 @@ if(UNIX)
         /usr/share/icons/hicolor
         /usr/share/icons/hicolor/16x16
         /usr/share/icons/hicolor/16x16/apps
+        /usr/share/icons/hicolor/24x24
+        /usr/share/icons/hicolor/24x24/apps
         /usr/share/icons/hicolor/32x32
         /usr/share/icons/hicolor/32x32/apps
+        /usr/share/icons/hicolor/48x48
+        /usr/share/icons/hicolor/48x48/apps
+        /usr/share/icons/hicolor/64x64
+        /usr/share/icons/hicolor/64x64/apps
+        /usr/share/icons/hicolor/128x128
+        /usr/share/icons/hicolor/128x128/apps
+        /usr/share/icons/hicolor/256x256
+        /usr/share/icons/hicolor/256x256/apps
         /usr/share/icons/hicolor/scalable
         /usr/share/icons/hicolor/scalable/apps
     )
@@ -314,8 +315,7 @@ endif()
 # for IDE grouping
 add_custom_target(
   installation
-  SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/packaging/windows/klogg.nsi
-          ${CMAKE_CURRENT_SOURCE_DIR}/packaging/linux/klogg.desktop
+  SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/packaging/linux/flogg.desktop
           ${CMAKE_CURRENT_SOURCE_DIR}/cmake/MacOSXBundleInfo.plist.in
 )
 

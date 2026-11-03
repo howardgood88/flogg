@@ -7,12 +7,10 @@ on:
     paths-ignore:
       - '**.md'
       - 'bench/**'
-      - 'website/**'
   pull_request:
     paths-ignore:
       - '**.md'
       - 'bench/**'
-      - 'website/**'
   workflow_dispatch:
 
 # A newer push to the same branch cancels the running build
@@ -242,7 +240,7 @@ jobs:
           appdir=AppDir
           mkdir -p "$appdir/usr/share/doc/flogg" "$appdir/usr/share/icons/hicolor/scalable/apps"
           cp COPYING NOTICE README.md "$appdir/usr/share/doc/flogg/"
-          cp src/app/images/hicolor/scalable/klogg.svg \
+          cp src/app/images/hicolor/scalable/flogg.svg \
             "$appdir/usr/share/icons/hicolor/scalable/apps/flogg.svg"
 
           # oneTBB is built as a shared library

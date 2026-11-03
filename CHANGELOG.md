@@ -1,5 +1,13 @@
 # flogg changes
 
+## 1.1.3 (2026-11-03)
+
+- New flogg icon (log lines cut by a blade) in place of the klogg one, on Windows, macOS and Linux
+- Scroll bars have a rounded handle in every style, in colours of the style: easy to see in the
+  Dark styles too
+- Closing with unsaved filters of one file asks the short Save / Discard / Cancel question, the
+  list of filters to save is shown only when there are several
+
 ## 1.1.2 (2026-11-03)
 
 - Linux package: an AppImage for x64 (`chmod +x` it and run it), updated like the Windows one

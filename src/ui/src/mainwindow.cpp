@@ -147,10 +147,10 @@ MainWindow::MainWindow( WindowSession session )
     setGeometry( geometry.x() + 20, geometry.y() + 40, geometry.width() - 140,
                  geometry.height() - 140 );
 
-    mainIcon_.addFile( ":/images/hicolor/16x16/klogg.png" );
-    // mainIcon_.addFile( ":/images/hicolor/24x24/klogg.png" );
-    mainIcon_.addFile( ":/images/hicolor/32x32/klogg.png" );
-    mainIcon_.addFile( ":/images/hicolor/48x48/klogg.png" );
+    // The larger ones for high DPI screens (title bar, task bar, Alt+Tab)
+    for ( const auto size : { 16, 24, 32, 48, 64, 128, 256 } ) {
+        mainIcon_.addFile( QString( ":/images/hicolor/%1x%1/flogg.png" ).arg( size ) );
+    }
 
     setWindowIcon( mainIcon_ );
     readSettings();

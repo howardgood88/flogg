@@ -49,7 +49,6 @@ compile_commands.json
 /.vs
 /.vscode
 /.cache
-website/public
 
 # CLION
 .idea/
@@ -57,9 +56,6 @@ cmake-build-debug/
 cmake-build-release/
 cmake-build-relwithdebinfo/
 
-#website
-website/hugo
-website/resources/
 
 # Benchmark logs (regenerate with bench/gen_bench_log.py)
 /bench/*.log

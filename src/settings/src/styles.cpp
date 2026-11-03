@@ -40,12 +40,77 @@
 
 namespace {
 
+// Scroll bars with a rounded handle over the groove of the base style, in a colour of each
+// style: the handle of the base styles is often close to the groove (the button colour)
+class RoundedScrollBarStyle : public QProxyStyle {
+  public:
+    using QProxyStyle::QProxyStyle;
+
+    void drawComplexControl( ComplexControl control, const QStyleOptionComplex* option,
+                             QPainter* painter, const QWidget* widget ) const override
+    {
+        const auto* scrollBar = qstyleoption_cast<const QStyleOptionSlider*>( option );
+        if ( control != CC_ScrollBar || !scrollBar
+             || !( scrollBar->subControls & SC_ScrollBarSlider ) ) {
+            QProxyStyle::drawComplexControl( control, option, painter, widget );
+            return;
+        }
+
+        auto withoutHandle = *scrollBar;
+        withoutHandle.subControls &= ~SC_ScrollBarSlider;
+        QProxyStyle::drawComplexControl( control, &withoutHandle, painter, widget );
+
+        const auto handle = subControlRect( control, option, SC_ScrollBarSlider, widget );
+        if ( handle.isEmpty() || !option->state.testFlag( State_Enabled ) ) {
+            return;
+        }
+        const auto active = scrollBar->activeSubControls & SC_ScrollBarSlider;
+        const auto state = active && option->state.testFlag( State_Sunken ) ? HandleState::Pressed
+                           : active && option->state.testFlag( State_MouseOver )
+                               ? HandleState::Hovered
+                               : HandleState::Normal;
+
+        // A small margin to the groove, along the bar the full length
+        const auto margin = scrollBar->orientation == Qt::Horizontal
+                                ? QMarginsF( 0.5, 2.5, 0.5, 2.5 )
+                                : QMarginsF( 2.5, 0.5, 2.5, 0.5 );
+        const auto rect = QRectF( handle ) - margin;
+        const auto radius = std::min( rect.width(), rect.height() ) / 2;
+        painter->save();
+        painter->setRenderHint( QPainter::Antialiasing );
+        painter->setPen( Qt::NoPen );
+        painter->setBrush( handleColor( option->palette, state ) );
+        painter->drawRoundedRect( rect, radius, radius );
+        painter->restore();
+    }
+
+  protected:
+    enum class HandleState { Normal, Hovered, Pressed };
+
+    // By default between the window and its text colour, darker or lighter on use
+    virtual QColor handleColor( const QPalette& palette, HandleState state ) const
+    {
+        return mix( palette.color( QPalette::Window ), palette.color( QPalette::WindowText ),
+                    state == HandleState::Pressed   ? 60
+                    : state == HandleState::Hovered ? 45
+                                                    : 30 );
+    }
+
+    // From the first colour towards the second one, weight in percent
+    static QColor mix( const QColor& from, const QColor& to, int weight )
+    {
+        const auto channel = [ weight ]( int a, int b ) { return a + ( b - a ) * weight / 100; };
+        return QColor( channel( from.red(), to.red() ), channel( from.green(), to.green() ),
+                       channel( from.blue(), to.blue() ) );
+    }
+};
+
 // Fusion drawn like the light Windows style: blue filled check boxes, flat white headers
 // and light blue checked tool buttons. Colours taken from the Windows build.
-class LightStyle : public QProxyStyle {
+class LightStyle : public RoundedScrollBarStyle {
   public:
     LightStyle()
-        : QProxyStyle( QStyleFactory::create( StyleManager::FusionKey ) )
+        : RoundedScrollBarStyle( QStyleFactory::create( StyleManager::FusionKey ) )
     {
     }
 
@@ -175,6 +240,15 @@ class LightStyle : public QProxyStyle {
         QProxyStyle::drawControl( element, option, painter, widget );
     }
 
+  protected:
+    // Windows 11 light greys
+    QColor handleColor( const QPalette&, HandleState state ) const override
+    {
+        return state == HandleState::Pressed   ? QColor( 0x86, 0x86, 0x86 )
+               : state == HandleState::Hovered ? QColor( 0xa3, 0xa3, 0xa3 )
+                                               : QColor( 0xc2, 0xc2, 0xc2 );
+    }
+
   private:
     static void drawCheckBox( const QStyleOption* option, QPainter* painter )
     {
@@ -225,10 +299,11 @@ class LightStyle : public QProxyStyle {
 
 // Fusion (or Windows) with the pressed and hovered buttons of the Light style in dark colours:
 // checked tool buttons are clearly on
-class DarkStyle : public QProxyStyle {
+class DarkStyle : public RoundedScrollBarStyle {
   public:
-    explicit DarkStyle( QStyle* base )
-        : QProxyStyle( base )
+    DarkStyle( QStyle* base, bool windows )
+        : RoundedScrollBarStyle( base )
+        , windows_( windows )
     {
     }
 
@@ -250,8 +325,34 @@ class DarkStyle : public QProxyStyle {
             painter->restore();
             return;
         }
-        QProxyStyle::drawPrimitive( element, option, painter, widget );
+        RoundedScrollBarStyle::drawPrimitive( element, option, painter, widget );
     }
+
+  protected:
+    QColor handleColor( const QPalette& palette, HandleState state ) const override
+    {
+        if ( windows_ ) {
+            // Windows 11 dark: neutral greys, brighter than the Fusion ones
+            return state == HandleState::Pressed   ? QColor( 0xb5, 0xb5, 0xb5 )
+                   : state == HandleState::Hovered ? QColor( 0x9a, 0x9a, 0x9a )
+                                                   : QColor( 0x7a, 0x7a, 0x7a );
+        }
+        // Between the window and its text colour, follows the dark palette of the options
+        return mix( palette.color( QPalette::Window ), palette.color( QPalette::WindowText ),
+                    state == HandleState::Pressed   ? 70
+                    : state == HandleState::Hovered ? 55
+                                                    : 40 );
+    }
+
+  private:
+    bool windows_;
+};
+
+// The platform styles with the rounded scroll bar handle, in a colour of their palette (the
+// system one, light or dark)
+class PlatformStyle : public RoundedScrollBarStyle {
+  public:
+    using RoundedScrollBarStyle::RoundedScrollBarStyle;
 };
 
 } // namespace
@@ -408,8 +509,9 @@ void StyleManager::applyStyle( const QString& style )
         darkPalette.setColor( QPalette::Disabled, QPalette::Light,
                               QColor( palette.at( "DisabledLight" ) ) );
 
-        qApp->setStyle( new DarkStyle( QStyleFactory::create(
-            style == DarkWindowsStyleKey ? WindowsKey : FusionKey ) ) );
+        qApp->setStyle( new DarkStyle(
+            QStyleFactory::create( style == DarkWindowsStyleKey ? WindowsKey : FusionKey ),
+            style == DarkWindowsStyleKey ) );
         darkPalette = withSelection( darkPalette );
 
         qApp->setPalette( darkPalette );
@@ -435,7 +537,15 @@ void StyleManager::applyStyle( const QString& style )
 #if QT_VERSION >= QT_VERSION_CHECK( 6, 8, 0 )
         qApp->styleHints()->unsetColorScheme();
 #endif
-        qApp->setStyle( style );
+        // The native scroll bars of macOS stay
+        auto* platformStyle = QStyleFactory::create( style );
+        if ( platformStyle && style.compare( MacintoshKey, Qt::CaseInsensitive ) != 0 ) {
+            qApp->setStyle( new PlatformStyle( platformStyle ) );
+        }
+        else {
+            delete platformStyle;
+            qApp->setStyle( style );
+        }
         qApp->setStyleSheet( "" );
         // An empty palette gives back the one of the platform
         qApp->setPalette( QPalette() );
