@@ -1,5 +1,11 @@
 # flogg changes
 
+## 1.1.5 (2026-11-04)
+
+- New icon look: a light slate tile filling the whole square (it no longer sinks into a dark
+  taskbar), a shorter and bluer blade, thinner log lines that all cross it without touching it,
+  the filter match line in amber
+
 ## 1.1.4 (2026-11-04)
 
 - Update downloads that lose the connection go on from where they stopped (some proxies cut the
