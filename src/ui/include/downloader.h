@@ -22,7 +22,15 @@
 
 #include <QFile>
 #include <QNetworkAccessManager>
+#include <QStringList>
+#include <QUrl>
 
+class QProcess;
+
+// Downloads a file. A lost connection is resumed where it stopped with a Range request
+// (some proxies cut the downloads from the start of a package but let the rest through),
+// switching to HTTP/1.1 and TLS 1.2 when the attempts make no progress, then to the curl
+// program of the system
 class Downloader : public QObject {
     Q_OBJECT
   public:
@@ -44,12 +52,27 @@ class Downloader : public QObject {
     void downloadReadyRead();
 
   private:
+    void startQt();
+    bool checkResponse();
+    void startCurl();
+    void fail( const QString& error );
+    void addError( const QString& error );
+
     QNetworkAccessManager manager_;
     QNetworkReply* currentDownload_ = nullptr;
+    QProcess* curl_ = nullptr;
 
-    QString lastError_;
+    QUrl url_;
+    QFile* output_ = nullptr;
 
-    QFile* output_;
+    qint64 received_ = 0;
+    qint64 total_ = -1;
+    qint64 receivedAtStart_ = 0;
+    bool responseChecked_ = false;
+    int attempts_ = 0;
+    int attemptsWithoutProgress_ = 0;
+    bool aborted_ = false;
+    QStringList errors_;
 };
 
 #endif // KLOGG_DOWNLOADER_H

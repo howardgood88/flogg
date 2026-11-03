@@ -472,6 +472,10 @@ void UpdateChecker::download( const updates::Release& release )
                      progress->setMaximum( static_cast<int>( total / 1024 ) );
                      progress->setValue( static_cast<int>( received / 1024 ) );
                  }
+                 else if ( received == 0 ) {
+                     // Size unknown (the curl download): busy
+                     progress->setRange( 0, 0 );
+                 }
              } );
     connect( progress, &QProgressDialog::canceled, downloader, &Downloader::abort );
     connect( downloader, &Downloader::finished, this,
@@ -484,8 +488,15 @@ void UpdateChecker::download( const updates::Release& release )
 
                  if ( !success ) {
                      if ( !canceled ) {
-                         QMessageBox::warning( dialogParent(), tr( "flogg update" ),
-                                               tr( "The download failed:\n%1" ).arg( error ) );
+                         const auto answer = QMessageBox::warning(
+                             dialogParent(), tr( "flogg update" ),
+                             tr( "The download failed:\n%1\n\n"
+                                 "Open the download page to get it with the web browser?" )
+                                 .arg( error ),
+                             QMessageBox::Open | QMessageBox::Close, QMessageBox::Open );
+                         if ( answer == QMessageBox::Open ) {
+                             QDesktopServices::openUrl( release.page );
+                         }
                      }
                      return;
                  }

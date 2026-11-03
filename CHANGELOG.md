@@ -1,5 +1,11 @@
 # flogg changes
 
+## 1.1.4 (2026-11-04)
+
+- Update downloads that lose the connection go on from where they stopped (some proxies cut the
+  start of a download but let the rest through), then try HTTP/1.1 and TLS 1.2, then the curl
+  program of the system; when all fail, flogg offers to open the download page
+
 ## 1.1.3 (2026-11-03)
 
 - New flogg icon (log lines cut by a blade) in place of the klogg one, on Windows, macOS and Linux
