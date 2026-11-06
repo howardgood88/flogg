@@ -22,6 +22,8 @@
 #include <algorithm>
 #include <array>
 
+#include <QAbstractScrollArea>
+#include <QHeaderView>
 #include <QPainter>
 #include <QScrollBar>
 #include <QStyleFactory>
@@ -30,6 +32,8 @@
 #include <QTemporaryFile>
 #include <QTest>
 #include <QTimer>
+#include <QTreeWidget>
+#include <QWheelEvent>
 #include <qglobal.h>
 #include <qnamespace.h>
 #include <qtestmouse.h>
@@ -44,6 +48,7 @@
 
 #include "crawlerwidget.h"
 #include "filterpanel.h"
+#include "horizontalwheelfilter.h"
 #include "infoline.h"
 #include "overviewwidget.h"
 #include "styles.h"
@@ -228,6 +233,11 @@ struct CrawlerWidget::access_by<CrawlerWidgetPrivate> {
     void setFilterMode( bool filterMode )
     {
         crawler->setFilterMode( filterMode );
+    }
+
+    bool filterModeChecked()
+    {
+        return crawler->filterModeButton_->isChecked();
     }
 
     void findFilterMatch( const std::vector<FilterNode>& filterNodes )
@@ -663,6 +673,151 @@ SCENARIO( "Crawler widget filter tool tip", "[ui]" )
         QApplication::setPalette( previousPalette );
         QToolTip::setPalette( previousPalette );
     }
+}
+
+SCENARIO( "Crawler widget default filter mode", "[ui]" )
+{
+    auto& config = Configuration::get();
+    const auto previous = config.filterModeByDefault();
+
+    QTemporaryFile file{ "crawler_test_XXXXXX" };
+    REQUIRE( generateDataFiles( file ) );
+
+    const auto filter = FilterNode::makeFilter( "line 000010" );
+
+    GIVEN( "a tab opened with Filter mode off by default" )
+    {
+        config.setFilterModeByDefault( false );
+
+        Session session;
+        CrawlerWidgetVisitor crawlerVisitor;
+        crawlerVisitor.crawler.reset( static_cast<CrawlerWidget*>(
+            session.open( file.fileName(), []() { return new CrawlerWidget(); } ) ) );
+        waitUiState( [ & ]() { return crawlerVisitor.isLoadingFinished(); } );
+
+        crawlerVisitor.setFilters( { filter } );
+        QTest::qWait( 100 );
+
+        THEN( "the filters only highlight" )
+        {
+            CHECK_FALSE( crawlerVisitor.filterModeChecked() );
+            CHECK( crawlerVisitor.getLogFilteredNbLines().get() == 0 );
+        }
+
+        THEN( "an empty search clears the search and does not enter Filter mode" )
+        {
+            crawlerVisitor.setSearchText( "line 00002" );
+            crawlerVisitor.runSearch();
+            CHECK( crawlerVisitor.getLogFilteredNbLines().get() == 10 );
+
+            crawlerVisitor.setSearchText( "" );
+            crawlerVisitor.runSearch();
+            CHECK_FALSE( crawlerVisitor.filterModeChecked() );
+            CHECK( crawlerVisitor.getLogFilteredNbLines().get() == 0 );
+        }
+    }
+
+    GIVEN( "a tab opened with Filter mode on by default" )
+    {
+        config.setFilterModeByDefault( true );
+
+        Session session;
+        CrawlerWidgetVisitor crawlerVisitor;
+        crawlerVisitor.crawler.reset( static_cast<CrawlerWidget*>(
+            session.open( file.fileName(), []() { return new CrawlerWidget(); } ) ) );
+        waitUiState( [ & ]() { return crawlerVisitor.isLoadingFinished(); } );
+
+        crawlerVisitor.setFilters( { filter } );
+        REQUIRE( waitUiState(
+            [ & ]() { return crawlerVisitor.getLogFilteredNbLines().get() == 1; } ) );
+
+        THEN( "an empty search goes back to the filters" )
+        {
+            crawlerVisitor.setSearchText( "line 00002" );
+            crawlerVisitor.runSearch();
+            CHECK_FALSE( crawlerVisitor.filterModeChecked() );
+
+            crawlerVisitor.setSearchText( "" );
+            crawlerVisitor.runSearch();
+            CHECK( crawlerVisitor.filterModeChecked() );
+            CHECK( crawlerVisitor.getLogFilteredNbLines().get() == 1 );
+        }
+    }
+
+    config.setFilterModeByDefault( previous );
+}
+
+SCENARIO( "Shift and the mouse wheel scroll sideways", "[ui]" )
+{
+    QTemporaryFile file{ "crawler_test_XXXXXX" };
+    REQUIRE( generateDataFiles( file ) );
+
+    Session session;
+    CrawlerWidgetVisitor crawlerVisitor;
+    crawlerVisitor.crawler.reset( static_cast<CrawlerWidget*>(
+        session.open( file.fileName(), []() { return new CrawlerWidget(); } ) ) );
+    waitUiState( [ & ]() { return crawlerVisitor.isLoadingFinished(); } );
+
+    HorizontalWheelFilter wheelFilter;
+    qApp->installEventFilter( &wheelFilter );
+
+    crawlerVisitor.crawler->resize( 300, 400 );
+    crawlerVisitor.crawler->show();
+    crawlerVisitor.crawler->grab();
+
+    auto* viewport = crawlerVisitor.mainViewport();
+    auto* area = qobject_cast<QAbstractScrollArea*>( viewport->parentWidget() );
+    REQUIRE( area );
+    auto* horizontal = area->horizontalScrollBar();
+    auto* vertical = area->verticalScrollBar();
+    REQUIRE( horizontal->maximum() > 0 );
+    REQUIRE( vertical->maximum() > 0 );
+
+    const auto wheel = [ & ]( int delta, Qt::KeyboardModifiers modifiers, bool sideways = false ) {
+        const QPoint pos( 50, 50 );
+        const QPoint angle = sideways ? QPoint( delta, 0 ) : QPoint( 0, delta );
+        QWheelEvent event( pos, viewport->mapToGlobal( pos ), QPoint{}, angle, Qt::NoButton,
+                           modifiers, Qt::NoScrollPhase, false );
+        QApplication::sendEvent( viewport, &event );
+    };
+
+    // Only the horizontal scroll bar moves, by steps and not by pages
+    wheel( -120, Qt::ShiftModifier );
+    const auto step = horizontal->value();
+    CHECK( step == 2 * QApplication::wheelScrollLines() );
+    CHECK( step < horizontal->pageStep() );
+    CHECK( vertical->value() == 0 );
+
+    wheel( 120, Qt::ShiftModifier );
+    CHECK( horizontal->value() == 0 );
+
+    // macOS already sends the wheel of a mouse sideways
+    wheel( -120, Qt::ShiftModifier, true );
+    CHECK( horizontal->value() == step );
+    horizontal->setValue( 0 );
+
+    // Without Shift it stays vertical
+    wheel( -120, Qt::NoModifier );
+    CHECK( horizontal->value() == 0 );
+    CHECK( vertical->value() > 0 );
+
+    // Other scroll areas, and those with nothing to scroll sideways keep the event
+    QTreeWidget tree;
+    tree.setColumnCount( 1 );
+    tree.header()->setStretchLastSection( false );
+    tree.header()->setSectionResizeMode( QHeaderView::Fixed );
+    tree.header()->resizeSection( 0, 2000 );
+    tree.addTopLevelItem( new QTreeWidgetItem( QStringList{ "item" } ) );
+    tree.resize( 200, 200 );
+    tree.show();
+    REQUIRE( tree.horizontalScrollBar()->maximum() > 0 );
+    const QPoint pos( 50, 50 );
+    QWheelEvent treeEvent( pos, tree.viewport()->mapToGlobal( pos ), QPoint{}, QPoint( 0, -120 ),
+                           Qt::NoButton, Qt::ShiftModifier, Qt::NoScrollPhase, false );
+    QApplication::sendEvent( tree.viewport(), &treeEvent );
+    CHECK( tree.horizontalScrollBar()->value() > 0 );
+
+    qApp->removeEventFilter( &wheelFilter );
 }
 
 SCENARIO( "Crawler widget filters added to search", "[ui]" )

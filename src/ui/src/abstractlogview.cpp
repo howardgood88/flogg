@@ -428,6 +428,9 @@ AbstractLogView::AbstractLogView( const AbstractLogData* newLogData,
     connect( &followElasticHook_, SIGNAL( hooked( bool ) ), this,
              SIGNAL( followModeChanged( bool ) ) );
 
+    // In columns: one step of the wheel moves by this times the wheel scroll lines of the system
+    horizontalScrollBar()->setSingleStep( 2 );
+
     connect( verticalScrollBar(), &QAbstractSlider::actionTriggered, this, [ this ]( int action ) {
         if ( !followMode_ ) {
             return;

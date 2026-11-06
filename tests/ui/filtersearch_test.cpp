@@ -1147,6 +1147,15 @@ SCENARIO( "Filter panel move up and down across groups", "[filters]" )
     tree->setCurrentItem( tree->topLevelItem( 0 ) );
     CHECK( move( false ) == "G[C B] A" );
 
+    // The numbers shown by the tool tips of the views follow right away
+    panel.tabState();
+    QStringList numbered;
+    for ( const auto& filter : panel.snapshot()->filters ) {
+        numbered.append( filters::numberText( filter ) + filter.pattern );
+    }
+    numbered.sort();
+    CHECK( numbered.join( " " ) == "#1C #2B #3A" );
+
     settings.setValue( "filterPanel/currentFile", previousFile );
 }
 
@@ -2251,6 +2260,9 @@ SCENARIO( "Options view tab rendering", "[.render]" )
     dialog.show();
     QTest::qWait( 100 );
     REQUIRE( dialog.grab().save( renderDir + "/options_view.png" ) );
+    dialog.findChild<QTabWidget*>()->setCurrentIndex( 0 );
+    QTest::qWait( 100 );
+    REQUIRE( dialog.grab().save( renderDir + "/options_general.png" ) );
 }
 
 SCENARIO( "Shared filters across windows ask only for the last tab", "[filters]" )

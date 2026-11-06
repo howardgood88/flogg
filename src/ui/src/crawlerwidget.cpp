@@ -451,10 +451,17 @@ std::shared_ptr<const ViewContextInterface> CrawlerWidget::doGetViewContext() co
 
 void CrawlerWidget::startNewSearch()
 {
-    // An empty search goes back to the filters of the filter panel
+    // An empty search goes back to the default mode: the filters of the filter panel, or
+    // no search at all when the panel only highlights
     if ( searchLineEdit_->currentText().isEmpty() ) {
-        setFilterMode( true );
-        runFilterSearch();
+        setFilterMode( Configuration::get().filterModeByDefault() );
+        if ( filterMode_ ) {
+            runFilterSearch();
+        }
+        else {
+            tabbedFilteredView_->setTabText( tabbedFilteredView_->currentIndex(), "" );
+            replaceCurrentSearch( RegularExpressionPattern{} );
+        }
         return;
     }
 
@@ -1158,6 +1165,7 @@ void CrawlerWidget::setup()
     booleanButton_->setFocusPolicy( Qt::NoFocus );
     booleanButton_->setContentsMargins( 2, 2, 2, 2 );
 
+    filterMode_ = Configuration::get().filterModeByDefault();
     filterModeButton_ = new QToolButton();
     filterModeButton_->setText( tr( "Filters" ) );
     filterModeButton_->setToolTip(
@@ -1799,6 +1807,10 @@ void CrawlerWidget::replaceCurrentSearch( const RegularExpressionPattern& regexp
     else {
         searchState_.resetState();
         printSearchInfoMessage();
+
+        // The matches of the previous search are not highlighted any more
+        logMainView_->setSearchPattern( {} );
+        filteredView_->setSearchPattern( {} );
     }
 }
 

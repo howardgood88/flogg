@@ -345,6 +345,7 @@ void OptionsDialog::updateDialogFromConfig()
     caseSensitiveCheckBox->setChecked( !config.isSearchIgnoreCaseDefault() );
     logicalCombiningCheckBox->setChecked( config.isSearchLogicalCombiningDefault() );
     autoRefreshCheckBox->setChecked( config.isSearchAutoRefreshDefault() );
+    filterModeCheckBox->setChecked( config.filterModeByDefault() );
 
     // Polling
     nativeFileWatchCheckBox->setChecked( config.nativeFileWatchEnabled() );
@@ -606,6 +607,7 @@ void OptionsDialog::updateConfigFromDialog()
     config.setMainRegexpType( getRegexpTypeFromIndex( mainSearchBox->currentIndex() ) );
     config.setSearchIgnoreCaseDefault( !caseSensitiveCheckBox->isChecked() );
     config.setSearchAutoRefreshDefault( autoRefreshCheckBox->isChecked() );
+    config.setFilterModeByDefault( filterModeCheckBox->isChecked() );
     config.setSearchLogicalCombiningDefault( logicalCombiningCheckBox->isChecked() );
     config.setQuickfindRegexpType( getRegexpTypeFromIndex( quickFindSearchBox->currentIndex() ) );
     config.setQfBackColor( qfSearchColor_ );

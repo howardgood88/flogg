@@ -140,6 +140,16 @@
               </property>
              </widget>
             </item>
+            <item row="3" column="0" colspan="3">
+             <widget class="QCheckBox" name="filterModeCheckBox">
+              <property name="toolTip">
+               <string>A new tab and an empty search show the lines matching the filters of the panel. When off, the panel only highlights the lines until the Filters button is pressed, as in klogg.</string>
+              </property>
+              <property name="text">
+               <string>Start in Filter mode</string>
+              </property>
+             </widget>
+            </item>
            </layout>
           </item>
          </layout>

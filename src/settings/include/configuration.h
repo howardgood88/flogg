@@ -305,6 +305,17 @@ class Configuration final : public Persistable<Configuration> {
     }
 
     // Default settings for new views
+    // Whether a tab shows the filters of the panel when it opens and after an empty search,
+    // otherwise the panel only highlights until the Filters button is pressed
+    bool filterModeByDefault() const
+    {
+        return filterModeByDefault_;
+    }
+    void setFilterModeByDefault( bool filterMode )
+    {
+        filterModeByDefault_ = filterMode;
+    }
+
     bool isSearchAutoRefreshDefault() const
     {
         return searchAutoRefresh_;
@@ -550,6 +561,7 @@ class Configuration final : public Persistable<Configuration> {
 
     // Default settings for new views
     bool searchAutoRefresh_ = false;
+    bool filterModeByDefault_ = true;
     bool searchIgnoreCase_ = false;
     bool searchLogicalCombining_ = false;
     QList<int> splitterSizes_;

@@ -366,6 +366,7 @@ class FilterPanel : public QWidget {
 
     void scheduleChange();
     void publishChange();
+    void updateItems();
     void updateLook();
     bool loadFile( const QString& path, bool remember = true );
     // checkFile: asks before overwriting a file changed since it was loaded

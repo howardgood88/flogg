@@ -44,6 +44,7 @@ add_library(
   ${CMAKE_CURRENT_SOURCE_DIR}/include/filtertree.h
   ${CMAKE_CURRENT_SOURCE_DIR}/include/filterpanel.h
   ${CMAKE_CURRENT_SOURCE_DIR}/include/filtereditdialog.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/include/horizontalwheelfilter.h
   ${CMAKE_CURRENT_SOURCE_DIR}/include/highlighteredit.ui
   ${CMAKE_CURRENT_SOURCE_DIR}/include/optionsdialog.ui
   ${CMAKE_CURRENT_SOURCE_DIR}/src/abstractlogview.cpp
@@ -85,6 +86,7 @@ add_library(
   ${CMAKE_CURRENT_SOURCE_DIR}/src/filtertree.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/src/filterpanel.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/src/filtereditdialog.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/horizontalwheelfilter.cpp
 )
 
 set_target_properties(klogg_ui PROPERTIES AUTOUIC ON)

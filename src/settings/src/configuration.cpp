@@ -278,6 +278,9 @@ void Configuration::retrieveFromStorage( QSettings& settings )
     }
 
     // DefaultConfiguration crawler settings
+    filterModeByDefault_
+        = settings.value( "defaultView.filterMode", DefaultConfiguration.filterModeByDefault_ )
+              .toBool();
     searchAutoRefresh_
         = settings.value( "defaultView.searchAutoRefresh", DefaultConfiguration.searchAutoRefresh_ )
               .toBool();
@@ -413,6 +416,7 @@ void Configuration::saveToStorage( QSettings& settings ) const
     settings.setValue( "view.hideAnsiColorSequences", hideAnsiColorSequences_ );
 
     settings.setValue( "defaultView.searchAutoRefresh", searchAutoRefresh_ );
+    settings.setValue( "defaultView.filterMode", filterModeByDefault_ );
     settings.setValue( "defaultView.searchIgnoreCase", searchIgnoreCase_ );
     settings.setValue( "defaultView.searchLogicalCombining", searchLogicalCombining_ );
     settings.setValue( "defaultView.encodingMib", defaultEncodingMib_ );

@@ -1646,7 +1646,7 @@ void FilterPanel::flushChange()
     }
 }
 
-void FilterPanel::updateLook()
+void FilterPanel::updateItems()
 {
     loading_ = true;
     for ( int i = 0; i < tree_->topLevelItemCount(); ++i ) {
@@ -1654,12 +1654,19 @@ void FilterPanel::updateLook()
     }
     numberFilters();
     loading_ = false;
+}
 
+void FilterPanel::updateLook()
+{
+    updateItems();
     updateFileLabel();
 }
 
 void FilterPanel::publishChange()
 {
+    // Before building the tree: its nodes carry the numbers the tool tips of the views show
+    updateItems();
+
     const auto root = buildTree();
     treeJson_ = serialize( root );
     if ( treeJson_ == savedJson_ ) {
@@ -1670,7 +1677,7 @@ void FilterPanel::publishChange()
         detachSharedCopy();
     }
 
-    updateLook();
+    updateFileLabel();
 
     auto snapshot = std::make_shared<FilterSnapshot>();
     snapshot->revision = nextRevision();

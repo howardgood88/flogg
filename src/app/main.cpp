@@ -63,6 +63,7 @@
 #include "tbb/global_control.h"
 
 #include "configuration.h"
+#include "horizontalwheelfilter.h"
 #include "logger.h"
 #include "mainwindow.h"
 #include "persistentinfo.h"
@@ -77,6 +78,21 @@
 const bool PersistentInfo::ForcePortable = true;
 #else
 const bool PersistentInfo::ForcePortable = false;
+#endif
+
+#ifdef Q_OS_LINUX
+// A Wayland window can't place itself on the screen, so a dragged filter panel would stay
+// behind instead of following the mouse: use XWayland when it is there. QT_QPA_PLATFORM and
+// -platform still choose otherwise.
+void preferXcbOnWayland()
+{
+    const auto onWayland = !qEnvironmentVariableIsEmpty( "WAYLAND_DISPLAY" )
+                           || qgetenv( "XDG_SESSION_TYPE" ) == "wayland";
+    if ( onWayland && !qEnvironmentVariableIsEmpty( "DISPLAY" )
+         && qEnvironmentVariableIsEmpty( "QT_QPA_PLATFORM" ) ) {
+        qputenv( "QT_QPA_PLATFORM", "xcb;wayland" );
+    }
+}
 #endif
 
 void setApplicationAttributes( bool enableQtHdpi, int scaleFactorRounding )
@@ -294,7 +310,12 @@ int main( int argc, char* argv[] )
     const auto& config = Configuration::getSynced();
     setApplicationAttributes( config.enableQtHighDpi(), config.scaleFactorRounding() );
 
+#ifdef Q_OS_LINUX
+    preferXcbOnWayland();
+#endif
+
     KloggApp app( argc, argv );
+    app.installEventFilter( new HorizontalWheelFilter( &app ) );
     // macOS hides the keys in context menus by default (with both the attribute and the
     // style hint), flogg shows them on every platform
     QCoreApplication::setAttribute( Qt::AA_DontShowShortcutsInContextMenus, false );

@@ -1,5 +1,17 @@
 # flogg changes
 
+## 1.1.7 (2026-11-06)
+
+- New `Start in Filter mode` option in `Preferences > General`: when off, a new tab and an empty
+  search no longer enter Filter mode, the filter panel only highlights the lines as in klogg
+- Shift + mouse wheel scrolls sideways in the log views, the filter panel and every other list
+  with a horizontal scroll bar; the log views move twice as far per step sideways
+- The list of filters shown when hovering a line has the right numbers right after a filter was
+  moved or added
+- An empty search removes the highlighted matches of the previous search
+- Linux: on Wayland flogg runs through XWayland, so a dragged filter panel follows the mouse;
+  `QT_QPA_PLATFORM=wayland` keeps it on Wayland
+
 ## 1.1.6 (2026-11-04)
 
 - Icon easier to see on the Windows taskbar: a dark tile again, brighter log lines and blade,

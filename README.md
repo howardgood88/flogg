@@ -26,7 +26,8 @@ Downloads for Windows (x64) and Linux (x64 AppImage: `chmod +x` it and run it) a
 - The selected line stands out more clearly.
 - When the line selected in the main view is also a match in the filtered view, the filtered view selects it too (klogg only moved the main view along with the filtered view).
 - `Ctrl+click` (macOS: `Cmd+click`) selects lines that do not follow each other.
-- The filter panel and klogg's own search box are used one at a time; switch with the `Filters` button at the left end of the search bar above the filtered view.
+- The filter panel and klogg's own search box are used one at a time; switch with the `Filters` button at the left end of the search bar above the filtered view. A new tab and an empty search start in Filter mode; turn off `Start in Filter mode` in `File > Preferences` to use the panel only as a highlighter, as in klogg.
+- `Shift` + mouse wheel scrolls sideways in every view with a horizontal scroll bar.
 - In the main and filtered views, `Ctrl+1-8` sets bookmarks and `Alt+1-8` / `Shift+Alt+1-8` jump to the next / previous line with that bookmark.
   (Changing them in `File > Preferences > Shortcuts` is recommended; flogg keeps klogg's own shortcuts by default.)
 - `Ctrl+H` (macOS: `Control+H`) hides the main view and shows the filtered view only.
