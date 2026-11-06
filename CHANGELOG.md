@@ -1,5 +1,10 @@
 # flogg changes
 
+## Unreleased
+
+- Linux: flogg starts on every x86-64 CPU; the package no longer depends on the CPU of the machine
+  that built it, 1.1.7 crashed at start on CPUs without AVX-512
+
 ## 1.1.7 (2026-11-06)
 
 - New `Start in Filter mode` option in `Preferences > General`: when off, a new tab and an empty

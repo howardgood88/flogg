@@ -41,6 +41,14 @@ if(KLOGG_USE_HYPERSCAN)
   target_link_libraries(klogg_hyperscan INTERFACE hs)
   target_include_directories(klogg_hyperscan INTERFACE ${hyperscan_SOURCE_DIR}/src)
 elseif(KLOGG_USE_VECTORSCAN)
+  # Without the fat runtime Vectorscan is built with -march=native on x86: a package would need
+  # the CPU of the machine that built it. The fat runtime picks the code for the CPU it runs on.
+  set(VECTORSCAN_CPU_OPTIONS "FAT_RUNTIME OFF")
+  if(KLOGG_GENERIC_CPU AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set(VECTORSCAN_CPU_OPTIONS "FAT_RUNTIME ON" "BUILD_AVX2 ON" "BUILD_AVX512 ON"
+                               "BUILD_AVX512VBMI ON")
+  endif()
+
   cpmaddpackage(
     NAME
     vectorscan
@@ -61,7 +69,7 @@ elseif(KLOGG_USE_VECTORSCAN)
     "BUIlD_AVX2 OFF"
     "BUIlD_AVX512 OFF"
     "BUIlD_AVX512VBMI OFF"
-    "FAT_RUNTIME OFF"
+    ${VECTORSCAN_CPU_OPTIONS}
   )
  
   message("Adding alias for vectorscan")
