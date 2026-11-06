@@ -63,10 +63,20 @@ inline void showPathInFileExplorer( const QString& filePath )
     LOG_INFO << "Show path in explorer: " << filePath;
 
 #if defined( Q_OS_WIN )
-    const auto explorerArgs
-        = QStringList() << QString( "/select,%1" )
-                               .arg( QDir::toNativeSeparators( fileInfo.canonicalFilePath() ) );
-    QProcess::startDetached( "explorer.exe", explorerArgs );
+    const auto canonicalPath = fileInfo.canonicalFilePath();
+    if ( canonicalPath.isEmpty() ) {
+        // The file is gone, /select would open a default folder instead of this one
+        QDesktopServices::openUrl( QUrl::fromLocalFile( fileInfo.absolutePath() ) );
+        return;
+    }
+
+    // explorer.exe needs /select,"path": QProcess arguments would quote /select along with a
+    // path holding a space, and explorer would no longer recognize it
+    QProcess explorer;
+    explorer.setProgram( "explorer.exe" );
+    explorer.setNativeArguments(
+        QString( "/select,\"%1\"" ).arg( QDir::toNativeSeparators( canonicalPath ) ) );
+    explorer.startDetached();
 #elif defined( Q_OS_MAC )
     QStringList scriptArgs;
     scriptArgs << QLatin1String( "-e" )
