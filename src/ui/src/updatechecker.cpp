@@ -58,6 +58,7 @@ const QString ChangelogUrl{
 
 constexpr QLatin1String LastCheckKey = QLatin1String( "update/lastCheck" );
 constexpr QLatin1String SkippedVersionKey = QLatin1String( "update/skippedVersion" );
+constexpr QLatin1String AvailableVersionKey = QLatin1String( "update/availableVersion" );
 
 // The start check waits for the windows to settle, and is done at most once a day
 constexpr int StartupDelayMs = 5000;
@@ -113,6 +114,17 @@ std::optional<QVersionNumber> releaseVersion( const QString& buildVersion )
         return {};
     }
     return QVersionNumber( version.majorVersion(), version.minorVersion(), version.microVersion() );
+}
+
+QString pendingVersion( const QString& remembered, const QString& buildVersion )
+{
+    const auto available = QVersionNumber::fromString( remembered );
+    const auto current = releaseVersion( buildVersion );
+    // Installed since, or a development build
+    if ( available.isNull() || !current || available <= *current ) {
+        return {};
+    }
+    return available.toString();
 }
 
 std::optional<Release> releaseOfTag( const QString& tag )
@@ -282,6 +294,26 @@ void UpdateChecker::scheduleStartupCheck()
     QTimer::singleShot( StartupDelayMs, this, [ this ] { check( false ); } );
 }
 
+QString UpdateChecker::availableVersion() const
+{
+    return updates::pendingVersion( settings().value( AvailableVersionKey ).toString(),
+                                    kloggVersion() );
+}
+
+void UpdateChecker::setAvailableVersion( const QString& version )
+{
+    if ( settings().value( AvailableVersionKey ).toString() == version ) {
+        return;
+    }
+    if ( version.isEmpty() ) {
+        settings().remove( AvailableVersionKey );
+    }
+    else {
+        settings().setValue( AvailableVersionKey, version );
+    }
+    Q_EMIT availableVersionChanged();
+}
+
 void UpdateChecker::checkNow( QWidget* parent )
 {
     parent_ = parent;
@@ -374,6 +406,9 @@ void UpdateChecker::offer( const updates::Release& release, bool manual )
         }
         return;
     }
+
+    // Marked in the menus until it is installed, also when skipped or postponed
+    setAvailableVersion( release.version > *current ? release.version.toString() : QString{} );
 
     if ( release.version <= *current ) {
         if ( manual ) {

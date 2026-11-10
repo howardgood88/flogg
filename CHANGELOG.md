@@ -1,5 +1,12 @@
 # flogg changes
 
+## 1.1.10 (2026-11-11)
+
+- `Check for updates...` has a red dot while a newer version found at start is not installed,
+  also after `Later` or `Skip this version`
+- The window title shows the version like the release tags, e.g. `(v1.1.9)` instead of
+  `(build 1.1.9)`
+
 ## 1.1.9 (2026-11-11)
 
 - New `Preferences > Filter files` tab: rules that give a filter file to the log files whose name

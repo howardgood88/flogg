@@ -38,6 +38,18 @@ SCENARIO( "Update checker reads the build version", "[update]" )
     CHECK_FALSE( updates::releaseVersion( "" ) );
 }
 
+SCENARIO( "Update checker marks a newer release until it is installed", "[update]" )
+{
+    CHECK( updates::pendingVersion( "1.1.9", "1.1.8.60" ) == "1.1.9" );
+    CHECK( updates::pendingVersion( "1.2.0", "1.1.8" ) == "1.2.0" );
+    // Installed, or older than the build
+    CHECK( updates::pendingVersion( "1.1.9", "1.1.9.61" ).isEmpty() );
+    CHECK( updates::pendingVersion( "1.1.8", "1.1.9" ).isEmpty() );
+    // Nothing found, or a development build
+    CHECK( updates::pendingVersion( "", "1.1.8" ).isEmpty() );
+    CHECK( updates::pendingVersion( "1.1.9", "24.11.0.57" ).isEmpty() );
+}
+
 SCENARIO( "Update checker reads the GitHub release", "[update]" )
 {
     // Shape of https://api.github.com/repos/howardgood88/flogg/releases/latest

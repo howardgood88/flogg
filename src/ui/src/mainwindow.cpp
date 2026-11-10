@@ -59,6 +59,7 @@
 
 #include <QClipboard>
 #include <QCloseEvent>
+#include <QPainter>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDockWidget>
@@ -610,6 +611,10 @@ void MainWindow::createActions()
     checkForUpdatesAction->setMenuRole( QAction::ApplicationSpecificRole );
     connect( checkForUpdatesAction, &QAction::triggered, this,
              [ this ]( auto ) { UpdateChecker::instance().checkNow( this ); } );
+    // A red dot while a newer release waits to be installed
+    connect( &UpdateChecker::instance(), &UpdateChecker::availableVersionChanged, this,
+             &MainWindow::updateCheckForUpdatesMark );
+    updateCheckForUpdatesMark();
 
     aboutAction = new QAction( tr( action::aboutText ), this );
     aboutAction->setStatusTip( tr( action::aboutStatusTip ) );
@@ -2076,8 +2081,40 @@ void MainWindow::updateTitleBar( const QString& file_name )
         shownName = QString::fromUtf8( "\xF0\x9F\x94\x97 " ) + shownName;
     }
 
-    setWindowTitle( tr( "%1 - %2%3" ).arg( shownName, tr( "flogg" ), indexPart ) + tr( " (build " )
+    // Written like the release tags on GitHub
+    setWindowTitle( tr( "%1 - %2%3" ).arg( shownName, tr( "flogg" ), indexPart ) + " (v"
                     + kloggReleaseVersion() + ")" );
+}
+
+void MainWindow::updateCheckForUpdatesMark()
+{
+    const auto available = UpdateChecker::instance().availableVersion();
+    if ( available.isEmpty() ) {
+        checkForUpdatesAction->setIcon( {} );
+        checkForUpdatesAction->setIconVisibleInMenu( false );
+        checkForUpdatesAction->setToolTip( {} );
+        checkForUpdatesAction->setStatusTip( {} );
+        return;
+    }
+
+    constexpr int Size = 16;
+    constexpr qreal Scale = 2;
+    QPixmap pixmap( static_cast<int>( Size * Scale ), static_cast<int>( Size * Scale ) );
+    pixmap.setDevicePixelRatio( Scale );
+    pixmap.fill( Qt::transparent );
+    QPainter painter( &pixmap );
+    painter.setRenderHint( QPainter::Antialiasing );
+    painter.setPen( Qt::NoPen );
+    painter.setBrush( QColor( 0xe5, 0x39, 0x35 ) );
+    painter.drawEllipse( QPointF( Size / 2.0, Size / 2.0 ), 4, 4 );
+    painter.end();
+
+    // Menus hide icons in flogg, this one is shown
+    checkForUpdatesAction->setIcon( QIcon( pixmap ) );
+    checkForUpdatesAction->setIconVisibleInMenu( true );
+    const auto text = tr( "flogg %1 is available" ).arg( available );
+    checkForUpdatesAction->setToolTip( text );
+    checkForUpdatesAction->setStatusTip( text );
 }
 
 void MainWindow::refreshTitleBar()

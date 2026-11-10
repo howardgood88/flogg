@@ -69,6 +69,10 @@ using FetchCallback = std::function<void( std::optional<Release> release, QStrin
 void fetchLatestWithoutApi( QNetworkAccessManager& network, const QString& assetSuffix,
                             FetchCallback done );
 
+// The newer release remembered by the last check, empty when the build (its version
+// as kloggVersion) has it already or is a development build
+QString pendingVersion( const QString& remembered, const QString& buildVersion );
+
 // Package suffix of this platform, empty when releases have none
 QString platformAssetSuffix();
 
@@ -87,7 +91,16 @@ class UpdateChecker : public QObject {
     // From the Help menu: also tells when there is nothing new
     void checkNow( QWidget* parent );
 
+    // Newer release found by the last check and not installed yet, empty when there is none.
+    // Kept in the settings, the check is done at most once a day.
+    QString availableVersion() const;
+
+  Q_SIGNALS:
+    void availableVersionChanged();
+
   private:
+    void setAvailableVersion( const QString& version );
+
     UpdateChecker();
 
     void check( bool manual );

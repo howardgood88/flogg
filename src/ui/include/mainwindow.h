@@ -341,6 +341,8 @@ class MainWindow : public QMainWindow {
     QAction* exportSettingsAction;
     QAction* showScratchPadAction;
     QAction* checkForUpdatesAction;
+    // Red dot on checkForUpdatesAction while a newer release is not installed
+    void updateCheckForUpdatesMark();
     QAction* whatsNewAction;
     QAction* aboutAction;
     QAction* aboutQtAction;
