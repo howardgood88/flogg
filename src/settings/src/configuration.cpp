@@ -318,6 +318,18 @@ void Configuration::retrieveFromStorage( QSettings& settings )
         settings.remove( "shortcuts.mapping" );
     }
 
+    filterFileRules_.clear();
+    const auto rulesCount = settings.beginReadArray( "filterFileRules" );
+    for ( auto ruleIndex = 0; ruleIndex < rulesCount; ++ruleIndex ) {
+        settings.setArrayIndex( ruleIndex );
+        FilterFileRule rule{ settings.value( "patterns" ).toString(),
+                             settings.value( "file" ).toString() };
+        if ( !rule.patterns.trimmed().isEmpty() && !rule.file.isEmpty() ) {
+            filterFileRules_.append( std::move( rule ) );
+        }
+    }
+    settings.endArray();
+
     const auto shortcutsCount = settings.beginReadArray( "shortcuts" );
     for ( auto shortcutIndex = 0; shortcutIndex < shortcutsCount; ++shortcutIndex ) {
         settings.setArrayIndex( static_cast<int>( shortcutIndex ) );
@@ -427,6 +439,15 @@ void Configuration::saveToStorage( QSettings& settings ) const
                     []( auto s ) { return QVariant::fromValue( s ); } );
 
     settings.setValue( "defaultView.splitterSizes", splitterSizes );
+
+    settings.remove( "filterFileRules" );
+    settings.beginWriteArray( "filterFileRules" );
+    for ( auto ruleIndex = 0; ruleIndex < filterFileRules_.size(); ++ruleIndex ) {
+        settings.setArrayIndex( ruleIndex );
+        settings.setValue( "patterns", filterFileRules_[ ruleIndex ].patterns );
+        settings.setValue( "file", filterFileRules_[ ruleIndex ].file );
+    }
+    settings.endArray();
 
     settings.beginWriteArray( "shortcuts" );
     auto shortcutIndex = 0;

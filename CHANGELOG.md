@@ -1,5 +1,13 @@
 # flogg changes
 
+## 1.1.9 (2026-11-11)
+
+- New `Preferences > Filter files` tab: rules that give a filter file to the log files whose name
+  matches wildcard patterns (e.g. `*.syslog; messages*`, or `*/nginx/*.log` for a path), so such
+  files open with their filters without loading them each time; the first matching rule wins,
+  other files open with the filter file last opened as before. The `?` button explains the
+  patterns with examples
+
 ## 1.1.8 (2026-11-06)
 
 - Linux: flogg starts on every x86-64 CPU; the package no longer depends on the CPU of the machine

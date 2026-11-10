@@ -149,6 +149,9 @@ bool confirmUnsavedFilters( QWidget* parent, const QString& text,
 // Marks what uses the shared filters: two links of a chain, in the given colour
 QIcon sharedFiltersIcon( const QColor& color );
 
+// Thin up or down arrow of the move buttons, in the text colour
+QIcon moveArrowIcon( bool up, const QPalette& palette );
+
 // Filters shared by the tabs in shared mode, in every window. The filter panels showing such
 // a tab publish their changes here right away (also unsaved ones) and take the changes of
 // the others; tabs in the background get them when they are shown, as any filter change.
@@ -227,6 +230,18 @@ class FilterPanel : public QWidget {
     // Filter file loaded by the panels created from now on (instead of the remembered one),
     // without remembering it
     static void setStartupFile( const QString& path );
+
+    // Filter file of the first rule of the settings whose patterns match a log file, empty
+    // when none matches: the tab of that file loads it instead of the file of the panel
+    static QString ruleFileFor( const QString& logFile );
+    // Whether one of the patterns (wildcards separated by ';', case insensitive) matches the
+    // name of the log file, or its path for a pattern with a '/'
+    static bool matchesPatterns( const QString& patterns, const QString& logFile );
+
+    // Filter files as kept in the settings: relative to the folder of portable settings when
+    // inside it
+    static QString rememberedPath( const QString& path );
+    static QString pathFromRemembered( const QString& path );
 
     std::shared_ptr<const FilterSnapshot> snapshot() const
     {

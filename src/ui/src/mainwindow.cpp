@@ -1865,6 +1865,17 @@ bool MainWindow::loadFile( const QString& fileName, bool followFile )
                 crawler_widget->setViewContext( previousViewContext );
             }
 
+            // A file matching a rule of the settings gets its filter file, also over the
+            // filters kept by the session when the file was open before (restoring the
+            // session at start does not come here, its tabs keep their filters)
+            const auto ruleFile = FilterPanel::ruleFileFor( fileName );
+            if ( !ruleFile.isEmpty() ) {
+                LOG_INFO << "Filter file " << ruleFile.toStdString() << " set by a rule";
+                FilterTabState state;
+                state.file = ruleFile;
+                crawler_widget->setFilterTabState( std::move( state ) );
+            }
+
             // We disable the tab widget to avoid having someone switch
             // tab during loading. (maybe FIXME)
             // mainTabWidget_.setEnabled( false );
@@ -2493,9 +2504,14 @@ void MainWindow::switchFilterTab( CrawlerWidget* crawler )
     filterPanel_->setTab( crawler );
 
     // Filters set up while no file was open go to the first file opened
+    // (a file matching a rule gets the filter file of the rule, unless they were changed)
     if ( crawler && !hadTab && !crawler->filterTabState().initialized ) {
-        SharedFilters::instance().setUser( crawler, filterPanel_->isSharedMode() );
-        return;
+        const auto keepFilters = crawler->filterTabState().file.isEmpty()
+                                 || filterPanel_->isSharedMode() || filterPanel_->isModified();
+        if ( keepFilters ) {
+            SharedFilters::instance().setUser( crawler, filterPanel_->isSharedMode() );
+            return;
+        }
     }
 
     filterPanel_->setTabState( crawler ? crawler->filterTabState() : FilterTabState{} );

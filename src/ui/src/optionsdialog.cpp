@@ -38,6 +38,9 @@
 
 #include <QCheckBox>
 #include <QColorDialog>
+#include <QFileDialog>
+#include <QHeaderView>
+#include <QTableWidget>
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -49,6 +52,7 @@
 #include <QtGui>
 
 #include "encodings.h"
+#include "filterpanel.h"
 #include "fontutils.h"
 #include "highlighterset.h"
 #include "highlighteredit.h"
@@ -77,6 +81,7 @@ OptionsDialog::OptionsDialog( QWidget* parent )
     setupStyles();
     setupEncodings();
     setupLanguageList();
+    setupFilterFileRules();
 
     // Validators
     QValidator* pollingIntervalValidator = new QIntValidator( PollIntervalMin, PollIntervalMax );
@@ -130,6 +135,276 @@ void OptionsDialog::setupTabs()
     regexpEngineLabel->setVisible( false );
     regexpEngineComboBox->setVisible( false );
 #endif
+}
+
+// Question mark in a circle, drawn with the text colour like the arrows of the filter panel
+static QIcon questionIcon( const QPalette& palette )
+{
+    constexpr int Size = 18;
+    constexpr qreal Scale = 2;
+
+    QIcon icon;
+    for ( const auto mode : { QIcon::Normal, QIcon::Disabled } ) {
+        QPixmap pixmap( static_cast<int>( Size * Scale ), static_cast<int>( Size * Scale ) );
+        pixmap.setDevicePixelRatio( Scale );
+        pixmap.fill( Qt::transparent );
+
+        QPainter painter( &pixmap );
+        painter.setRenderHint( QPainter::Antialiasing );
+        const auto group = mode == QIcon::Disabled ? QPalette::Disabled : QPalette::Active;
+        const auto color = palette.color( group, QPalette::ButtonText );
+        painter.setPen( QPen( color, 1.3 ) );
+        painter.drawEllipse( QRectF( 1.5, 1.5, Size - 3, Size - 3 ) );
+
+        auto font = painter.font();
+        font.setPixelSize( 12 );
+        font.setBold( true );
+        painter.setFont( font );
+        painter.drawText( QRectF( 0, 0, Size, Size ), Qt::AlignCenter, "?" );
+        painter.end();
+
+        icon.addPixmap( pixmap, mode );
+    }
+    return icon;
+}
+
+// Thin trash can in the text colour, like the arrows of the filter panel
+static QIcon removeIcon( const QPalette& palette )
+{
+    constexpr int Size = 12;
+    constexpr qreal Scale = 2;
+
+    QIcon icon;
+    for ( const auto mode : { QIcon::Normal, QIcon::Disabled } ) {
+        QPixmap pixmap( static_cast<int>( Size * Scale ), static_cast<int>( Size * Scale ) );
+        pixmap.setDevicePixelRatio( Scale );
+        pixmap.fill( Qt::transparent );
+
+        QPainter painter( &pixmap );
+        painter.setRenderHint( QPainter::Antialiasing );
+        const auto group = mode == QIcon::Disabled ? QPalette::Disabled : QPalette::Active;
+        painter.setPen( QPen( palette.color( group, QPalette::ButtonText ), 1.1, Qt::SolidLine,
+                              Qt::RoundCap, Qt::RoundJoin ) );
+        // Handle, lid, can and its two stripes
+        painter.drawPolyline( QPolygonF{ { 4.5, 2.5 }, { 4.5, 1.2 }, { 7.5, 1.2 }, { 7.5, 2.5 } } );
+        painter.drawLine( QPointF( 1.5, 2.8 ), QPointF( 10.5, 2.8 ) );
+        painter.drawPolyline(
+            QPolygonF{ { 2.8, 2.8 }, { 3.5, 11 }, { 8.5, 11 }, { 9.2, 2.8 } } );
+        painter.drawLine( QPointF( 5, 5 ), QPointF( 5.2, 9 ) );
+        painter.drawLine( QPointF( 7, 5 ), QPointF( 6.8, 9 ) );
+        painter.end();
+
+        icon.addPixmap( pixmap, mode );
+    }
+    return icon;
+}
+
+// Tab of the rules giving a filter file to the log files matching patterns
+void OptionsDialog::setupFilterFileRules()
+{
+    auto* tab = new QWidget;
+    auto* layout = new QVBoxLayout( tab );
+
+    filterRulesTable_ = new QTableWidget( 0, 2, tab );
+    filterRulesTable_->setHorizontalHeaderLabels( { tr( "File name patterns" ),
+                                                    tr( "Filter file" ) } );
+    filterRulesTable_->setSelectionBehavior( QAbstractItemView::SelectRows );
+    filterRulesTable_->setSelectionMode( QAbstractItemView::SingleSelection );
+    filterRulesTable_->verticalHeader()->setVisible( false );
+    filterRulesTable_->horizontalHeader()->setStretchLastSection( true );
+    filterRulesTable_->setColumnWidth( 0, 200 );
+    layout->addWidget( filterRulesTable_, 1 );
+
+    auto* buttons = new QHBoxLayout;
+    auto* addButton = new QPushButton( tr( "Add..." ), tab );
+    addButton->setToolTip( tr( "Choose a filter file and add a rule for it" ) );
+    filterRuleBrowseButton_ = new QPushButton( tr( "Change file..." ), tab );
+    // Arrows as in the filter panel
+    const auto arrowButton = [ tab ]( bool up ) {
+        auto* button = new QToolButton( tab );
+        button->setAutoRaise( true );
+        button->setIcon( moveArrowIcon( up, tab->palette() ) );
+        button->setToolTip( up ? tr( "Move up" ) : tr( "Move down" ) );
+        return button;
+    };
+    filterRuleUpButton_ = arrowButton( true );
+    filterRuleDownButton_ = arrowButton( false );
+    auto* removeButton = new QToolButton( tab );
+    removeButton->setAutoRaise( true );
+    removeButton->setIcon( removeIcon( tab->palette() ) );
+    removeButton->setToolTip( tr( "Remove" ) );
+    filterRuleRemoveButton_ = removeButton;
+    for ( QWidget* button : std::initializer_list<QWidget*>{
+              addButton, filterRuleBrowseButton_, filterRuleUpButton_, filterRuleDownButton_,
+              filterRuleRemoveButton_ } ) {
+        buttons->addWidget( button );
+    }
+    buttons->addStretch();
+
+    auto* helpButton = new QToolButton( tab );
+    helpButton->setObjectName( "filterRulesHelpButton" );
+    helpButton->setAutoRaise( true );
+    helpButton->setIcon( questionIcon( tab->palette() ) );
+    helpButton->setIconSize( QSize( 18, 18 ) );
+    helpButton->setToolTip( tr( "How rules work" ) );
+    connect( helpButton, &QToolButton::clicked, this, &OptionsDialog::showFilterRulesHelp );
+    buttons->addWidget( helpButton );
+    layout->addLayout( buttons );
+
+    const auto chooseFile = [ this ]( const QString& current ) {
+        return QFileDialog::getOpenFileName(
+            this, tr( "Filter file" ),
+            current.isEmpty() ? QString{} : QFileInfo( current ).absolutePath(),
+            tr( "flogg filters (*.flogg-filters.json);;All files (*)" ) );
+    };
+
+    connect( addButton, &QPushButton::clicked, this, [ this, chooseFile ] {
+        const auto file = chooseFile( {} );
+        if ( file.isEmpty() ) {
+            return;
+        }
+        const auto row = addFilterFileRule( {}, file );
+        filterRulesTable_->setCurrentCell( row, 0 );
+        filterRulesTable_->editItem( filterRulesTable_->item( row, 0 ) );
+    } );
+    connect( filterRuleBrowseButton_, &QPushButton::clicked, this, [ this, chooseFile ] {
+        const auto row = filterRulesTable_->currentRow();
+        if ( row < 0 ) {
+            return;
+        }
+        auto* item = filterRulesTable_->item( row, 1 );
+        const auto file = chooseFile( QDir::fromNativeSeparators( item->text() ) );
+        if ( !file.isEmpty() ) {
+            item->setText( QDir::toNativeSeparators( file ) );
+        }
+    } );
+    const auto moveRow = [ this ]( int offset ) {
+        const auto row = filterRulesTable_->currentRow();
+        const auto target = row + offset;
+        if ( row < 0 || target < 0 || target >= filterRulesTable_->rowCount() ) {
+            return;
+        }
+        for ( int column = 0; column < 2; ++column ) {
+            auto* item = filterRulesTable_->takeItem( row, column );
+            filterRulesTable_->setItem( row, column, filterRulesTable_->takeItem( target, column ) );
+            filterRulesTable_->setItem( target, column, item );
+        }
+        filterRulesTable_->setCurrentCell( target, filterRulesTable_->currentColumn() );
+    };
+    connect( filterRuleUpButton_, &QPushButton::clicked, this, [ moveRow ] { moveRow( -1 ); } );
+    connect( filterRuleDownButton_, &QPushButton::clicked, this, [ moveRow ] { moveRow( 1 ); } );
+    connect( filterRuleRemoveButton_, &QPushButton::clicked, this, [ this ] {
+        const auto row = filterRulesTable_->currentRow();
+        if ( row >= 0 ) {
+            filterRulesTable_->removeRow( row );
+        }
+        updateFilterRuleButtons();
+    } );
+    connect( filterRulesTable_, &QTableWidget::currentCellChanged, this,
+             [ this ] { updateFilterRuleButtons(); } );
+    connect( filterRulesTable_, &QTableWidget::itemChanged, this,
+             [ this ]( QTableWidgetItem* item ) {
+                 if ( item->column() != 1 ) {
+                     return;
+                 }
+                 // The file is created by the first save of the filters when missing
+                 const auto path = QDir::fromNativeSeparators( item->text().trimmed() );
+                 const auto missing = !path.isEmpty() && !QFileInfo::exists( path );
+                 const auto toolTip
+                     = missing ? tr( "The file does not exist: the matching files open with no "
+                                     "filters, saving them creates it" )
+                               : QString{};
+                 if ( item->toolTip() != toolTip ) {
+                     item->setToolTip( toolTip );
+                 }
+             } );
+
+    const auto fileTab = tabWidget->indexOf( file_watch_tab );
+    tabWidget->insertTab( fileTab < 0 ? tabWidget->count() : fileTab + 1, tab,
+                          tr( "Filter files" ) );
+}
+
+void OptionsDialog::showFilterRulesHelp()
+{
+    const auto example = []( const QString& pattern, const QString& matches,
+                             const QString& notMatching ) {
+        // Room between the columns, a long pattern otherwise touches the next column
+        return QString( "<tr><td style='padding-right:32px'><code>%1</code></td>"
+                        "<td style='padding-right:12px'>%2</td><td>%3</td></tr>" )
+            .arg( pattern, matches, notMatching );
+    };
+    const auto code = []( const QString& text ) { return "<code>" + text + "</code>"; };
+
+    auto text = QString( "<h3>%1</h3><p>%2</p><ul><li>%3</li><li>%4</li></ul>" )
+                    .arg( tr( "Filter file rules" ),
+                          tr( "A log file whose name matches a rule opens with the filter file "
+                              "of that rule." ),
+                          tr( "Rules are checked from top to bottom, the first match wins." ),
+                          tr( "A file matching no rule opens with the filter file last opened "
+                              "or saved as in the filter panel." ) );
+    text += QString( "<h4>%1</h4><ul><li>%2</li><li>%3</li><li>%4</li><li>%5</li></ul>" )
+                .arg( tr( "Patterns" ),
+                      tr( "%1 matches any text, %2 matches one character." )
+                          .arg( code( "*" ), code( "?" ) ),
+                      tr( "Separate several patterns with %1." ).arg( code( ";" ) ),
+                      tr( "Case is ignored." ),
+                      tr( "A pattern with a %1 matches the whole path instead of the name, and "
+                          "its %2 also crosses folders." )
+                          .arg( code( "/" ), code( "*" ) ) );
+    text += QString( "<h4>%1</h4><table cellspacing='0' cellpadding='3'>"
+                     "<tr><th align='left' style='padding-right:32px'>%2</th>"
+                     // A long cell wraps instead of widening the column to the dialog
+                     "<th align='left' width='230' style='padding-right:12px'>%3</th>"
+                     "<th align='left'>%4</th></tr>" )
+                .arg( tr( "Examples" ), tr( "Pattern" ), tr( "Matches" ),
+                      tr( "Does not match" ) );
+    // Only the patterns in the font of code, the file names in the font of the text
+    const auto both = []( const QString& lhs, const QString& rhs ) { return lhs + ", " + rhs; };
+    text += example( "*.syslog", both( "a.syslog", "B.SYSLOG" ), "a.syslog.gz" );
+    text += example( "big*", both( "big.log", "big2.log" ), "mybig.log" );
+    text += example( "*error*", both( "error.log", "app_errors.txt" ), "app.log" );
+    text += example( "app_??.log", "app_01.log", "app_001.log" );
+    text += example( "*.txt; messages*", both( "x.txt", "messages.1" ), "x.log" );
+    text += example( "*/nginx/*.log", "/var/log/nginx/access.log",
+                     "/var/log/apache/access.log" );
+    text += example( "*/device-*/*",
+                     tr( "every file in a folder whose name starts with %1" )
+                         .arg( "device-" ),
+                     "/logs/device.log" );
+    text += "</table>";
+
+    // Not a message box: macOS shows its text in bold and narrow
+    QDialog help( this );
+    help.setWindowTitle( tr( "Filter file rules" ) );
+    auto* layout = new QVBoxLayout( &help );
+    auto* label = new QLabel( text, &help );
+    label->setTextFormat( Qt::RichText );
+    label->setWordWrap( true );
+    label->setMinimumWidth( 560 );
+    label->setTextInteractionFlags( Qt::TextSelectableByMouse );
+    layout->addWidget( label );
+    auto* buttons = new QDialogButtonBox( QDialogButtonBox::Ok, &help );
+    connect( buttons, &QDialogButtonBox::accepted, &help, &QDialog::accept );
+    layout->addWidget( buttons );
+    help.exec();
+}
+
+int OptionsDialog::addFilterFileRule( const QString& patterns, const QString& file )
+{
+    const auto row = filterRulesTable_->rowCount();
+    filterRulesTable_->insertRow( row );
+    filterRulesTable_->setItem( row, 0, new QTableWidgetItem( patterns ) );
+    filterRulesTable_->setItem( row, 1, new QTableWidgetItem( QDir::toNativeSeparators( file ) ) );
+    return row;
+}
+
+void OptionsDialog::updateFilterRuleButtons()
+{
+    const auto row = filterRulesTable_->currentRow();
+    filterRuleBrowseButton_->setEnabled( row >= 0 );
+    filterRuleRemoveButton_->setEnabled( row >= 0 );
+    filterRuleUpButton_->setEnabled( row > 0 );
+    filterRuleDownButton_->setEnabled( row >= 0 && row + 1 < filterRulesTable_->rowCount() );
 }
 
 // Populates the 'family' ComboBox
@@ -346,6 +621,13 @@ void OptionsDialog::updateDialogFromConfig()
     logicalCombiningCheckBox->setChecked( config.isSearchLogicalCombiningDefault() );
     autoRefreshCheckBox->setChecked( config.isSearchAutoRefreshDefault() );
     filterModeCheckBox->setChecked( config.filterModeByDefault() );
+
+    filterRulesTable_->setRowCount( 0 );
+    for ( const auto& rule : config.filterFileRules() ) {
+        addFilterFileRule( rule.patterns, FilterPanel::pathFromRemembered( rule.file ) );
+    }
+    filterRulesTable_->setCurrentCell( -1, -1 );
+    updateFilterRuleButtons();
 
     // Polling
     nativeFileWatchCheckBox->setChecked( config.nativeFileWatchEnabled() );
@@ -608,6 +890,20 @@ void OptionsDialog::updateConfigFromDialog()
     config.setSearchIgnoreCaseDefault( !caseSensitiveCheckBox->isChecked() );
     config.setSearchAutoRefreshDefault( autoRefreshCheckBox->isChecked() );
     config.setFilterModeByDefault( filterModeCheckBox->isChecked() );
+
+    QList<FilterFileRule> filterRules;
+    for ( int row = 0; row < filterRulesTable_->rowCount(); ++row ) {
+        const auto* patterns = filterRulesTable_->item( row, 0 );
+        const auto* file = filterRulesTable_->item( row, 1 );
+        const auto patternsText = patterns ? patterns->text().trimmed() : QString{};
+        const auto fileText = file ? file->text().trimmed() : QString{};
+        // Rows left half filled do nothing
+        if ( !patternsText.isEmpty() && !fileText.isEmpty() ) {
+            filterRules.append( { patternsText, FilterPanel::rememberedPath(
+                                                    QDir::fromNativeSeparators( fileText ) ) } );
+        }
+    }
+    config.setFilterFileRules( std::move( filterRules ) );
     config.setSearchLogicalCombiningDefault( logicalCombiningCheckBox->isChecked() );
     config.setQuickfindRegexpType( getRegexpTypeFromIndex( quickFindSearchBox->currentIndex() ) );
     config.setQfBackColor( qfSearchColor_ );

@@ -51,6 +51,8 @@
 
 #include "ui_optionsdialog.h"
 
+class QTableWidget;
+
 class KeySequencePresenter : public QWidget {
     Q_OBJECT
   public:
@@ -105,6 +107,12 @@ class OptionsDialog : public QDialog, public Ui::OptionsDialog {
     void setupStyles();
     void setupEncodings();
     void setupLanguageList();
+    void setupFilterFileRules();
+    // Appends a row to the rules, returns its index
+    int addFilterFileRule( const QString& patterns, const QString& file );
+    void updateFilterRuleButtons();
+    // Rules and examples of the patterns, in a window of its own
+    void showFilterRulesHelp();
 
     int updateTranslate();
 
@@ -128,6 +136,12 @@ class OptionsDialog : public QDialog, public Ui::OptionsDialog {
     QPushButton* selectionBackButton_ = nullptr;
     QPushButton* selectionTextButton_ = nullptr;
     QList<QuickHighlighter> colorLabels_;
+
+    QTableWidget* filterRulesTable_ = nullptr;
+    QPushButton* filterRuleBrowseButton_ = nullptr;
+    QAbstractButton* filterRuleUpButton_ = nullptr;
+    QAbstractButton* filterRuleDownButton_ = nullptr;
+    QAbstractButton* filterRuleRemoveButton_ = nullptr;
 };
 
 #endif

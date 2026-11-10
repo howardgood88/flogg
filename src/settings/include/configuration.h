@@ -42,12 +42,27 @@
 
 #include <QColor>
 #include <QFont>
+#include <QList>
 #include <QSettings>
 #include <qcolor.h>
 #include <string>
 #include <string_view>
 
 #include "persistable.h"
+
+// Filter file loaded by a tab whose log file name matches one of the patterns (wildcards,
+// separated by ';'), instead of the filter file of the panel
+struct FilterFileRule {
+    QString patterns;
+    // As remembered by the filter panel: relative to the folder of portable settings when
+    // inside it
+    QString file;
+
+    bool operator==( const FilterFileRule& other ) const
+    {
+        return patterns == other.patterns && file == other.file;
+    }
+};
 
 // Type of regexp to use for searches
 enum class SearchRegexpType {
@@ -302,6 +317,16 @@ class Configuration final : public Persistable<Configuration> {
     void setLoggingLevel( int level )
     {
         loggingLevel_ = level;
+    }
+
+    // Checked in order when a file is opened, the first matching rule wins
+    const QList<FilterFileRule>& filterFileRules() const
+    {
+        return filterFileRules_;
+    }
+    void setFilterFileRules( QList<FilterFileRule> rules )
+    {
+        filterFileRules_ = std::move( rules );
     }
 
     // Default settings for new views
@@ -562,6 +587,7 @@ class Configuration final : public Persistable<Configuration> {
     // Default settings for new views
     bool searchAutoRefresh_ = false;
     bool filterModeByDefault_ = true;
+    QList<FilterFileRule> filterFileRules_;
     bool searchIgnoreCase_ = false;
     bool searchLogicalCombining_ = false;
     QList<int> splitterSizes_;

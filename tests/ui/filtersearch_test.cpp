@@ -27,6 +27,8 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QTabBar>
+#include <QToolButton>
+#include <QTableWidget>
 #include <QMessageBox>
 #include <QSignalSpy>
 #include <QTemporaryFile>
@@ -54,6 +56,7 @@
 #include "mainwindow.h"
 #include "optionsdialog.h"
 #include "session.h"
+#include "sessioninfo.h"
 #include "tabbedcrawlerwidget.h"
 #include "filtertree.h"
 #include "highlighterset.h"
@@ -2695,4 +2698,186 @@ SCENARIO( "A file opened again gets the filters saved since", "[filters]" )
     dialogCloser.stop();
     SharedFilters::instance().clear();
     settings.setValue( "filterPanel/currentFile", previousFile );
+}
+
+SCENARIO( "Filter file rules match log file names", "[filters]" )
+{
+    CHECK( FilterPanel::matchesPatterns( "*.syslog", "/var/log/a.syslog" ) );
+    CHECK( FilterPanel::matchesPatterns( "*.SYSLOG", "/var/log/a.syslog" ) );
+    CHECK( FilterPanel::matchesPatterns( "*.txt; messages*", "/var/log/messages.1" ) );
+    CHECK( FilterPanel::matchesPatterns( "app_??.log", "C:/logs/app_01.log" ) );
+    CHECK_FALSE( FilterPanel::matchesPatterns( "app_??.log", "/logs/app_001.log" ) );
+    CHECK_FALSE( FilterPanel::matchesPatterns( "*.syslog", "/var/log/a.syslog.gz" ) );
+    // The name only, the folder does not count
+    CHECK_FALSE( FilterPanel::matchesPatterns( "log*", "/var/log/a.txt" ) );
+    CHECK_FALSE( FilterPanel::matchesPatterns( " ; ", "/var/log/a.txt" ) );
+    // A pattern with a folder matches the path, '*' crosses folders
+    CHECK( FilterPanel::matchesPatterns( "*/nginx/*.log", "/srv/x/nginx/access.log" ) );
+    CHECK( FilterPanel::matchesPatterns( "*\\nginx\\*.log", "/srv/x/nginx/access.log" ) );
+    CHECK_FALSE( FilterPanel::matchesPatterns( "*/nginx/*.log", "/srv/x/apache/access.log" ) );
+}
+
+SCENARIO( "Main window opens files with the filter file of their rule", "[filters]" )
+{
+    QTemporaryDir dir;
+    const auto writeLog = [ & ]( const QString& name ) {
+        const auto path = dir.filePath( name );
+        QFile file( path );
+        REQUIRE( file.open( QIODevice::WriteOnly ) );
+        file.write( "a line\n" );
+        return path;
+    };
+    const auto syslog = writeLog( "a.syslog" );
+    const auto plainLog = writeLog( "b.log" );
+    const auto otherSyslog = writeLog( "c.SYSLOG" );
+
+    auto ruleFilters = FilterNode::makeGroup( "root" );
+    ruleFilters.children.push_back( FilterNode::makeFilter( "rule" ) );
+    const auto ruleFile = dir.filePath( "rule.flogg-filters.json" );
+    REQUIRE( filters::saveToFile( ruleFilters, ruleFile ) );
+
+    auto panelFilters = FilterNode::makeGroup( "root" );
+    panelFilters.children.push_back( FilterNode::makeFilter( "panel" ) );
+    const auto panelFile = dir.filePath( "panel.flogg-filters.json" );
+    REQUIRE( filters::saveToFile( panelFilters, panelFile ) );
+
+    auto& settings = PersistentInfo::getSettings( app_settings{} );
+    const auto previousFile = settings.value( "filterPanel/currentFile" );
+    settings.setValue( "filterPanel/currentFile", panelFile );
+    SharedFilters::instance().clear();
+
+    auto& config = Configuration::get();
+    const auto previousRules = config.filterFileRules();
+    config.setFilterFileRules( { { "nothing*", dir.filePath( "none.flogg-filters.json" ) },
+                                 { "*.syslog", FilterPanel::rememberedPath( ruleFile ) } } );
+
+    auto appSession = std::make_shared<Session>();
+    WindowSession windowSession{ appSession, "Rules", 0 };
+    MainWindow window( windowSession );
+    auto* panel = window.findChild<FilterPanel*>();
+    REQUIRE( panel );
+    const auto open = [ & ]( const QString& log ) {
+        WindowCommand command;
+        command.files = { log };
+        window.runCommand( command );
+    };
+    const auto shownPattern = [ & ] {
+        const auto& filters = panel->snapshot()->filters;
+        return filters.empty() ? QString{} : filters.front().pattern;
+    };
+
+    // The first file opened takes the filter file of its rule, the panel had no changes
+    open( syslog );
+    CHECK( panel->currentFile() == ruleFile );
+    CHECK( shownPattern() == "rule" );
+
+    // No rule: the filter file of the panel, as before
+    open( plainLog );
+    CHECK( panel->currentFile() == panelFile );
+    CHECK( shownPattern() == "panel" );
+
+    open( otherSyslog );
+    CHECK( panel->currentFile() == ruleFile );
+
+    // The tabs keep their filters when shown again
+    const auto tabs = window.tabInfos();
+    REQUIRE( tabs.size() == 3 );
+    CHECK( tabs[ 0 ].filtersFile == ruleFile );
+    CHECK( tabs[ 1 ].filtersFile == panelFile );
+    CHECK( tabs[ 2 ].filtersFile == ruleFile );
+
+    // A file open before keeps its filters in the session: the rule still wins when it is
+    // opened again
+    const auto reopened = writeLog( "d.syslog" );
+    const auto sessionWindow = QString( "RuleSessionWindow" );
+    {
+        auto& info = SessionInfo::getSynced();
+        info.add( sessionWindow );
+        const auto context = QString( R"({"FL":{"collapsed":[],"file":"%1"}})" ).arg( panelFile );
+        info.setOpenFiles( sessionWindow, { { reopened, 0, context } } );
+        info.save();
+    }
+    open( reopened );
+    CHECK( panel->currentFile() == ruleFile );
+    CHECK( shownPattern() == "rule" );
+    {
+        auto& info = SessionInfo::getSynced();
+        info.setOpenFiles( sessionWindow, {} );
+        info.remove( sessionWindow );
+        info.save();
+    }
+
+    // Without rules nothing changes
+    config.setFilterFileRules( {} );
+    CHECK( FilterPanel::ruleFileFor( syslog ).isEmpty() );
+
+    config.setFilterFileRules( previousRules );
+    SharedFilters::instance().clear();
+    settings.setValue( "filterPanel/currentFile", previousFile );
+}
+
+SCENARIO( "Options keep the filter file rules", "[filters]" )
+{
+    auto& config = Configuration::get();
+    const auto previousRules = config.filterFileRules();
+    const auto file = QDir::cleanPath( QDir::tempPath() + "/rule.flogg-filters.json" );
+    config.setFilterFileRules( { { "*.syslog", file }, { "app*", file } } );
+
+    auto appSession = std::make_shared<Session>();
+    WindowSession windowSession{ appSession, "RuleOptions", 0 };
+    MainWindow mainWindow( windowSession );
+    OptionsDialog dialog( &mainWindow );
+    auto* tabs = dialog.findChild<QTabWidget*>();
+    QTableWidget* table = nullptr;
+    for ( int i = 0; i < tabs->count(); ++i ) {
+        if ( tabs->tabText( i ) == "Filter files" ) {
+            tabs->setCurrentIndex( i );
+            table = tabs->widget( i )->findChild<QTableWidget*>();
+        }
+    }
+    REQUIRE( table );
+    REQUIRE( table->rowCount() == 2 );
+    CHECK( table->item( 0, 0 )->text() == "*.syslog" );
+    CHECK( QDir::fromNativeSeparators( table->item( 1, 1 )->text() ) == file );
+
+    const auto renderDir = qEnvironmentVariable( "FLOGG_RENDER_DIR" );
+    if ( !renderDir.isEmpty() ) {
+        dialog.show();
+        QTest::qWait( 100 );
+        REQUIRE( dialog.grab().save( renderDir + "/options_filter_files.png" ) );
+        auto* helpButton = dialog.findChild<QToolButton*>( "filterRulesHelpButton" );
+        REQUIRE( helpButton );
+        QTimer::singleShot( 300, [ & ] {
+            if ( auto* help = QApplication::activeModalWidget() ) {
+                help->grab().save( renderDir + "/options_filter_rules_help.png" );
+                help->close();
+            }
+        } );
+        helpButton->click();
+    }
+
+    // Edited, half filled rows are dropped
+    table->item( 1, 0 )->setText( " app*; *.out " );
+    table->insertRow( 2 );
+    table->setItem( 2, 0, new QTableWidgetItem( "*.txt" ) );
+    table->setItem( 2, 1, new QTableWidgetItem( "" ) );
+    // A restart question of other options is closed instead of waiting for an answer
+    QTimer dialogCloser;
+    QObject::connect( &dialogCloser, &QTimer::timeout, [ & ] {
+        auto* modal = QApplication::activeModalWidget();
+        if ( modal && modal != &dialog ) {
+            modal->close();
+        }
+    } );
+    dialogCloser.start( 200 );
+    REQUIRE( QMetaObject::invokeMethod( &dialog, "updateConfigFromDialog" ) );
+    dialogCloser.stop();
+
+    const auto& rules = config.filterFileRules();
+    REQUIRE( rules.size() == 2 );
+    CHECK( rules[ 1 ].patterns == "app*; *.out" );
+    CHECK( FilterPanel::pathFromRemembered( rules[ 1 ].file ) == file );
+
+    config.setFilterFileRules( previousRules );
+    config.save();
 }

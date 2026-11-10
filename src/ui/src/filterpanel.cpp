@@ -43,6 +43,7 @@
 #include <QMessageBox>
 #include <QPainter>
 #include <QPushButton>
+#include <QRegularExpression>
 #include <QScrollBar>
 #include <QSettings>
 #include <QStandardPaths>
@@ -630,6 +631,11 @@ class FilterTreeWidget : public QTreeWidget {
 
 } // namespace
 
+QIcon moveArrowIcon( bool up, const QPalette& palette )
+{
+    return arrowIcon( up, palette );
+}
+
 QIcon sharedFiltersIcon( const QColor& color )
 {
     QIcon icon;
@@ -953,6 +959,61 @@ QString FilterPanel::defaultFile()
 void FilterPanel::setStartupFile( const QString& path )
 {
     startupFile() = path;
+}
+
+bool FilterPanel::matchesPatterns( const QString& patterns, const QString& logFile )
+{
+    const QFileInfo info( logFile );
+    const auto name = info.fileName();
+    const auto path = QDir::fromNativeSeparators( info.absoluteFilePath() );
+
+    const auto list = patterns.split( ';', Qt::SkipEmptyParts );
+    for ( const auto& item : list ) {
+        // Folders may be written with a backslash on every system
+        const auto pattern = item.trimmed().replace( '\\', '/' );
+        if ( pattern.isEmpty() ) {
+            continue;
+        }
+
+        // A pattern with a folder matches the whole path, its '*' also crosses folders
+        const auto withFolder = pattern.contains( '/' );
+#if QT_VERSION >= QT_VERSION_CHECK( 6, 6, 0 )
+        const auto options = withFolder ? QRegularExpression::NonPathWildcardConversion
+                                        : QRegularExpression::DefaultWildcardConversion;
+        const QRegularExpression regex(
+            QRegularExpression::wildcardToRegularExpression( pattern, options ),
+            QRegularExpression::CaseInsensitiveOption );
+#else
+        const QRegularExpression regex( QRegularExpression::wildcardToRegularExpression( pattern ),
+                                        QRegularExpression::CaseInsensitiveOption );
+#endif
+        if ( regex.match( withFolder ? path : name ).hasMatch() ) {
+            return true;
+        }
+    }
+    return false;
+}
+
+QString FilterPanel::ruleFileFor( const QString& logFile )
+{
+    // A few patterns per file opened, nothing when there are no rules
+    const auto& rules = Configuration::get().filterFileRules();
+    for ( const auto& rule : rules ) {
+        if ( !rule.file.isEmpty() && matchesPatterns( rule.patterns, logFile ) ) {
+            return fromRememberedPath( rule.file );
+        }
+    }
+    return {};
+}
+
+QString FilterPanel::rememberedPath( const QString& path )
+{
+    return toRememberedPath( path );
+}
+
+QString FilterPanel::pathFromRemembered( const QString& path )
+{
+    return fromRememberedPath( path );
 }
 
 void FilterPanel::setupUi()
