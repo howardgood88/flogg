@@ -1,5 +1,15 @@
 # flogg changes
 
+## 1.1.11 (2026-11-11)
+
+- `Check for updates...` shows the changes of every version since the installed one, not only
+  the latest
+- The bookmark keys (`Ctrl+1-8`, `Alt+1-8`, `Shift+Alt+1-8`) also work in the filter panel: like
+  `F8` they use the line selected in the filtered view, and the focus stays in the panel
+- The split between the main and filtered views is remembered: the last position it was dragged
+  to is used by every tab opened after, without `Save splitter position`, also for files opened
+  before (their own position is no longer restored); the splitter is a bit easier to catch
+
 ## 1.1.10 (2026-11-11)
 
 - `Check for updates...` has a red dot while a newer version found at start is not installed,

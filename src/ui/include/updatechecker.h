@@ -40,6 +40,8 @@ struct Release {
     QVersionNumber version;
     QString tag;
     QString notes;
+    // CHANGELOG.md of the tag when it was already fetched, empty otherwise
+    QString changelog;
     QUrl page;
     // The package of this platform, empty when there is none
     QString assetName;
@@ -61,6 +63,12 @@ QString tagOfReleasePage( const QUrl& page );
 
 // The changes of a version in CHANGELOG.md: the lines below "## 1.2.0 (date)"
 QString changelogSection( const QString& changelog, const QVersionNumber& version );
+
+// The changes of the versions after `installed` up to `latest` in CHANGELOG.md, newest first.
+// A single version gives its lines only, several keep their "## 1.2.0 (date)" titles (as
+// "###"). Empty when CHANGELOG.md has none of them.
+QString changelogSince( const QString& changelog, const QVersionNumber& installed,
+                        const QVersionNumber& latest );
 
 // The latest release without the GitHub API, which answers only 60 requests an hour to an
 // address (often shared by a whole office): the page releases/latest redirects to, the notes
@@ -108,6 +116,9 @@ class UpdateChecker : public QObject {
     void onRelease( const updates::Release& release, bool manual );
     void fail( const QString& error, bool manual );
     void offer( const updates::Release& release, bool manual );
+    // The notes of every version since the installed one, then the dialog
+    void fetchNotesAndShow( updates::Release release, QVersionNumber installed );
+    void showOffer( const updates::Release& release, const QVersionNumber& installed );
     void download( const updates::Release& release );
     // Prepared to run when flogg quits, then asks every window to close
     bool prepareInstall( const QString& package );

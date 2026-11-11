@@ -18,6 +18,7 @@
  */
 
 #include <algorithm>
+#include <array>
 #include <functional>
 #include <optional>
 #include <utility>
@@ -1159,6 +1160,46 @@ void FilterPanel::setupUi()
     connect( findPreviousAction_, &QAction::triggered, this, [ this ] { requestFind( true ); } );
     addAction( findPreviousAction_ );
 
+    // The bookmark keys of the log views also work in the panel, on the filtered view like
+    // F8. Only while the focus is in the panel: the log views have their own.
+    const auto addBookmarkAction = [ this ]( const std::string& name, auto handler ) {
+        auto* action = new QAction( this );
+        action->setShortcutContext( Qt::WidgetWithChildrenShortcut );
+        connect( action, &QAction::triggered, this, handler );
+        addAction( action );
+        bookmarkActions_.emplace_back( action, name );
+    };
+    const std::array<std::string, 8> setBookmark = {
+        ShortcutAction::LogViewSetBookmark1, ShortcutAction::LogViewSetBookmark2,
+        ShortcutAction::LogViewSetBookmark3, ShortcutAction::LogViewSetBookmark4,
+        ShortcutAction::LogViewSetBookmark5, ShortcutAction::LogViewSetBookmark6,
+        ShortcutAction::LogViewSetBookmark7, ShortcutAction::LogViewSetBookmark8,
+    };
+    const std::array<std::string, 8> nextBookmark = {
+        ShortcutAction::LogViewJumpToBookmark1, ShortcutAction::LogViewJumpToBookmark2,
+        ShortcutAction::LogViewJumpToBookmark3, ShortcutAction::LogViewJumpToBookmark4,
+        ShortcutAction::LogViewJumpToBookmark5, ShortcutAction::LogViewJumpToBookmark6,
+        ShortcutAction::LogViewJumpToBookmark7, ShortcutAction::LogViewJumpToBookmark8,
+    };
+    const std::array<std::string, 8> previousBookmark = {
+        ShortcutAction::LogViewJumpToPreviousBookmark1,
+        ShortcutAction::LogViewJumpToPreviousBookmark2,
+        ShortcutAction::LogViewJumpToPreviousBookmark3,
+        ShortcutAction::LogViewJumpToPreviousBookmark4,
+        ShortcutAction::LogViewJumpToPreviousBookmark5,
+        ShortcutAction::LogViewJumpToPreviousBookmark6,
+        ShortcutAction::LogViewJumpToPreviousBookmark7,
+        ShortcutAction::LogViewJumpToPreviousBookmark8,
+    };
+    for ( int slot = 0; slot < 8; ++slot ) {
+        addBookmarkAction( setBookmark[ slot ],
+                           [ this, slot ] { Q_EMIT toggleBookmarkRequested( slot ); } );
+        addBookmarkAction( nextBookmark[ slot ],
+                           [ this, slot ] { Q_EMIT jumpToBookmarkRequested( slot, false ); } );
+        addBookmarkAction( previousBookmark[ slot ],
+                           [ this, slot ] { Q_EMIT jumpToBookmarkRequested( slot, true ); } );
+    }
+
     deleteAction_ = new QAction( tr( "Delete" ), this );
     deleteAction_->setShortcutContext( Qt::WidgetShortcut );
     connect( deleteAction_, &QAction::triggered, this, &FilterPanel::deleteSelected );
@@ -1204,6 +1245,9 @@ void FilterPanel::updateShortcuts()
     setShortcuts( deleteAction_, ShortcutAction::FilterPanelDelete );
     setShortcuts( moveUpAction_, ShortcutAction::FilterPanelMoveUp );
     setShortcuts( moveDownAction_, ShortcutAction::FilterPanelMoveDown );
+    for ( const auto& [ action, name ] : bookmarkActions_ ) {
+        setShortcuts( action, name );
+    }
 
     saveKeys_ = ShortcutAction::shortcutKeys( ShortcutAction::FilterPanelSave, shortcuts );
     ShortcutAction::showInMenu( saveAction_, ShortcutAction::FilterPanelSave, shortcuts );

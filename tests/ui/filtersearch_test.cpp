@@ -39,6 +39,7 @@
 #include <QTreeWidgetItemIterator>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QMouseEvent>
 #include <QTreeWidget>
 
 #include "configuration.h"
@@ -2879,5 +2880,91 @@ SCENARIO( "Options keep the filter file rules", "[filters]" )
     CHECK( FilterPanel::pathFromRemembered( rules[ 1 ].file ) == file );
 
     config.setFilterFileRules( previousRules );
+    config.save();
+}
+
+SCENARIO( "Filter panel passes the bookmark keys on", "[ui]" )
+{
+    FilterPanel panel;
+    QSignalSpy toggled( &panel, &FilterPanel::toggleBookmarkRequested );
+    QSignalSpy jumped( &panel, &FilterPanel::jumpToBookmarkRequested );
+    panel.show();
+    panel.activateWindow();
+    REQUIRE( QTest::qWaitForWindowActive( &panel ) );
+
+    auto* tree = panel.findChild<QTreeWidget*>();
+    REQUIRE( tree );
+    tree->setFocus();
+
+    // The default keys of the log views
+    QTest::keyClick( tree, Qt::Key_3, Qt::ControlModifier );
+    REQUIRE( toggled.size() == 1 );
+    CHECK( toggled.at( 0 ).at( 0 ).toInt() == 2 );
+
+    QTest::keyClick( tree, Qt::Key_5, Qt::AltModifier );
+    QTest::keyClick( tree, Qt::Key_1, Qt::AltModifier | Qt::ShiftModifier );
+    REQUIRE( jumped.size() == 2 );
+    CHECK( jumped.at( 0 ).at( 0 ).toInt() == 4 );
+    CHECK_FALSE( jumped.at( 0 ).at( 1 ).toBool() );
+    CHECK( jumped.at( 1 ).at( 0 ).toInt() == 0 );
+    CHECK( jumped.at( 1 ).at( 1 ).toBool() );
+}
+
+SCENARIO( "Main window new tabs get the last splitter position", "[ui]" )
+{
+    auto& config = Configuration::get();
+    const auto previousSizes = config.splitterSizes();
+
+    auto appSession = std::make_shared<Session>();
+    WindowSession windowSession{ appSession, "Splitter", 0 };
+    MainWindow mainWindow( windowSession );
+    mainWindow.resize( 900, 700 );
+    mainWindow.show();
+
+    QTemporaryDir dir;
+    const auto writeFile = [ &dir ]( const QString& name ) {
+        QFile file( dir.filePath( name ) );
+        REQUIRE( file.open( QIODevice::WriteOnly ) );
+        for ( int i = 0; i < 100; ++i ) {
+            file.write( QByteArray( "line " ) + QByteArray::number( i ) + "\n" );
+        }
+        return file.fileName();
+    };
+    const auto first = writeFile( "first.log" );
+    const auto second = writeFile( "second.log" );
+
+    auto* tabs = mainWindow.findChild<TabbedCrawlerWidget*>();
+    REQUIRE( tabs );
+    mainWindow.loadInitialFile( first, false );
+    REQUIRE( waitUiState( [ & ] { return tabs->count() == 1 && tabs->currentWidget()->isVisible(); } ) );
+    QTest::qWait( 300 );
+
+    // Dragged by the user to about a third
+    auto* crawler = qobject_cast<CrawlerWidget*>( tabs->currentWidget() );
+    REQUIRE( crawler );
+    auto* handle = crawler->handle( 1 );
+    const auto before = crawler->sizes();
+    const auto total = before.at( 0 ) + before.at( 1 );
+    QTest::mousePress( handle, Qt::LeftButton, {}, handle->rect().center() );
+    const auto target = handle->mapFromGlobal( crawler->mapToGlobal( QPoint( 100, total / 3 ) ) );
+    QMouseEvent move( QEvent::MouseMove, target, handle->mapToGlobal( target ), Qt::LeftButton,
+                      Qt::LeftButton, Qt::NoModifier );
+    QApplication::sendEvent( handle, &move );
+    QTest::mouseRelease( handle, Qt::LeftButton, {}, target );
+    const auto dragged = crawler->sizes();
+    INFO( "before " << before.at( 0 ) << " " << before.at( 1 ) << ", dragged " << dragged.at( 0 )
+                    << " " << dragged.at( 1 ) );
+    REQUIRE( dragged.at( 0 ) < dragged.at( 1 ) );
+    REQUIRE( waitUiState( [ & ] { return config.splitterSizes() == dragged; } ) );
+
+    mainWindow.loadInitialFile( second, false );
+    REQUIRE( waitUiState( [ & ] { return tabs->count() == 2 && tabs->currentWidget()->isVisible(); } ) );
+    QTest::qWait( 300 );
+    const auto opened = qobject_cast<CrawlerWidget*>( tabs->currentWidget() )->sizes();
+    INFO( "opened " << opened.at( 0 ) << " " << opened.at( 1 ) );
+    CHECK( std::abs( opened.at( 0 ) * dragged.at( 1 ) - opened.at( 1 ) * dragged.at( 0 ) )
+           < 20 * ( dragged.at( 0 ) + dragged.at( 1 ) ) );
+
+    config.setSplitterSizes( previousSizes );
     config.save();
 }

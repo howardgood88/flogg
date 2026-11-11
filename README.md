@@ -1,4 +1,4 @@
-# flogg
+# flogg - ⚡️ A blazing fast filter-based log viewer
 
 **English** | [繁體中文](README.zh-TW.md)
 
@@ -10,33 +10,38 @@ Downloads for Windows (x64) and Linux (x64 AppImage: `chmod +x` it and run it) a
 
 ## Features
 
-### Filter panel: a more advanced and convenient TAT style filter manager
+`[TAT]`: also in TAT  
+Emoji: highlights
+
+### ✨ Filter panel: a more advanced and convenient TAT style filter manager
 
 - Filters are organised in a tree of groups.
-- Each tab has its own filters: the list, enabled, disabled and suspended states, and the JSON filter file it uses. A newly opened file gets the default filter file, `filters.flogg-filters.json` unless another one was opened or saved last (see [Command line](#command-line) for where it is).
-- `File > Preferences > Filter files` picks the filter file to load by file name pattern. Rules are checked from top to bottom, the first match wins. Other files open with the default filter file as above.
-- Compatible with the TAT / klogg filter formats
+- 📝 Each tab has its own filters:
+a newly opened file loads the filter file opened or saved last by default (see [Command line](#command-line) for where the default filter file is).
+    - 🎃 `File > Preferences > Filter files` sets file name patterns that pick the filter file to load by default.
+    - `🔗Shared` (shared mode): lets tabs share one set of filters. Every tab in shared mode, in any window, sees a change right away, saved or not. Handy to add temporary filters without touching the saved file.
+- 👑 Compatible with the TAT / klogg filter formats
     - Import TextAnalysisTool `.tat` files.
     - Import klogg predefined filters and highlighters.
-- A filter can be suspended to turn it off temporarily, without changing whether it is enabled.
-- With filters selected, `F8` / `Shift+F8` in the main or filtered view jumps between their matching lines.
-- `🔗Shared` (shared mode):
-   - Lets tabs share one set of filters: every tab in shared mode, in any window, sees a change made in any of them right away, saved or not.
-   - The first tab put in shared mode copies its own filters as the shared filters; on their first change they become untitled, so saving them asks for a file name instead of overwriting the filter file of the tab. Leaving shared mode brings the own filters of the tab back. When the last tab leaves shared mode, the shared filters are cleared.
+- A filter or a group can be suspended to turn it off temporarily, without changing whether it is enabled.
+- `[TAT]` With filters selected, `F8` / `Shift+F8` in the main or filtered view jumps between their matching lines.
 
-### Main and filtered views
+### ✅ Main and filtered views
 
-- Hovering a line of the log views lists the filters matching it with their numbers, in priority order.
-- The selected line stands out more clearly.
+- 🔎 Hovering a line of the log views lists the filters matching it with their numbers, in priority order.  
+  ![match_filter_hint](docs/images/match_filter_hint.png)
+- The selected line stands out more clearly; its colours are set in `File > Preferences > View > Style`.
 - When the line selected in the main view is also a match in the filtered view, the filtered view selects it too (klogg only moved the main view along with the filtered view).
-- `Ctrl+click` (macOS: `Cmd+click`) selects lines that do not follow each other.
+- 🕹️ `Ctrl+click` (macOS: `Cmd+click`) selects lines that do not follow each other.
 - The filter panel and klogg's own search box are used one at a time; switch with the `Filters` button at the left end of the search bar above the filtered view. A new tab and an empty search start in Filter mode; turn off `Start in Filter mode` in `File > Preferences` to use the panel only as a highlighter, as in klogg.
 - `Shift` + mouse wheel scrolls sideways in every view with a horizontal scroll bar.
-- In the main and filtered views, `Ctrl+1-8` sets bookmarks and `Alt+1-8` / `Shift+Alt+1-8` jump to the next / previous line with that bookmark.
+- `[TAT]` In the main and filtered views, `Ctrl+1-8` sets bookmarks and `Alt+1-8` / `Shift+Alt+1-8` jump to the next / previous line with that bookmark.
+  They also work in the filter panel, on the line selected in the filtered view (like `F8`), and the focus stays in the panel.
   (Changing them in `File > Preferences > Shortcuts` is recommended; flogg keeps klogg's own shortcuts by default.)
-- `Ctrl+H` (macOS: `Control+H`) hides the main view and shows the filtered view only.
+- The split between the main and filtered views is remembered: the last position you drag it to is used by every tab opened after, also for files opened before.
+- `[TAT]` `Ctrl+H` (macOS: `Control+H`) hides the main view and shows the filtered view only.
 
-### Fast filtering: searching and filtering as fast as klogg
+### ⚡️ Fast filtering: searching and filtering as fast as klogg
 
 - Hyperscan can scan for many patterns at once, but a klogg search produces a single result; flogg extends it so that one pass over the file gives every filter its own result.
 - Each filter keeps its search result in a Roaring Bitmap (as in klogg), which adapts its layout to how dense the matches are to keep memory use low.
@@ -45,11 +50,11 @@ Downloads for Windows (x64) and Linux (x64 AppImage: `chmod +x` it and run it) a
 ### Windows
 
 - Every start of flogg, however it is started (double click, taskbar, file association or command line), opens a new window in the same process, so the windows can share filters and the command line can target a given window (`-w`); `-m` starts a separate flogg process instead.
-- `Window > Rename window...` gives a window a name, shown in its title instead of the file name; the `Window` menu lists every window with its id (`#2`).
+- 🖼️ `Window > Rename window...` gives a window a name, shown in its title instead of the file name; the `Window` menu lists every window with its id (`#2`).
 
 ### Updates
 
-- Once a day at start (`Check for a new version at start` in `File > Preferences > File`), or with `Help > Check for updates...`, flogg looks for a newer release on GitHub and shows what changed: update now, skip this version or later.
+- Once a day at start (`Check for a new version at start` in `File > Preferences > File`), or any time with `Help > Check for updates...`.
 - `Help > What's new in flogg...` lists the changes of every flogg release ([CHANGELOG.md](CHANGELOG.md)).
 
 ### Command line

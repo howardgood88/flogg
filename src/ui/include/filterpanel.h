@@ -23,7 +23,9 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include <QByteArray>
@@ -330,6 +332,9 @@ class FilterPanel : public QWidget {
     void highlightersCompiled();
     void searchFragmentRequested( const std::vector<FilterNode>& filters, FilterSearchMode mode );
     void findRequested( const std::vector<FilterNode>& filters, bool backward );
+    // Bookmark keys pressed in the panel, for the current tab
+    void toggleBookmarkRequested( int slot );
+    void jumpToBookmarkRequested( int slot, bool backward );
 
   public Q_SLOTS:
     // Saves the filters shown, asks for a file when they are untitled
@@ -417,6 +422,8 @@ class FilterPanel : public QWidget {
     QAction* suspendAction_;
     QAction* findNextAction_;
     QAction* findPreviousAction_;
+    // Set, jump to next, jump to previous for each bookmark: the keys of the log views
+    std::vector<std::pair<QAction*, std::string>> bookmarkActions_;
     QAction* addFilterAction_;
     QAction* editAction_;
     QAction* deleteAction_;

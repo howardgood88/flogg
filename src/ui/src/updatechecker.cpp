@@ -175,6 +175,42 @@ QString changelogSection( const QString& changelog, const QVersionNumber& versio
     return section.join( '\n' ).trimmed();
 }
 
+QString changelogSince( const QString& changelog, const QVersionNumber& installed,
+                        const QVersionNumber& latest )
+{
+    QStringList titles;
+    QList<QStringList> bodies;
+    bool inside = false;
+    for ( auto line : changelog.split( '\n' ) ) {
+        if ( line.endsWith( '\r' ) ) {
+            line.chop( 1 );
+        }
+        if ( line.startsWith( "## " ) ) {
+            const auto title = line.mid( 3 ).trimmed();
+            // "Unreleased" has no version
+            const auto version
+                = QVersionNumber::fromString( title.section( ' ', 0, 0, QString::SectionSkipEmpty ) );
+            inside = !version.isNull() && version > installed && version <= latest;
+            if ( inside ) {
+                titles.append( title );
+                bodies.append( QStringList{} );
+            }
+        }
+        else if ( inside ) {
+            bodies.back().append( line );
+        }
+    }
+
+    if ( titles.size() == 1 ) {
+        return bodies.front().join( '\n' ).trimmed();
+    }
+    QStringList sections;
+    for ( int i = 0; i < titles.size(); ++i ) {
+        sections.append( "### " + titles[ i ] + "\n\n" + bodies[ i ].join( '\n' ).trimmed() );
+    }
+    return sections.join( "\n\n" );
+}
+
 std::optional<Release> parseRelease( const QJsonObject& json, const QString& assetSuffix )
 {
     auto parsed = releaseOfTag( json[ "tag_name" ].toString() );
@@ -228,8 +264,8 @@ void fetchLatestWithoutApi( QNetworkAccessManager& network, const QString& asset
             notes->deleteLater();
             // Without notes the dialog links the release page
             if ( notes->error() == QNetworkReply::NoError ) {
-                release.notes
-                    = changelogSection( QString::fromUtf8( notes->readAll() ), release.version );
+                release.changelog = QString::fromUtf8( notes->readAll() );
+                release.notes = changelogSection( release.changelog, release.version );
             }
             if ( assetSuffix.isEmpty() ) {
                 done( release, {} );
@@ -423,6 +459,46 @@ void UpdateChecker::offer( const updates::Release& release, bool manual )
         return;
     }
 
+    fetchNotesAndShow( release, *current );
+}
+
+void UpdateChecker::fetchNotesAndShow( updates::Release release, QVersionNumber installed )
+{
+    if ( !release.changelog.isEmpty() ) {
+        showOffer( release, installed );
+        return;
+    }
+
+    // Not the API: raw files are not limited to 60 requests an hour.
+    // No other check starts until the dialog is shown.
+    checking_ = true;
+    auto* reply = network_.get( githubRequest( QUrl( ChangelogUrl.arg( release.tag ) ) ) );
+    connect( reply, &QNetworkReply::finished, this,
+             [ this, reply, release = std::move( release ), installed ]() mutable {
+                 reply->deleteLater();
+                 checking_ = false;
+                 // Without it the dialog shows the notes of the latest release only
+                 if ( reply->error() == QNetworkReply::NoError ) {
+                     release.changelog = QString::fromUtf8( reply->readAll() );
+                 }
+                 else {
+                     LOG_INFO << "No CHANGELOG.md for " << release.tag << ": "
+                              << reply->errorString();
+                 }
+                 showOffer( release, installed );
+             } );
+}
+
+void UpdateChecker::showOffer( const updates::Release& release, const QVersionNumber& installed )
+{
+    auto notesText = release.notes;
+    if ( !release.changelog.isEmpty() ) {
+        const auto since = updates::changelogSince( release.changelog, installed, release.version );
+        if ( !since.isEmpty() ) {
+            notesText = since;
+        }
+    }
+
     QDialog dialog( dialogParent() );
     dialog.setWindowTitle( tr( "flogg update" ) );
     dialog.resize( 560, 420 );
@@ -430,17 +506,17 @@ void UpdateChecker::offer( const updates::Release& release, bool manual )
     auto* layout = new QVBoxLayout( &dialog );
     auto* title = new QLabel(
         tr( "<b>flogg %1 is available</b>, this is version %2." )
-            .arg( release.version.toString(), current->toString() ) );
+            .arg( release.version.toString(), installed.toString() ) );
     layout->addWidget( title );
 
     auto* notes = new QTextBrowser;
     notes->setOpenExternalLinks( true );
-    if ( release.notes.isEmpty() ) {
+    if ( notesText.isEmpty() ) {
         notes->setMarkdown( tr( "No notes for this release, see [the release page](%1)." )
                                 .arg( release.page.toString() ) );
     }
     else {
-        notes->setMarkdown( release.notes );
+        notes->setMarkdown( notesText );
     }
     layout->addWidget( notes );
 

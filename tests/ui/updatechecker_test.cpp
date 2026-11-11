@@ -114,6 +114,16 @@ SCENARIO( "Update checker reads the release pages", "[update]" )
     CHECK( updates::changelogSection( changelog, QVersionNumber( 1, 1, 0 ) ) == "- Older" );
     CHECK( updates::changelogSection( changelog, QVersionNumber( 1, 1 ) ).isEmpty() );
     CHECK( updates::changelogSection( changelog, QVersionNumber( 1, 3, 0 ) ).isEmpty() );
+
+    // The versions after the installed one, up to the latest: not "Unreleased"
+    CHECK( updates::changelogSince( changelog, QVersionNumber( 1, 1, 0 ), QVersionNumber( 1, 2, 0 ) )
+           == "- Faster\n- Smaller" );
+    CHECK( updates::changelogSince( changelog, QVersionNumber( 1, 0, 0 ), QVersionNumber( 1, 2, 0 ) )
+           == "### 1.2.0 (2026-11-03)\n\n- Faster\n- Smaller\n\n### 1.1.0 (2026-11-02)\n\n- Older" );
+    CHECK( updates::changelogSince( changelog, QVersionNumber( 1, 0, 0 ), QVersionNumber( 1, 1, 0 ) )
+           == "- Older" );
+    CHECK( updates::changelogSince( changelog, QVersionNumber( 1, 2, 0 ), QVersionNumber( 1, 2, 0 ) )
+               .isEmpty() );
 }
 
 // Hidden, asks GitHub for the latest release without the API:

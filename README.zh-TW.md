@@ -29,14 +29,16 @@ Emoji：亮點功能
 ### ✅ 主視窗 / 過濾視窗優化
 
 - 🔎 滑鼠停在 log 檢視的某一行時，會依優先順序列出命中該行的 filter 與其編號。  
-  ![match_filter_hint](docs/images/match_filter_hint.jpg)
+  ![match_filter_hint](docs/images/match_filter_hint.png)
 - 優化選中行的視覺顯示使其更顯眼，可於 `File > Preferences > View > Style` 調整選取顏色。
 - 若主視窗選中行在過濾視窗有對應命中行，過濾視窗的選中行也會跳轉（原本只有過濾視窗會使主視窗跳轉）
 - 🕹️ `Ctrl+左鍵`（macOS：`Cmd+左鍵`）可選取不連續的多行。
 - Filter Panel 與 klogg 原生 pattern 輸入框互斥，可透過過濾視窗上方搜尋列最左邊的 `Filters` 按鈕切換。新分頁與空白搜尋預設進入 Filter mode；在 `File > Preferences` 關閉 `Start in Filter mode` 後，filter panel 就只負責標色，使用方式接近 klogg。
 - 所有有橫向捲軸的畫面都支援 `Shift` + 滑鼠滾輪橫向捲動。
 - `[TAT]`主視窗與過濾視窗支援 `Ctrl+1-8` 標記書籤，`Alt+1-8` / `Shift+Alt+1-8` 可跳到下一個 / 上一個對應書籤行。
+  在 Filters 面板上也能使用，作用於過濾視窗的選中行（與 `F8` 相同），焦點會留在面板上。
   (建議至 `File > Preferences > Shortcuts` 修改按鍵設定，flogg 預設保留 klogg 原生 shortcuts)
+- 會記住主視窗與過濾視窗的比例：最後一次拖動分隔線的位置會套用到之後開啟的所有分頁，包括以前開過的檔案。
 - `[TAT]` `Ctrl+H`（macOS：`Control+H`）可隱藏主視窗，只顯示過濾視窗。
 
 ### ⚡️ 快速過濾：與 klogg 同樣高效的搜尋與過濾

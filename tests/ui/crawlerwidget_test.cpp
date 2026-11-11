@@ -31,6 +31,7 @@
 #include <QSignalSpy>
 #include <QTemporaryFile>
 #include <QTest>
+#include <QMouseEvent>
 #include <QTimer>
 #include <QTreeWidget>
 #include <QWheelEvent>
@@ -172,6 +173,11 @@ struct CrawlerWidget::access_by<CrawlerWidgetPrivate> {
     {
         crawler->logFilteredData_->toggleBookmark( slot, line );
         crawler->logMainView_->updateData();
+    }
+
+    uint32_t bookmarkSlots( LineNumber line )
+    {
+        return crawler->logFilteredData_->getBookmarkSlots( line );
     }
 
     QImage grabMainView()
@@ -928,6 +934,108 @@ SCENARIO( "Crawler widget filtered view follows the main view selection", "[ui]"
     crawlerVisitor.showMainViewLine( 50_lnum );
     CHECK( crawlerVisitor.filteredViewSelectedText().endsWith( "line 000013" ) );
     CHECK( crawlerVisitor.mainViewSelectedText().endsWith( "line 000050" ) );
+}
+
+SCENARIO( "Crawler widget bookmarks from the filter panel", "[ui]" )
+{
+    QTemporaryFile file{ "crawler_test_XXXXXX" };
+    REQUIRE( generateDataFiles( file ) );
+
+    Session session;
+    CrawlerWidgetVisitor crawlerVisitor;
+    crawlerVisitor.crawler.reset( static_cast<CrawlerWidget*>(
+        session.open( file.fileName(), []() { return new CrawlerWidget(); } ) ) );
+    waitUiState( [ & ]() { return crawlerVisitor.isLoadingFinished(); } );
+
+    crawlerVisitor.setFilterMode( true );
+    crawlerVisitor.setFilters( { FilterNode::makeFilter( "line 00001" ) } );
+    REQUIRE( waitUiState( [ & ]() { return crawlerVisitor.searchInfo() == "10 matches found"; } ) );
+
+    // The two views select different lines: the filtered view is used, like for F8
+    crawlerVisitor.showMainViewLine( 13_lnum );
+    crawlerVisitor.showMainViewLine( 50_lnum );
+    REQUIRE( crawlerVisitor.filteredViewSelectedText().endsWith( "line 000013" ) );
+    REQUIRE( crawlerVisitor.mainViewSelectedText().endsWith( "line 000050" ) );
+
+    auto& crawler = *crawlerVisitor.crawler;
+    crawler.toggleBookmark( 2, true );
+    CHECK( crawlerVisitor.bookmarkSlots( 13_lnum ) == 0b100u );
+    CHECK( crawlerVisitor.bookmarkSlots( 50_lnum ) == 0u );
+
+    // A bookmark in the filtered results is selected there
+    crawlerVisitor.showMainViewLine( 17_lnum );
+    crawler.jumpToBookmark( 2, true, true );
+    CHECK( crawlerVisitor.filteredViewSelectedText().endsWith( "line 000013" ) );
+
+    // One outside the results is selected in the main view
+    crawlerVisitor.showMainViewLine( 50_lnum );
+    crawler.toggleBookmark( 3, false );
+    crawlerVisitor.showMainViewLine( 13_lnum );
+    crawler.jumpToBookmark( 3, false, true );
+    CHECK( crawlerVisitor.mainViewSelectedText().endsWith( "line 000050" ) );
+}
+
+SCENARIO( "Crawler widget splitter position is the default of new tabs", "[ui]" )
+{
+    QTemporaryFile file{ "crawler_test_XXXXXX" };
+    REQUIRE( generateDataFiles( file ) );
+
+    auto& config = Configuration::get();
+    const auto previousSizes = config.splitterSizes();
+
+    Session session;
+    CrawlerWidgetVisitor crawlerVisitor;
+    crawlerVisitor.crawler.reset( static_cast<CrawlerWidget*>(
+        session.open( file.fileName(), []() { return new CrawlerWidget(); } ) ) );
+    auto& crawler = *crawlerVisitor.crawler;
+    crawler.resize( 600, 600 );
+    crawler.show();
+    waitUiState( [ & ]() { return crawlerVisitor.isLoadingFinished(); } );
+
+    // The sizes a file kept from an earlier opening
+    crawler.setSizes( { 500, 100 } );
+    const auto oldContext = crawler.context()->toString();
+
+    // Dragged by the user: the main view gets about a third
+    auto* handle = crawler.handle( 1 );
+    REQUIRE( handle );
+    const auto start = handle->rect().center();
+    QTest::mousePress( handle, Qt::LeftButton, {}, start );
+    const auto target = handle->mapFromGlobal( crawler.mapToGlobal( QPoint( 300, 200 ) ) );
+    QMouseEvent move( QEvent::MouseMove, target, handle->mapToGlobal( target ), Qt::LeftButton,
+                      Qt::LeftButton, Qt::NoModifier );
+    QApplication::sendEvent( handle, &move );
+    QTest::mouseRelease( handle, Qt::LeftButton, {}, target );
+    const auto dragged = crawler.sizes();
+    INFO( dragged.at( 0 ) << " " << dragged.at( 1 ) );
+    REQUIRE( dragged.at( 0 ) < dragged.at( 1 ) );
+    CHECK( config.splitterSizes() == previousSizes );
+    CHECK( waitUiState( [ & ]() { return config.splitterSizes() == dragged; } ) );
+
+    // A new tab, hidden until loaded like in the main window, gets it
+    QTemporaryFile otherFile{ "crawler_test_XXXXXX" };
+    REQUIRE( generateDataFiles( otherFile ) );
+    std::unique_ptr<CrawlerWidget> other( static_cast<CrawlerWidget*>(
+        session.open( otherFile.fileName(), []() { return new CrawlerWidget(); } ) ) );
+    other->hide();
+    // Not the sizes kept with the file
+    other->setViewContext( oldContext );
+    other->resize( 600, 900 );
+    other->show();
+    QTest::qWait( 100 );
+    const auto otherSizes = other->sizes();
+    INFO( otherSizes.at( 0 ) << " " << otherSizes.at( 1 ) );
+    CHECK( std::abs( otherSizes.at( 0 ) * 2 - otherSizes.at( 1 ) ) < 20 );
+
+    // Not while the main view is hidden
+    crawler.setMainViewVisible( false );
+    Q_EMIT crawler.splitterMoved( 400, 1 );
+    QTest::qWait( 700 );
+    CHECK( config.splitterSizes() == dragged );
+    crawler.setMainViewVisible( true );
+
+    config.setSplitterSizes( previousSizes );
+    config.save();
 }
 
 SCENARIO( "Crawler widget ctrl+click selection", "[ui]" )

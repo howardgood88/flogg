@@ -50,6 +50,7 @@
 #include <QMenu>
 #include <QPushButton>
 #include <QSplitter>
+#include <QTimer>
 #include <QToolButton>
 #include <QVBoxLayout>
 
@@ -137,10 +138,11 @@ class CrawlerWidget : public QSplitter,
     FilterHits filterHits() const;
     void findFilterMatch( const std::vector<FilterNode>& filters, bool backward );
 
-    // Numbered bookmarks on the selected line of the active view
-    void toggleBookmark( size_t slot );
+    // Numbered bookmarks on the selected line of the active view. From the filter panel
+    // (no view has the focus) the filtered view is used like for F8, and the focus stays.
+    void toggleBookmark( size_t slot, bool fromFilterPanel = false );
     // Next (or previous) line with the bookmark, wrapping around the file
-    void jumpToBookmark( size_t slot, bool backward );
+    void jumpToBookmark( size_t slot, bool backward, bool fromFilterPanel = false );
 
     // Hides the main view to give all the room to the filtered view,
     // showing it again restores the previous ratio of the two views
@@ -305,7 +307,7 @@ class CrawlerWidget : public QSplitter,
 
   private:
     // Line of the file selected in the active view
-    LineNumber currentLogLine() const;
+    LineNumber currentLogLine( bool fromFilterPanel = false ) const;
     // Tool tip listing the effective filters matching the line, in priority order
     QString filterToolTip( LineNumber line ) const;
 
@@ -409,6 +411,8 @@ class CrawlerWidget : public QSplitter,
     LogMainView* logMainView_;
     // Share of the height taken by the main view when it was hidden
     double hiddenMainViewRatio_ = 0.5;
+    // A moved splitter becomes the default of the new tabs once it stops moving
+    QTimer* splitterSaveTimer_ = nullptr;
     FilteredView* filteredView_;
     std::unordered_map<FilteredView*, std::shared_ptr<LogFilteredData>> filteredViewsData_;
     QTabWidget* tabbedFilteredView_;

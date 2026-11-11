@@ -367,7 +367,8 @@ void CrawlerWidget::doSetViewContext( const QString& view_context )
 
     const auto context = CrawlerWidgetContext{ view_context };
 
-    setSizes( context.sizes() );
+    // The sizes kept with the file are not used: every tab gets the last position the user
+    // gave the splitter (setup() sets it)
     matchCaseButton_->setChecked( !context.ignoreCase() );
     useRegexpButton_->setChecked( context.useRegexp() );
     inverseButton_->setChecked( context.inverseRegexp() );
@@ -1349,6 +1350,24 @@ void CrawlerWidget::setup()
 
     connect( logMainView_, &LogMainView::saveDefaultSplitterSizes, this,
              &CrawlerWidget::saveSplitterSizes );
+
+    // A bit wider than the 4 pixels of Fusion (Light and Dark styles), easier to catch
+    setHandleWidth( 6 );
+
+    // The last position the user gave the splitter is used by the new tabs: saved once it
+    // stops moving, the drag emits a move for each step
+    splitterSaveTimer_ = new QTimer( this );
+    splitterSaveTimer_->setSingleShot( true );
+    splitterSaveTimer_->setInterval( 500 );
+    connect( splitterSaveTimer_, &QTimer::timeout, this, [ this ] {
+        // Not while the main view is hidden: its share is kept to show it again
+        const auto viewSizes = sizes();
+        if ( viewSizes.size() == 2 && viewSizes.at( 0 ) > 0 && viewSizes.at( 1 ) > 0 ) {
+            saveSplitterSizes();
+        }
+    } );
+    connect( this, &QSplitter::splitterMoved, splitterSaveTimer_,
+             qOverload<>( &QTimer::start ) );
 
     connect( logMainView_, &LogMainView::changeFontSize, this, &CrawlerWidget::changeFontSize );
 
@@ -2460,9 +2479,11 @@ void CrawlerWidget::findFilterMatch( const std::vector<FilterNode>& filters, boo
     view->searchUsingMatcher( QuickFindMatcher( true, regex ), backward );
 }
 
-LineNumber CrawlerWidget::currentLogLine() const
+LineNumber CrawlerWidget::currentLogLine( bool fromFilterPanel ) const
 {
-    return filteredView_->hasFocus()
+    const auto inFilteredView = filteredView_->hasFocus()
+                                || ( fromFilterPanel && logFilteredData_->getNbLine() > 0_lcount );
+    return inFilteredView
                ? logFilteredData_->getMatchingLineNumber( filteredView_->getViewPosition() )
                : logMainView_->getViewPosition();
 }
@@ -2531,9 +2552,9 @@ QString CrawlerWidget::filterToolTip( LineNumber line ) const
     return "<table cellspacing=2 cellpadding=1>" + rows.join( "" ) + "</table>";
 }
 
-void CrawlerWidget::toggleBookmark( size_t slot )
+void CrawlerWidget::toggleBookmark( size_t slot, bool fromFilterPanel )
 {
-    logFilteredData_->toggleBookmark( slot, currentLogLine() );
+    logFilteredData_->toggleBookmark( slot, currentLogLine( fromFilterPanel ) );
 
     // Bookmarks are marks: refresh both views and the overview
     filteredView_->updateData();
@@ -2542,23 +2563,28 @@ void CrawlerWidget::toggleBookmark( size_t slot )
     update();
 }
 
-void CrawlerWidget::jumpToBookmark( size_t slot, bool backward )
+void CrawlerWidget::jumpToBookmark( size_t slot, bool backward, bool fromFilterPanel )
 {
-    const auto line = logFilteredData_->findBookmark( slot, currentLogLine(), backward );
+    const auto line
+        = logFilteredData_->findBookmark( slot, currentLogLine( fromFilterPanel ), backward );
     if ( !line ) {
         searchInfoLine_->setText( tr( "Bookmark %1 is not set" ).arg( slot + 1 ) );
         searchInfoLine_->show();
         return;
     }
 
-    if ( filteredView_->hasFocus() || logMainView_->isHidden() ) {
+    if ( filteredView_->hasFocus() || fromFilterPanel || logMainView_->isHidden() ) {
         const auto index = logFilteredData_->getLineIndexNumber( *line );
-        if ( logFilteredData_->getMatchingLineNumber( index ) == *line ) {
+        if ( index < logFilteredData_->getNbLine()
+             && logFilteredData_->getMatchingLineNumber( index ) == *line ) {
             filteredView_->selectAndDisplayLine( index );
             return;
         }
     }
 
     logMainView_->selectAndDisplayLine( *line );
-    logMainView_->setFocus();
+    // The keys of the filter panel keep working
+    if ( !fromFilterPanel ) {
+        logMainView_->setFocus();
+    }
 }

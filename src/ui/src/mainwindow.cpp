@@ -2517,6 +2517,18 @@ void MainWindow::setupFilterPanel()
                  }
              } );
 
+    connect( filterPanel_, &FilterPanel::toggleBookmarkRequested, this, [ this ]( int slot ) {
+        if ( auto* crawler = currentCrawlerWidget() ) {
+            crawler->toggleBookmark( static_cast<size_t>( slot ), true );
+        }
+    } );
+    connect( filterPanel_, &FilterPanel::jumpToBookmarkRequested, this,
+             [ this ]( int slot, bool backward ) {
+                 if ( auto* crawler = currentCrawlerWidget() ) {
+                     crawler->jumpToBookmark( static_cast<size_t>( slot ), backward, true );
+                 }
+             } );
+
     connect( filterPanel_, &FilterPanel::findRequested, this,
              [ this ]( const std::vector<FilterNode>& filters, bool backward ) {
                  if ( auto* crawler = currentCrawlerWidget() ) {
