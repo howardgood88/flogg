@@ -13,7 +13,11 @@ Windows（x64）與 Linux（x64 AppImage，`chmod +x` 後直接執行）的安�
 ### Filter panel：更進階且方便的 TAT 風格 filter 管理面板
 
 - 支援樹狀群組管理。
-- 不同分頁的 filter 是獨立的，可匯入不同 filter 檔。
+- 每個分頁各自保存 filter：清單、啟用／停用／暫停狀態，以及使用的 JSON filter 檔。新開的檔案載入預設 filter 檔，即 `filters.flogg-filters.json` 或最近一次開啟／另存的 filter 檔（位置見下方[命令列](#命令列)）。
+- `File > Preferences > Filter files` 可依檔名 pattern指定要讀取的 filter 檔。由上往下比對，第一個符合的生效。不符合的檔案照上述方式載入預設 filter 檔。
+- 兼容 TAT / klogg filter 格式
+    - 支援匯入 TextAnalysisTool 的 `.tat` 檔。
+    - 支援匯入 klogg 的 predefined filters 與 highlighters。
 - 支援 suspend 使其暫時失效（不會改動原本的啟用狀態）。
 - 選中 filter 後，在主視窗或過濾視窗按 `F8` / `Shift+F8` 在命中行間跳轉。
 - `🔗Shared （共用模式）`：
@@ -38,31 +42,22 @@ Windows（x64）與 Linux（x64 AppImage，`chmod +x` 後直接執行）的安�
 - 每個 filter 維護自己的搜尋結果 Roaring Bitmap（沿用自 klogg），可自動根據命中稠密度調整資料結構，以壓縮所需記憶體空間。
 - 最終命中結果為 Roaring Bitmap 彼此做聯集 / 差集，啟用 / 停用 / 暫停 filter 只需重新計算 bitmap 組合結果，不需要重新掃描，新增 / 編輯 filter 也只會重新掃描該 pattern。
 
-### Filter / conf 檔
-
-- 每個分頁各自保存 filter：清單、啟用／停用／暫停狀態，以及使用的 JSON filter 檔。新開的檔案載入預設 filter 檔，即 `filters.flogg-filters.json` 或最近一次開啟／另存的 filter 檔（位置見下方[命令列](#命令列)）。
-- 支援匯入 TextAnalysisTool 的 `.tat` 檔。
-- 支援匯入 klogg 的 predefined filters 與 highlighters。
-- 應用相關設定（UI、shortcuts 等等）預設儲存於 `flogg.conf`（位置見下方[命令列](#命令列)）。
-  `File > Import settings...` 與 `File > Export settings...` 可從其他 `.conf` 檔匯入或匯出設定，不含 session。
-
 ### 視窗
 
-- 不論以何種方式啟動（雙擊、工作列、檔案關聯、命令列），每次啟動都會開一個新視窗。使用同一個設定檔的視窗屬於同一個 flogg，因此可以共用 filter，也可以從命令列操作；`-m` 則會另外啟動一個獨立 process 的 flogg。
+- 不論以何種方式啟動（雙擊、工作列、檔案關聯、命令列），每次啟動都會以同 process 開一個新視窗，可以共用 filter，也可以從命令列指定特定視窗 (`-w`)；`-m` 則會另外啟動一個獨立 process 的 flogg。
 - `Window > Rename window...` 可為視窗命名，標題會顯示這個名稱而不是檔名；`Window` 選單會列出所有視窗及其 id（`#2`）。
-- 同一個檔案可以在多個視窗中開啟，每個分頁各有自己的 filter。
 
 ### 更新
 
 - 每天啟動時檢查一次（`File > Preferences > File` 的 `Check for a new version at start`），或用 `Help > Check for updates...` 隨時檢查。GitHub 上有新版時，會顯示更新內容，可選擇立即更新、略過此版本或稍後再說。
 - `Help > What's new in flogg...` 列出 flogg 每個版本的改動（[CHANGELOG.md](CHANGELOG.md)）。
-- 更新會下載該版的安裝包，flogg 關閉時替換自己並重新啟動，設定會保留。flogg 無法寫入自己所在的資料夾時，改為顯示下載好的安裝包。
 
 ### 命令列
 
 - Windows 版的設定（`flogg.conf`）與預設 filter 檔放在 `flogg.exe` 旁邊，整個資料夾為 portable。
 - macOS 版依照系統慣例存放：設定在 `~/Library/Preferences/com.flogg.flogg.plist`，預設 filter 檔在
   `~/Library/Application Support/flogg/filters.flogg-filters.json`；使用 `--config` 時，預設 filter 檔改放在該設定檔旁邊。
+- Linux 版的設定在 `~/.config/flogg/flogg.conf`，預設 filter 檔在 `~/.local/share/flogg/filters.flogg-filters.json`；`--config` 的行為與 macOS 相同。
 
 - `--config <file>`：改用指定的設定檔讀寫設定，不影響預設的 `flogg.conf`；對應 session 存在同目錄的 `<name>_session.conf`。
 - 預設不恢復上次的 session。在 `File > Preferences` 勾選 `Load last session` 後，第一個不帶檔案啟動的 flogg 會恢復上次關閉時的視窗（含名稱）、檔案與各分頁的 filter；`-s`／`-n` 可強制開啟或關閉。

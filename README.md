@@ -13,7 +13,11 @@ Downloads for Windows (x64) and Linux (x64 AppImage: `chmod +x` it and run it) a
 ### Filter panel: a more advanced and convenient TAT style filter manager
 
 - Filters are organised in a tree of groups.
-- Each tab has its own filters, and different filter files can be loaded in different tabs.
+- Each tab has its own filters: the list, enabled, disabled and suspended states, and the JSON filter file it uses. A newly opened file gets the default filter file, `filters.flogg-filters.json` unless another one was opened or saved last (see [Command line](#command-line) for where it is).
+- `File > Preferences > Filter files` picks the filter file to load by file name pattern. Rules are checked from top to bottom, the first match wins. Other files open with the default filter file as above.
+- Compatible with the TAT / klogg filter formats
+    - Import TextAnalysisTool `.tat` files.
+    - Import klogg predefined filters and highlighters.
 - A filter can be suspended to turn it off temporarily, without changing whether it is enabled.
 - With filters selected, `F8` / `Shift+F8` in the main or filtered view jumps between their matching lines.
 - `🔗Shared` (shared mode):
@@ -38,31 +42,22 @@ Downloads for Windows (x64) and Linux (x64 AppImage: `chmod +x` it and run it) a
 - Each filter keeps its search result in a Roaring Bitmap (as in klogg), which adapts its layout to how dense the matches are to keep memory use low.
 - The final result is the union of the included filters minus the excluded ones. Enabling, disabling or suspending filters only recombines the bitmaps without rescanning, and adding or editing a filter rescans that pattern only.
 
-### Filter and conf files
-
-- Each tab has its own filters: the list, enabled, disabled and suspended states, and the JSON filter file it uses. A newly opened file gets the default filter file, `filters.flogg-filters.json` unless another one was opened or saved last (see [Command line](#command-line) for where it is).
-- Import TextAnalysisTool `.tat` files.
-- Import klogg predefined filters and highlighters.
-- Application settings (UI, shortcuts and so on) are kept in `flogg.conf` by default (see [Command line](#command-line) for where it is).
-  `File > Import settings...` and `File > Export settings...` copy them from or to another `.conf` file; the session is not included.
-
 ### Windows
 
-- Every start of flogg opens a new window, however it is started: double click, taskbar, file association or command line. The windows of the same settings file belong to one flogg, so they can share filters and be driven from the command line; `-m` starts a separate flogg instead.
+- Every start of flogg, however it is started (double click, taskbar, file association or command line), opens a new window in the same process, so the windows can share filters and the command line can target a given window (`-w`); `-m` starts a separate flogg process instead.
 - `Window > Rename window...` gives a window a name, shown in its title instead of the file name; the `Window` menu lists every window with its id (`#2`).
-- The same file can be open in several windows, each tab with its own filters.
 
 ### Updates
 
 - Once a day at start (`Check for a new version at start` in `File > Preferences > File`), or with `Help > Check for updates...`, flogg looks for a newer release on GitHub and shows what changed: update now, skip this version or later.
 - `Help > What's new in flogg...` lists the changes of every flogg release ([CHANGELOG.md](CHANGELOG.md)).
-- Updating downloads the package of the release; flogg replaces itself when it is closed and starts again, the settings are kept. When it can't write to its own folder, the downloaded package is shown instead.
 
 ### Command line
 
 - On Windows the settings (`flogg.conf`) and the default filter file are kept next to `flogg.exe`, so the whole folder is portable.
 - On macOS they follow the system conventions: the settings are in `~/Library/Preferences/com.flogg.flogg.plist` and the default filter file in
   `~/Library/Application Support/flogg/filters.flogg-filters.json`; with `--config` the default filter file goes next to that settings file.
+- On Linux the settings are in `~/.config/flogg/flogg.conf` and the default filter file in `~/.local/share/flogg/filters.flogg-filters.json`; `--config` works as on macOS.
 
 - `--config <file>` reads and writes the settings in that file (any name) instead of the default `flogg.conf`; the session goes to `<name>_session.conf` next to it.
 - The previous session is not restored by default. With `Load last session` in `File > Preferences`, the first flogg started without a file restores the windows (with their names), files and per tab filters open when it was closed last; `-s` / `-n` force it on or off.
