@@ -1,4 +1,4 @@
-# flogg
+# flogg - ⚡️ 極速的 filter-based log 瀏覽器
 
 [English](README.md) | **繁體中文**
 
@@ -10,33 +10,36 @@ Windows（x64）與 Linux（x64 AppImage，`chmod +x` 後直接執行）的安�
 
 ## 功能
 
-### Filter panel：更進階且方便的 TAT 風格 filter 管理面板
+`[TAT]`：TAT 支援的功能  
+Emoji：亮點功能
 
-- 支援樹狀群組管理。
-- 每個分頁各自保存 filter：清單、啟用／停用／暫停狀態，以及使用的 JSON filter 檔。新開的檔案載入預設 filter 檔，即 `filters.flogg-filters.json` 或最近一次開啟／另存的 filter 檔（位置見下方[命令列](#命令列)）。
-- `File > Preferences > Filter files` 可依檔名 pattern 指定預設要讀取的 filter 檔。由上往下比對，第一個符合的生效。不符合的檔案照上述方式載入預設 filter 檔。
-- 兼容 TAT / klogg filter 格式
+### ✨ Filter panel：更進階且方便的 TAT 風格 filter 管理面板
+
+- 支援樹狀群組 (group) 管理。
+- 📝 每個分頁各自保存 filter：
+新開的檔案預設載入最近一次開啟／另存的 filter 檔（預設 filter 檔路徑位置見下方[命令列](#命令列)）。
+    - 🎃 `File > Preferences > Filter files` 可設定檔名 pattern 指定預設要讀取的 filter 檔。
+    - `🔗Shared （共用模式）`：讓不同分頁共用一個 filter。所有開啟 `共用模式` 的分頁（不論在哪個視窗），不論修改是否已儲存，改動都會立即同步。多用於想新增暫時性的 filter 又不想汙染存檔時。
+- 👑 兼容 TAT / klogg filter 格式
     - 支援匯入 TextAnalysisTool 的 `.tat` 檔。
     - 支援匯入 klogg 的 predefined filters 與 highlighters。
-- 支援 suspend 使其暫時失效（不會改動原本的啟用狀態）。
-- 選中 filter 後，在主視窗或過濾視窗按 `F8` / `Shift+F8` 在命中行間跳轉。
-- `🔗Shared （共用模式）`：
-   - 讓不同分頁共用一個 filter，所有開啟 `共用模式` 的分頁（不論在哪個視窗），不論修改是否已儲存，都會立即同步到同在 `共用模式` 的其他分頁。
-   - 第一個開啟 `共用模式` 的分頁會複製自己的 filter 作為共用 filter；共用 filter 第一次被修改時會變成 untitled，存檔時會詢問檔名，不會覆蓋該分頁原本的 filter 檔。離開 `共用模式` 後恢復該分頁自己的 filter。當最後一個分頁離開 `共用模式` 時會清除共用模式的資訊。
+- 支援 suspend 使 filter / group 暫時失效（不會改動原本的啟用狀態）。
+- `[TAT]`選中 filter 後，在主視窗或過濾視窗按 `F8` / `Shift+F8` 在命中行間跳轉。
 
-### 主視窗 / 過濾視窗優化
+### ✅ 主視窗 / 過濾視窗優化
 
-- 滑鼠停在 log 檢視的某一行時，會依優先順序列出命中該行的 filter 與其編號。
-- 優化選中行的視覺顯示使其更顯眼
+- 🔎 滑鼠停在 log 檢視的某一行時，會依優先順序列出命中該行的 filter 與其編號。  
+  ![match_filter_hint](docs/images/match_filter_hint.jpg)
+- 優化選中行的視覺顯示使其更顯眼，可於 `File > Preferences > View > Style` 調整選取顏色。
 - 若主視窗選中行在過濾視窗有對應命中行，過濾視窗的選中行也會跳轉（原本只有過濾視窗會使主視窗跳轉）
-- `Ctrl+左鍵`（macOS：`Cmd+左鍵`）可選取不連續的多行。
+- 🕹️ `Ctrl+左鍵`（macOS：`Cmd+左鍵`）可選取不連續的多行。
 - Filter Panel 與 klogg 原生 pattern 輸入框互斥，可透過過濾視窗上方搜尋列最左邊的 `Filters` 按鈕切換。新分頁與空白搜尋預設進入 Filter mode；在 `File > Preferences` 關閉 `Start in Filter mode` 後，filter panel 就只負責標色，使用方式接近 klogg。
 - 所有有橫向捲軸的畫面都支援 `Shift` + 滑鼠滾輪橫向捲動。
-- 主視窗與過濾視窗支援 `Ctrl+1-8` 標記書籤，`Alt+1-8` / `Shift+Alt+1-8` 可跳到下一個 / 上一個對應書籤行。
+- `[TAT]`主視窗與過濾視窗支援 `Ctrl+1-8` 標記書籤，`Alt+1-8` / `Shift+Alt+1-8` 可跳到下一個 / 上一個對應書籤行。
   (建議至 `File > Preferences > Shortcuts` 修改按鍵設定，flogg 預設保留 klogg 原生 shortcuts)
-- `Ctrl+H`（macOS：`Control+H`）可隱藏主視窗，只顯示過濾視窗。
+- `[TAT]` `Ctrl+H`（macOS：`Control+H`）可隱藏主視窗，只顯示過濾視窗。
 
-### 快速過濾：與 klogg 同樣高效的搜尋與過濾
+### ⚡️ 快速過濾：與 klogg 同樣高效的搜尋與過濾
 
 - Hyperscan 本身即支援多 pattern 同時掃描，但 klogg 一次搜尋只產生一份結果；flogg 將其擴充為掃描一次檔案就同時得到每個 filter 各自的結果。
 - 每個 filter 維護自己的搜尋結果 Roaring Bitmap（沿用自 klogg），可自動根據命中稠密度調整資料結構，以壓縮所需記憶體空間。
@@ -45,11 +48,11 @@ Windows（x64）與 Linux（x64 AppImage，`chmod +x` 後直接執行）的安�
 ### 視窗
 
 - 不論以何種方式啟動（雙擊、工作列、檔案關聯、命令列），每次啟動都會以同 process 開一個新視窗，可以共用 filter，也可以從命令列指定特定視窗 (`-w`)；`-m` 則會另外啟動一個獨立 process 的 flogg。
-- `Window > Rename window...` 可為視窗命名，標題會顯示這個名稱而不是檔名；`Window` 選單會列出所有視窗及其 id（`#2`）。
+- 🖼️ `Window > Rename window...` 可為視窗命名，標題會顯示這個名稱而不是檔名；`Window` 選單會列出所有視窗及其 id（`#2`）。
 
 ### 更新
 
-- 每天啟動時檢查一次（`File > Preferences > File` 的 `Check for a new version at start`），或用 `Help > Check for updates...` 隨時檢查。GitHub 上有新版時，會顯示更新內容，可選擇立即更新、略過此版本或稍後再說。
+- 每天啟動時檢查一次（`File > Preferences > File` 的 `Check for a new version at start`），或用 `Help > Check for updates...` 隨時檢查。
 - `Help > What's new in flogg...` 列出 flogg 每個版本的改動（[CHANGELOG.md](CHANGELOG.md)）。
 
 ### 命令列
