@@ -2269,6 +2269,55 @@ SCENARIO( "Options view tab rendering", "[.render]" )
     REQUIRE( dialog.grab().save( renderDir + "/options_general.png" ) );
 }
 
+// Hidden, saves the Filter files tab with example rules for the README:
+// FLOGG_RENDER_DIR=<dir> klogg_itests "[.render]"
+SCENARIO( "Options filter files tab rendering", "[.render]" )
+{
+    const auto renderDir = qEnvironmentVariable( "FLOGG_RENDER_DIR" );
+    if ( renderDir.isEmpty() ) {
+        WARN( "FLOGG_RENDER_DIR is not set" );
+        return;
+    }
+
+    // Made up rules, only in memory: the settings file is not written
+    auto& config = Configuration::get();
+    const auto previousRules = config.filterFileRules();
+    config.setFilterFileRules( {
+        { "*.syslog; messages*", "/Users/demo/flogg/filters/system.flogg-filters.json" },
+        { "*/nginx/*.log", "/Users/demo/flogg/filters/nginx.flogg-filters.json" },
+        { "wlan*.log; wpa_supplicant*", "/Users/demo/flogg/filters/wifi.flogg-filters.json" },
+        { "kernel*.log; dmesg*", "/Users/demo/flogg/filters/kernel.flogg-filters.json" },
+    } );
+
+    auto appSession = std::make_shared<Session>();
+    WindowSession windowSession{ appSession, "Options", 0 };
+    MainWindow mainWindow( windowSession );
+    OptionsDialog dialog( &mainWindow );
+    auto* tabs = dialog.findChild<QTabWidget*>();
+    for ( int i = 0; i < tabs->count(); ++i ) {
+        if ( tabs->tabText( i ).remove( '&' ) == "Filter files" ) {
+            tabs->setCurrentIndex( i );
+        }
+    }
+    auto* table = tabs->currentWidget()->findChild<QTableWidget*>();
+    REQUIRE( table );
+    REQUIRE( table->rowCount() == 4 );
+    table->setCurrentCell( 1, 0 );
+    // Room for the rules only: the taller tabs do not set the height
+    for ( int i = 0; i < tabs->count(); ++i ) {
+        if ( i != tabs->currentIndex() ) {
+            tabs->widget( i )->setSizePolicy( QSizePolicy::Ignored, QSizePolicy::Ignored );
+        }
+    }
+    dialog.setMinimumSize( 0, 0 );
+    dialog.resize( 720, 340 );
+    dialog.show();
+    QTest::qWait( 200 );
+    REQUIRE( dialog.grab().save( renderDir + "/filter_file_rules.png" ) );
+
+    config.setFilterFileRules( previousRules );
+}
+
 SCENARIO( "Shared filters across windows ask only for the last tab", "[filters]" )
 {
     QTemporaryDir dir;

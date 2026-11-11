@@ -18,7 +18,8 @@ Emoji: highlights
 - Filters are organised in a tree of groups.
 - 📝 Each tab has its own filters:
 a newly opened file loads the filter file opened or saved last by default (see [Command line](#command-line) for where the default filter file is).
-    - 🎃 `File > Preferences > Filter files` sets file name patterns that pick the filter file to load by default.
+    - 🎃 `File > Preferences > Filter files` sets file name patterns that pick the filter file to load by default.  
+      ![Filter files rules](docs/images/filter_file_rules.png)
     - `🔗Shared` (shared mode): lets tabs share one set of filters. Every tab in shared mode, in any window, sees a change right away, saved or not. Handy to add temporary filters without touching the saved file.
 - 👑 Compatible with the TAT / klogg filter formats
     - Import TextAnalysisTool `.tat` files.

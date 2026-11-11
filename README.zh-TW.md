@@ -18,7 +18,8 @@ Emoji：亮點功能
 - 支援樹狀群組 (group) 管理。
 - 📝 每個分頁各自保存 filter：
 新開的檔案預設載入最近一次開啟／另存的 filter 檔（預設 filter 檔路徑位置見下方[命令列](#命令列)）。
-    - 🎃 `File > Preferences > Filter files` 可設定檔名 pattern 指定預設要讀取的 filter 檔。
+    - 🎃 `File > Preferences > Filter files` 可設定檔名 pattern 指定預設要讀取的 filter 檔。  
+      ![Filter files 規則](docs/images/filter_file_rules.png)
     - `🔗Shared （共用模式）`：讓不同分頁共用一個 filter。所有開啟 `共用模式` 的分頁（不論在哪個視窗），不論修改是否已儲存，改動都會立即同步。多用於想新增暫時性的 filter 又不想汙染存檔時。
 - 👑 兼容 TAT / klogg filter 格式
     - 支援匯入 TextAnalysisTool 的 `.tat` 檔。
