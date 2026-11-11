@@ -14,7 +14,7 @@ Windows（x64）與 Linux（x64 AppImage，`chmod +x` 後直接執行）的安�
 
 - 支援樹狀群組管理。
 - 每個分頁各自保存 filter：清單、啟用／停用／暫停狀態，以及使用的 JSON filter 檔。新開的檔案載入預設 filter 檔，即 `filters.flogg-filters.json` 或最近一次開啟／另存的 filter 檔（位置見下方[命令列](#命令列)）。
-- `File > Preferences > Filter files` 可依檔名 pattern指定要讀取的 filter 檔。由上往下比對，第一個符合的生效。不符合的檔案照上述方式載入預設 filter 檔。
+- `File > Preferences > Filter files` 可依檔名 pattern 指定預設要讀取的 filter 檔。由上往下比對，第一個符合的生效。不符合的檔案照上述方式載入預設 filter 檔。
 - 兼容 TAT / klogg filter 格式
     - 支援匯入 TextAnalysisTool 的 `.tat` 檔。
     - 支援匯入 klogg 的 predefined filters 與 highlighters。
