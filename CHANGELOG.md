@@ -1,5 +1,10 @@
 # flogg changes
 
+## 1.1.12 (2026-11-12)
+
+- A window maximized on a second screen opens there again, and restores from minimized there,
+  instead of moving back to the main screen
+
 ## 1.1.11 (2026-11-11)
 
 - `Check for updates...` shows the changes of every version since the installed one, not only

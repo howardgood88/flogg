@@ -84,6 +84,8 @@ class SessionInfo : public Persistable<SessionInfo, session_settings> {
         // Given by the user, empty for the default title
         QString name;
         QByteArray geometry;
+        // Name of the screen the window was on, to keep a maximized window there
+        QString screen;
         std::vector<OpenFile> openFiles;
     };
 
@@ -140,6 +142,20 @@ class SessionInfo : public Persistable<SessionInfo, session_settings> {
         auto window = findWindow( windowId );
         if ( window ) {
             window->geometry = geometry;
+        }
+    }
+
+    QString screen( const QString& windowId ) const
+    {
+        auto window = findWindow( windowId );
+        return window ? window->screen : QString{};
+    }
+
+    void setScreen( const QString& windowId, const QString& screen )
+    {
+        auto window = findWindow( windowId );
+        if ( window ) {
+            window->screen = screen;
         }
     }
 

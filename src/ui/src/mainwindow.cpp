@@ -255,7 +255,52 @@ void MainWindow::reloadGeometry()
     QByteArray geometry;
 
     session_.restoreGeometry( &geometry );
+    restoreWindowGeometry( geometry, session_.restoreScreen() );
+}
+
+void MainWindow::restoreWindowGeometry( const QByteArray& geometry, const QString& screenName )
+{
     restoreGeometry( geometry );
+
+    // The geometry keeps only the normal (not maximized) position. A window
+    // maximized on another screen than its normal position would come back,
+    // and restore from minimized, on the screen of the normal position: move
+    // the normal position to the saved screen.
+    const auto state = windowState();
+    if ( screenName.isEmpty()
+         || !( state & ( Qt::WindowMaximized | Qt::WindowFullScreen ) ) ) {
+        return;
+    }
+
+    const auto screens = QGuiApplication::screens();
+    const auto target = std::find_if( screens.cbegin(), screens.cend(),
+                                      [ &screenName ]( const QScreen* screen ) {
+                                          return screen->name() == screenName;
+                                      } );
+    if ( target == screens.cend() ) {
+        return;
+    }
+
+    const QRect normal = normalGeometry();
+    const QRect targetArea = ( *target )->availableGeometry();
+    if ( !normal.isValid() || targetArea.contains( normal.center() ) ) {
+        return;
+    }
+
+    // Same offset from the top left of the screen, kept inside the target screen
+    const auto* source = QGuiApplication::screenAt( normal.center() );
+    const QPoint offset
+        = source ? normal.topLeft() - source->availableGeometry().topLeft() : QPoint{};
+    QRect moved( targetArea.topLeft() + offset,
+                 normal.size().boundedTo( targetArea.size() ) );
+    moved.moveRight( std::min( moved.right(), targetArea.right() ) );
+    moved.moveBottom( std::min( moved.bottom(), targetArea.bottom() ) );
+    moved.moveLeft( std::max( moved.left(), targetArea.left() ) );
+    moved.moveTop( std::max( moved.top(), targetArea.top() ) );
+
+    setWindowState( state & ~( Qt::WindowMaximized | Qt::WindowFullScreen ) );
+    setGeometry( moved );
+    setWindowState( state );
 }
 
 void MainWindow::reloadSession()
@@ -2477,7 +2522,8 @@ void MainWindow::writeSettings()
         auto view = qobject_cast<const CrawlerWidget*>( mainTabWidget_.widget( i ) );
         widget_list.emplace_back( view, 0UL, view->context() );
     }
-    session_.save( widget_list, saveGeometry(), windowName_ );
+    session_.save( widget_list, saveGeometry(), screen() ? screen()->name() : QString{},
+                   windowName_ );
 
     PersistentInfo::getSettings( app_settings{} ).setValue( "filterPanel/windowState",
                                                             saveState() );

@@ -234,12 +234,14 @@ class KloggApp : public QApplication {
         const auto previousSessions = session_->windowSessions();
 
         QByteArray geometry;
+        QString screenName;
         if ( !previousSessions.empty() ) {
             previousSessions.back().restoreGeometry( &geometry );
+            screenName = previousSessions.back().restoreScreen();
         }
 
         auto window = newWindow( { session_, generateIdFromUuid(), nextWindowIndex() } );
-        window->restoreGeometry( geometry );
+        window->restoreWindowGeometry( geometry, screenName );
 
         return window;
     }

@@ -227,6 +227,9 @@ class WindowSession {
     // Get the geometry string from persistent storage for this session.
     void restoreGeometry( QByteArray* geometry ) const;
 
+    // Name of the screen the window was on when the session was saved
+    QString restoreScreen() const;
+
     // Name given to the window by the user, from persistent storage
     QString restoreName() const;
 
@@ -236,7 +239,7 @@ class WindowSession {
     // the user (it might have changed since file were opened).
     // Also, the geometry information is passed as an opaque string.
     void save( const std::vector<SaveFileInfo>& view_list, const QByteArray& geometry,
-               const QString& name );
+               const QString& screen, const QString& name );
 
     // returns true if caller needs to save settings
     bool close();

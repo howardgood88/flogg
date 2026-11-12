@@ -41,6 +41,7 @@ void SessionInfo::retrieveFromStorage( QSettings& settings )
             auto window = Window{ windowId };
             window.name = settings.value( "name" ).toString();
             window.geometry = settings.value( "geometry" ).toByteArray();
+            window.screen = settings.value( "screen" ).toString();
 
             if ( settings.contains( "OpenFiles/version" ) ) {
                 settings.beginGroup( "OpenFiles" );
@@ -90,6 +91,7 @@ void SessionInfo::saveToStorage( QSettings& settings ) const
         settings.setValue( "id", window.id );
         settings.setValue( "name", window.name );
         settings.setValue( "geometry", window.geometry );
+        settings.setValue( "screen", window.screen );
 
         settings.beginGroup( "OpenFiles" );
         settings.setValue( "version", OPENFILES_VERSION );

@@ -94,6 +94,9 @@ class MainWindow : public QMainWindow {
     // Re-install the geometry stored in config file
     // (should be done before 'Widget::show()')
     void reloadGeometry();
+    // Restores a saved geometry, keeping a maximized window on the screen
+    // it was saved on (before 'Widget::show()')
+    void restoreWindowGeometry( const QByteArray& geometry, const QString& screenName );
     // Re-load the files from the previous session
     void reloadSession();
     // Loads the initial file (parameter passed or from config file)
