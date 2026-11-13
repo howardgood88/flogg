@@ -281,10 +281,22 @@ void MainWindow::restoreWindowGeometry( const QByteArray& geometry, const QStrin
         return;
     }
 
-    const QRect normal = normalGeometry();
-    const QRect targetArea = ( *target )->availableGeometry();
-    if ( !normal.isValid() || targetArea.contains( normal.center() ) ) {
+    const auto moved = normalGeometryOnScreen( *target );
+    if ( !moved ) {
         return;
+    }
+
+    setWindowState( state & ~( Qt::WindowMaximized | Qt::WindowFullScreen ) );
+    setGeometry( *moved );
+    setWindowState( state );
+}
+
+std::optional<QRect> MainWindow::normalGeometryOnScreen( const QScreen* target ) const
+{
+    const QRect normal = normalGeometry();
+    const QRect targetArea = target->availableGeometry();
+    if ( !normal.isValid() || targetArea.contains( normal.center() ) ) {
+        return std::nullopt;
     }
 
     // Same offset from the top left of the screen, kept inside the target screen
@@ -297,10 +309,30 @@ void MainWindow::restoreWindowGeometry( const QByteArray& geometry, const QStrin
     moved.moveBottom( std::min( moved.bottom(), targetArea.bottom() ) );
     moved.moveLeft( std::max( moved.left(), targetArea.left() ) );
     moved.moveTop( std::max( moved.top(), targetArea.top() ) );
+    return moved;
+}
 
-    setWindowState( state & ~( Qt::WindowMaximized | Qt::WindowFullScreen ) );
-    setGeometry( moved );
-    setWindowState( state );
+void MainWindow::keepNormalGeometryOnScreen()
+{
+    // Called while minimized from maximized or full screen: Windows restores
+    // the window on the screen of its normal position, which may not be the
+    // screen it was maximized on. screen() is still the maximized one here
+    // (moves of a minimized window are ignored), and setGeometry() of a
+    // minimized window only changes its normal position.
+    const auto state = windowState();
+    if ( !( state & Qt::WindowMinimized )
+         || !( state & ( Qt::WindowMaximized | Qt::WindowFullScreen ) ) ) {
+        return;
+    }
+
+    const auto* target = screen();
+    if ( !target ) {
+        return;
+    }
+
+    if ( const auto moved = normalGeometryOnScreen( target ) ) {
+        setGeometry( *moved );
+    }
 }
 
 void MainWindow::reloadSession()
@@ -1704,12 +1736,14 @@ void MainWindow::changeEvent( QEvent* event )
         isMaximized_ = windowState().testFlag( Qt::WindowMaximized );
 
         if ( this->windowState() & Qt::WindowMinimized ) {
-            if ( Configuration::get().minimizeToTray() ) {
-                dispatchToMainThread( [ this ] {
+            // Out of the state change handling, before hiding to the tray
+            dispatchToMainThread( [ this ] {
+                keepNormalGeometryOnScreen();
+                if ( Configuration::get().minimizeToTray() ) {
                     trayIcon_->show();
                     this->hide();
-                } );
-            }
+                }
+            } );
         }
     }
     else if ( event->type() == QEvent::PaletteChange ) {

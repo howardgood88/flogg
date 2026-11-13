@@ -1,5 +1,10 @@
 # flogg changes
 
+## 1.1.13 (2026-11-13)
+
+- A window maximized on a second screen restores there after it is minimized (or hidden to the
+  tray) while running, not only after a restart
+
 ## 1.1.12 (2026-11-12)
 
 - A window maximized on a second screen opens there again, and restores from minimized there,

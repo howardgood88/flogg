@@ -48,6 +48,7 @@
 #include <QTranslator>
 #include <array>
 #include <memory>
+#include <optional>
 #include <mutex>
 
 #include "configuration.h"
@@ -286,6 +287,10 @@ class MainWindow : public QMainWindow {
     void updateInfoLine();
     void showInfoLabels( bool show );
     void logScreenInfo( QScreen* screen );
+    // The normal geometry moved onto the target screen, nothing when it is already there
+    std::optional<QRect> normalGeometryOnScreen( const QScreen* target ) const;
+    // Keeps a window minimized from maximized restoring on the screen it was on
+    void keepNormalGeometryOnScreen();
     void removeFromFavorites( const QString& pathToRemove );
     void removeFromRecent( const QString& pathToRemove );
     void tryOpenClipboard( int tryTimes );
