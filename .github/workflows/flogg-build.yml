@@ -7,10 +7,12 @@ on:
     paths-ignore:
       - '**.md'
       - 'bench/**'
+      - '_config.yml'
   pull_request:
     paths-ignore:
       - '**.md'
       - 'bench/**'
+      - '_config.yml'
   workflow_dispatch:
 
 # A newer push to the same branch cancels the running build

@@ -1,0 +1,30 @@
+# GitHub Pages site (https://howardgood88.github.io/flogg/), built from the
+# repository root: README.md becomes the home page. Only the user facing
+# Markdown files are published; the sources and third party code are excluded.
+title: flogg
+description: A blazing fast filter-based log viewer for very large log files, built on klogg, with a TextAnalysisTool style filter panel.
+lang: en
+theme: jekyll-theme-cayman
+plugins:
+  - jekyll-seo-tag
+  - jekyll-sitemap
+exclude:
+  - .github
+  - 3rdparty
+  - bench
+  - build_root
+  - cmake
+  - packaging
+  - Resources
+  - scripts
+  - src
+  - test_data
+  - tests
+  - tools
+  - CMakeLists.txt
+  - COPYING
+  - NOTICE
+  - CLAUDE.md
+  - .clang-format
+  - .clang-tidy
+  - .cmake-format
