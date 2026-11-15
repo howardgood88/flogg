@@ -602,9 +602,9 @@ class FileTreeDelegate : public QStyledItemDelegate {
             return;
         }
         const auto name = lineEdit->text();
-        const auto isFolder = index.data( QFileSystemModel::FileInfoRole )
-                                  .value<QFileInfo>()
-                                  .isDir();
+        // FileInfoRole is Qt 6.8+, the releases are built with Qt 6.7 (once per rename)
+        const auto isFolder
+            = QFileInfo( index.data( QFileSystemModel::FilePathRole ).toString() ).isDir();
         const auto dot = name.lastIndexOf( '.' );
         // A leading dot is part of the name (.profile). After the view selects all of it.
         const auto length = isFolder || dot <= 0 ? name.size() : dot;
