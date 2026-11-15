@@ -103,6 +103,8 @@
 #include "mainwindowtext.h"
 #include "openfilehelper.h"
 #include "optionsdialog.h"
+#include "filetreepanel.h"
+#include "tooltipplacement.h"
 #include "filterpanel.h"
 #include "persistentinfo.h"
 #include "progress.h"
@@ -206,6 +208,10 @@ MainWindow::MainWindow( WindowSession session )
              [ this ]( int index ) { this->closeTab( index, ActionInitiator::User ); } );
     connect( &mainTabWidget_, &TabbedCrawlerWidget::currentChanged, this,
              &MainWindow::currentTabChanged );
+    connect( &mainTabWidget_, &TabbedCrawlerWidget::tabContextMenuAboutToShow, this,
+             &MainWindow::addMoveTabActions );
+    connect( &mainTabWidget_, &TabbedCrawlerWidget::tabDropped, this,
+             &MainWindow::handleTabDropped );
 
     // Establish the QuickFindWidget and mux ( to send requests from the
     // QFWidget to the right window )
@@ -240,7 +246,11 @@ MainWindow::MainWindow( WindowSession session )
 
     setCentralWidget( central_widget );
 
+    // Tool tips beside a large cursor are kept out of it
+    tooltips::installPlacement();
+    setupFileTree();
     setupFilterPanel();
+    hideEmptyFileTree();
     // Queued: tabs stop using the shared filters while the window is destroyed
     connect( &SharedFilters::instance(), &SharedFilters::usersChanged, this,
              &MainWindow::refreshTitleBar, Qt::QueuedConnection );
@@ -339,6 +349,10 @@ void MainWindow::reloadSession()
 {
     setWindowName( session_.restoreName() );
 
+    const auto [ folder, folderVisible ] = session_.restoreFolder();
+    fileTreePanel_->setRootFolder( folder );
+    fileTreeDock_->setVisible( !folder.isEmpty() && folderVisible );
+
     const auto& config = Configuration::get();
     const auto followFileOnLoad = config.followFileOnLoad() && config.anyFileWatchEnabled();
 
@@ -408,6 +422,8 @@ void MainWindow::reTranslateUI()
 
     openAction->setText( transAction( action::openText ) );
     openAction->setStatusTip( transAction( action::openStatusTip ) );
+    openFolderAction->setText( tr( "Open &Folder..." ) );
+    openFolderAction->setStatusTip( tr( "Browse the files of a folder in the file tree panel" ) );
 
     recentFilesCleanup->setText( transAction( action::recentFilesCleanupText ) );
 
@@ -547,6 +563,10 @@ void MainWindow::createActions()
     openAction = new QAction( tr( action::openText ), this );
     openAction->setStatusTip( tr( action::openStatusTip ) );
     connect( openAction, &QAction::triggered, [ this ]( auto ) { this->open(); } );
+
+    openFolderAction = new QAction( tr( "Open &Folder..." ), this );
+    openFolderAction->setStatusTip( tr( "Browse the files of a folder in the file tree panel" ) );
+    connect( openFolderAction, &QAction::triggered, this, &MainWindow::openFolder );
 
     recentFilesCleanup = new QAction( tr( action::recentFilesCleanupText ), this );
     connect( recentFilesCleanup, &QAction::triggered, this,
@@ -779,6 +799,7 @@ void MainWindow::updateShortcuts()
 
     setShortcuts( newWindowAction, ShortcutAction::MainWindowNewWindow );
     setShortcuts( openAction, ShortcutAction::MainWindowOpenFile );
+    setShortcuts( openFolderAction, ShortcutAction::MainWindowOpenFolder );
     setShortcuts( closeAction, ShortcutAction::MainWindowCloseFile );
     setShortcuts( closeAllAction, ShortcutAction::MainWindowCloseAll );
     setShortcuts( exitAction, ShortcutAction::MainWindowQuit );
@@ -800,7 +821,10 @@ void MainWindow::updateShortcuts()
     setShortcuts( optionsAction, ShortcutAction::MainWindowPreference );
     setShortcuts( mainViewVisibleAction, ShortcutAction::MainWindowToggleMainView );
 
-    // The filter panel is created after the first call
+    // The panels are created after the first call
+    if ( fileTreeDock_ ) {
+        setShortcuts( fileTreeDock_->toggleViewAction(), ShortcutAction::MainWindowToggleFileTree );
+    }
     if ( filterDock_ ) {
         setShortcuts( filterDock_->toggleViewAction(), ShortcutAction::MainWindowToggleFilterPanel );
         filterPanel_->updateShortcuts();
@@ -826,6 +850,7 @@ void MainWindow::createMenus()
     fileMenu->setToolTipsVisible( true );
     fileMenu->addAction( newWindowAction );
     fileMenu->addAction( openAction );
+    fileMenu->addAction( openFolderAction );
     fileMenu->addAction( openClipboardAction );
     fileMenu->addAction( openUrlAction );
     recentFilesMenu = fileMenu->addMenu( tr( "Open Recent" ) );
@@ -1342,6 +1367,7 @@ void MainWindow::importSettings()
     if ( windowState.isValid() ) {
         restoreState( windowState.toByteArray() );
     }
+    hideEmptyFileTree();
 
     applyOptions();
     Q_EMIT optionsChanged();
@@ -1619,6 +1645,7 @@ void MainWindow::currentTabChanged( int index )
 
         updateMenuBarFromDocument( crawler_widget );
         updateTitleBar( session_.getFilename( crawler_widget ) );
+        fileTreePanel_->setCurrentFile( session_.getFilename( crawler_widget ) );
         crawler_widget->setMainViewVisible( mainViewVisibleAction->isChecked() );
         switchFilterTab( crawler_widget );
         applyFiltersToCurrentCrawler();
@@ -1898,6 +1925,12 @@ bool MainWindow::loadFile( const QString& fileName, bool followFile )
 {
     LOG_DEBUG << "loadFile ( " << fileName.toStdString() << " )";
 
+    // A folder (dropped, from the command line) goes to the file tree
+    if ( QFileInfo( fileName ).isDir() ) {
+        setRootFolder( fileName );
+        return true;
+    }
+
     // First check if the file is already open in this window, another window opens it
     // in a tab of its own
     for ( int i = 0; i < mainTabWidget_.count(); ++i ) {
@@ -2056,6 +2089,10 @@ void MainWindow::runCommand( const WindowCommand& command )
         applyToCurrentTab();
     }
     for ( const auto& file : command.files ) {
+        if ( QFileInfo( file ).isDir() ) {
+            setRootFolder( file );
+            continue;
+        }
         if ( loadFile( file, command.follow ) ) {
             applyToCurrentTab();
         }
@@ -2086,13 +2123,8 @@ std::vector<MainWindow::TabInfo> MainWindow::tabInfos() const
 }
 
 // Lists every window of flogg, built when the menu is shown
-void MainWindow::updateWindowMenu()
+std::vector<MainWindow*> MainWindow::visibleWindows()
 {
-    windowMenu->clear();
-    windowMenu->addAction( tr( "Rename window..." ), this, &MainWindow::renameWindow );
-    windowMenu->addAction( newWindowAction );
-    windowMenu->addSeparator();
-
     std::vector<MainWindow*> windows;
     for ( auto* widget : QApplication::topLevelWidgets() ) {
         auto* window = qobject_cast<MainWindow*>( widget );
@@ -2103,8 +2135,179 @@ void MainWindow::updateWindowMenu()
     std::sort( windows.begin(), windows.end(), []( const auto* lhs, const auto* rhs ) {
         return lhs->windowNumber() < rhs->windowNumber();
     } );
+    return windows;
+}
 
-    for ( auto* window : windows ) {
+bool MainWindow::hasOpenFile( const QString& fileName ) const
+{
+    for ( int i = 0; i < mainTabWidget_.count(); ++i ) {
+        const auto* crawler = qobject_cast<const CrawlerWidget*>( mainTabWidget_.widget( i ) );
+        if ( session_.getFilename( crawler ) == fileName ) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool MainWindow::canMoveTabTo( const CrawlerWidget* crawler, const MainWindow& target ) const
+{
+    if ( !crawler || crawler->isLoading()
+         || mainTabWidget_.indexOf( const_cast<CrawlerWidget*>( crawler ) ) < 0 ) {
+        return false;
+    }
+    return &target == this || !target.hasOpenFile( session_.getFilename( crawler ) );
+}
+
+bool MainWindow::moveTabTo( CrawlerWidget* crawler, MainWindow& target, int index )
+{
+    if ( !canMoveTabTo( crawler, target ) ) {
+        return false;
+    }
+
+    const auto from = mainTabWidget_.indexOf( crawler );
+    if ( &target == this ) {
+        // The index counts the tab at its place
+        const auto count = mainTabWidget_.count();
+        const auto to = index < 0 || index > count ? count - 1 : index > from ? index - 1 : index;
+        if ( to != from ) {
+            mainTabWidget_.tabBar()->moveTab( from, to );
+        }
+        mainTabWidget_.setCurrentIndex( to );
+        return true;
+    }
+
+    LOG_INFO << "Moving tab " << session_.getFilename( crawler ).toStdString() << " to window "
+             << target.windowNumber();
+
+    const auto fileName = session_.getFilename( crawler );
+    const auto status = mainTabWidget_.tabDataStatus( from );
+
+    // The filters shown for the tab go with it
+    if ( filterTab_ == crawler && filterPanel_ ) {
+        crawler->setFilterTabState( filterPanel_->tabState() );
+    }
+
+    // The window shows another tab (or none)
+    mainTabWidget_.removeCrawler( from );
+    if ( filterTab_ == crawler ) {
+        switchFilterTab( currentCrawlerWidget() );
+    }
+    session_.release( crawler );
+    updateOpenedFilesMenu();
+
+    target.session_.adopt( crawler );
+    // Shown in the target window, with its menus and filters
+    const auto inserted = target.mainTabWidget_.insertCrawler( index, crawler, fileName, status );
+    // The moved tab is the one shown, also in a window with tabs already
+    target.mainTabWidget_.setCurrentIndex( inserted );
+    target.updateOpenedFilesMenu();
+
+    return true;
+}
+
+void MainWindow::handleTabDropped( CrawlerWidget* crawler, QPoint globalPos, QPoint hotSpot )
+{
+    auto* topLevel = QApplication::topLevelAt( globalPos );
+    if ( auto* target = qobject_cast<MainWindow*>( topLevel ) ) {
+        const auto index = target->mainTabWidget_.dropIndexAt(
+            target->mainTabWidget_.mapFromGlobal( globalPos ) );
+
+        // Dropped back on its own window away from the tab bar, the tab stays
+        if ( ( target != this || index >= 0 ) && moveTabTo( crawler, *target, index )
+             && target != this ) {
+            target->activateInApp();
+        }
+    }
+    // Out of every window of flogg (on a dialog or the scratchpad the tab stays)
+    else if ( !topLevel && canMoveTabTo( crawler, *this ) ) {
+        Q_EMIT newWindowForTab( crawler, detachedWindowGeometry( globalPos, hotSpot ) );
+    }
+}
+
+void MainWindow::activateInApp()
+{
+    if ( isMinimized() ) {
+        showNormal();
+    }
+    raise();
+    activateWindow();
+}
+
+void MainWindow::addMoveTabActions( QMenu* menu, int tab )
+{
+    const QPointer<CrawlerWidget> crawler
+        = qobject_cast<CrawlerWidget*>( mainTabWidget_.widget( tab ) );
+
+    menu->addSeparator();
+    auto* toNewWindow = menu->addAction( tr( "Move to new window" ) );
+    toNewWindow->setEnabled( canMoveTabTo( crawler, *this ) );
+    connect( toNewWindow, &QAction::triggered, this, [ this, crawler ] {
+        if ( !crawler || !canMoveTabTo( crawler, *this ) ) {
+            return;
+        }
+        // Next to this window, like a new window would open
+        auto geometry = isMaximized() || isFullScreen() ? normalGeometry() : this->geometry();
+        geometry.translate( 40, 40 );
+        Q_EMIT newWindowForTab( crawler, keptOnScreen( geometry, screen() ) );
+    } );
+
+    auto* toWindow = menu->addMenu( tr( "Move to window" ) );
+    for ( auto* window : visibleWindows() ) {
+        if ( window == this ) {
+            continue;
+        }
+        auto* action = toWindow->addAction(
+            QString( "#%1  %2" ).arg( window->windowNumber() ).arg( window->windowTitle() ) );
+        action->setEnabled( canMoveTabTo( crawler, *window ) );
+        connect( action, &QAction::triggered, this,
+                 [ this, crawler, target = QPointer<MainWindow>( window ) ] {
+                     if ( crawler && target && moveTabTo( crawler, *target, -1 ) ) {
+                         target->activateInApp();
+                     }
+                 } );
+    }
+    toWindow->setEnabled( !toWindow->isEmpty() );
+}
+
+QRect MainWindow::detachedWindowGeometry( QPoint globalPos, QPoint hotSpot ) const
+{
+    const auto size = isMaximized() || isFullScreen() ? normalGeometry().size() : this->size();
+
+    // The new window has the tab first in its bar, at the same place as the bar here
+    const auto* bar = mainTabWidget_.tabBar();
+    const auto barOffset = bar->mapTo( this, QPoint( 0, 0 ) );
+    const QRect geometry( globalPos - barOffset - hotSpot, size );
+
+    const auto* screen = QGuiApplication::screenAt( globalPos );
+    return keptOnScreen( geometry, screen ? screen : this->screen() );
+}
+
+QRect MainWindow::keptOnScreen( QRect geometry, const QScreen* screen ) const
+{
+    if ( !screen ) {
+        return geometry;
+    }
+
+    const auto area = screen->availableGeometry();
+    const auto titleHeight = std::max( 0, this->geometry().top() - frameGeometry().top() );
+    const QRect inside = area.adjusted( 0, titleHeight, 0, 0 );
+
+    geometry.setSize( geometry.size().boundedTo( inside.size() ) );
+    geometry.moveRight( std::min( geometry.right(), inside.right() ) );
+    geometry.moveBottom( std::min( geometry.bottom(), inside.bottom() ) );
+    geometry.moveLeft( std::max( geometry.left(), inside.left() ) );
+    geometry.moveTop( std::max( geometry.top(), inside.top() ) );
+    return geometry;
+}
+
+void MainWindow::updateWindowMenu()
+{
+    windowMenu->clear();
+    windowMenu->addAction( tr( "Rename window..." ), this, &MainWindow::renameWindow );
+    windowMenu->addAction( newWindowAction );
+    windowMenu->addSeparator();
+
+    for ( auto* window : visibleWindows() ) {
         auto* action = windowMenu->addAction(
             QString( "#%1  %2" ).arg( window->windowNumber() ).arg( window->windowTitle() ) );
         action->setCheckable( true );
@@ -2325,6 +2528,10 @@ void MainWindow::updateOpenedFilesMenu()
     }
 
     selectOpenFileAction->setDisabled( files.empty() );
+
+    if ( fileTreePanel_ ) {
+        fileTreePanel_->setOpenFiles( files );
+    }
 }
 
 void MainWindow::updateFavoritesMenu()
@@ -2557,10 +2764,71 @@ void MainWindow::writeSettings()
         widget_list.emplace_back( view, 0UL, view->context() );
     }
     session_.save( widget_list, saveGeometry(), screen() ? screen()->name() : QString{},
-                   windowName_ );
+                   windowName_, fileTreePanel_->rootFolder(), fileTreeDock_->isVisible() );
 
     PersistentInfo::getSettings( app_settings{} ).setValue( "filterPanel/windowState",
                                                             saveState() );
+}
+
+void MainWindow::setupFileTree()
+{
+    fileTreePanel_ = new FileTreePanel;
+
+    fileTreeDock_ = new QDockWidget( tr( "Files" ), this );
+    fileTreeDock_->setObjectName( "fileTreeDock" );
+    fileTreeDock_->setWidget( fileTreePanel_ );
+    addDockWidget( Qt::LeftDockWidgetArea, fileTreeDock_ );
+    fileTreeDock_->hide();
+
+    connect( fileTreePanel_, &FileTreePanel::openFilesRequested, this,
+             [ this ]( const QStringList& files ) {
+                 for ( const auto& file : files ) {
+                     loadFile( file );
+                 }
+             } );
+    connect( fileTreePanel_, &FileTreePanel::openFolderRequested, this, &MainWindow::openFolder );
+    fileTreePanel_->setOpenFilesProvider( [ this ] { return session_.allOpenFiles(); } );
+
+    toolsMenu->addSeparator();
+    toolsMenu->addAction( fileTreeDock_->toggleViewAction() );
+}
+
+void MainWindow::hideEmptyFileTree()
+{
+    if ( fileTreePanel_->rootFolder().isEmpty() ) {
+        fileTreeDock_->hide();
+    }
+}
+
+void MainWindow::setRootFolder( const QString& folder )
+{
+    fileTreePanel_->setRootFolder( folder );
+    if ( auto* crawler = currentCrawlerWidget() ) {
+        fileTreePanel_->setCurrentFile( session_.getFilename( crawler ) );
+    }
+    fileTreeDock_->setVisible( !folder.isEmpty() );
+    if ( !folder.isEmpty() ) {
+        fileTreeDock_->raise();
+    }
+}
+
+QString MainWindow::rootFolder() const
+{
+    return fileTreePanel_->rootFolder();
+}
+
+void MainWindow::openFolder()
+{
+    auto start = fileTreePanel_->rootFolder();
+    if ( start.isEmpty() ) {
+        if ( auto current = currentCrawlerWidget() ) {
+            start = QFileInfo( session_.getFilename( current ) ).path();
+        }
+    }
+    const auto folder = QFileDialog::getExistingDirectory( this, tr( "Open folder" ), start );
+    if ( !folder.isEmpty() ) {
+        setRootFolder( folder );
+    }
 }
 
 void MainWindow::setupFilterPanel()

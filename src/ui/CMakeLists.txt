@@ -43,6 +43,8 @@ add_library(
   ${CMAKE_CURRENT_SOURCE_DIR}/include/colorlabelsmanager.h
   ${CMAKE_CURRENT_SOURCE_DIR}/include/filtertree.h
   ${CMAKE_CURRENT_SOURCE_DIR}/include/filterpanel.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/include/filetreepanel.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/include/tooltipplacement.h
   ${CMAKE_CURRENT_SOURCE_DIR}/include/filtereditdialog.h
   ${CMAKE_CURRENT_SOURCE_DIR}/include/horizontalwheelfilter.h
   ${CMAKE_CURRENT_SOURCE_DIR}/include/highlighteredit.ui
@@ -85,6 +87,8 @@ add_library(
   ${CMAKE_CURRENT_SOURCE_DIR}/src/colorlabelsmanager.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/src/filtertree.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/src/filterpanel.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/filetreepanel.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/tooltipplacement.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/src/filtereditdialog.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/src/horizontalwheelfilter.cpp
 )

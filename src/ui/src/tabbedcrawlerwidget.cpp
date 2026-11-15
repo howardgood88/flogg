@@ -21,12 +21,15 @@
 
 #include <QApplication>
 #include <QClipboard>
+#include <QCursor>
 #include <QDir>
 #include <QFileInfo>
 #include <QInputDialog>
 #include <QKeyEvent>
 #include <QLabel>
 #include <QMenu>
+#include <QPainter>
+#include <QPointer>
 #include <qobjectdefs.h>
 #include <qpoint.h>
 
@@ -45,6 +48,10 @@
 namespace {
 constexpr QLatin1String PathKey = QLatin1String( "path", 4 );
 constexpr QLatin1String StatusKey = QLatin1String( "status", 6 );
+
+// Width of the picture of the tab contents under the mouse while dragging
+constexpr int DragPreviewWidth = 320;
+constexpr int DragPreviewMaxHeight = 240;
 } // namespace
 
 TabbedCrawlerWidget::TabbedCrawlerWidget()
@@ -61,6 +68,11 @@ TabbedCrawlerWidget::TabbedCrawlerWidget()
     myTabBar_.setContextMenuPolicy( Qt::CustomContextMenu );
     connect( &myTabBar_, &CrawlerTabBar::showTabContextMenu, this,
              &TabbedCrawlerWidget::showContextMenu );
+    connect( &myTabBar_, &CrawlerTabBar::tabDraggedOut, this,
+             &TabbedCrawlerWidget::startTabDrag );
+    connect( &myTabBar_, &CrawlerTabBar::tabDragMoved, this, &TabbedCrawlerWidget::moveTabDrag );
+    connect( &myTabBar_, &CrawlerTabBar::tabDragReleased, this,
+             &TabbedCrawlerWidget::finishTabDrag );
 
     // Queued: tabs stop using the shared filters while their window is destroyed
     connect( &SharedFilters::instance(), &SharedFilters::usersChanged, this,
@@ -68,6 +80,11 @@ TabbedCrawlerWidget::TabbedCrawlerWidget()
 
     // Dropped when the widget is destroyed first
     dispatchToObject( [ this ] { loadIcons(); }, this );
+}
+
+TabbedCrawlerWidget::~TabbedCrawlerWidget()
+{
+    cancelTabDrag();
 }
 
 void TabbedCrawlerWidget::updateTabBarStyle()
@@ -220,6 +237,11 @@ void TabbedCrawlerWidget::addTabBarItem( int index, const QString& fileName )
 
 void TabbedCrawlerWidget::removeCrawler( int index )
 {
+    // The status of the tab follows the file while it is in this widget only
+    if ( auto* crawler = widget( index ) ) {
+        disconnect( crawler, nullptr, this, nullptr );
+    }
+
     QTabWidget::removeTab( index );
 
     if ( count() == 0 )
@@ -246,8 +268,180 @@ QString TabbedCrawlerWidget::tabPathAt( int index ) const
     return myTabBar_.tabData( index ).toMap()[ PathKey ].toString();
 }
 
+DataStatus TabbedCrawlerWidget::tabDataStatus( int index ) const
+{
+    return static_cast<DataStatus>( myTabBar_.tabData( index ).toMap()[ StatusKey ].toInt() );
+}
+
+int TabbedCrawlerWidget::dropIndexAt( QPoint pos ) const
+{
+    if ( !myTabBar_.isVisible() ) {
+        return -1;
+    }
+
+    const auto barPos = myTabBar_.mapFrom( this, pos );
+    const auto barHeight = myTabBar_.height();
+    if ( barPos.y() < -barHeight || barPos.y() > 2 * barHeight ) {
+        return -1;
+    }
+
+    const auto tab = myTabBar_.tabAt( QPoint( barPos.x(), barHeight / 2 ) );
+    if ( tab < 0 ) {
+        return count() > 0 && barPos.x() < myTabBar_.tabRect( 0 ).left() ? 0 : count();
+    }
+    return barPos.x() > myTabBar_.tabRect( tab ).center().x() ? tab + 1 : tab;
+}
+
+QPixmap TabbedCrawlerWidget::tabDragPixmap( int tab )
+{
+    const auto tabImage = myTabBar_.grab( myTabBar_.tabRect( tab ) );
+    const auto tabSize = tabImage.deviceIndependentSize().toSize();
+
+    // The views as they are drawn now, made smaller
+    const auto contents = widget( tab )->grab();
+    auto contentsSize = contents.deviceIndependentSize().toSize();
+    if ( !contentsSize.isEmpty() ) {
+        contentsSize.scale( DragPreviewWidth, DragPreviewMaxHeight, Qt::KeepAspectRatio );
+    }
+
+    const auto dpr = devicePixelRatioF();
+    const QSize size( std::max( tabSize.width(), contentsSize.width() ),
+                      tabSize.height() + contentsSize.height() );
+    QPixmap pixmap( size * dpr );
+    pixmap.setDevicePixelRatio( dpr );
+    pixmap.fill( Qt::transparent );
+
+    QPainter painter( &pixmap );
+    painter.drawPixmap( QPoint( 0, 0 ), tabImage );
+    if ( !contentsSize.isEmpty() ) {
+        const QRect contentsRect( QPoint( 0, tabSize.height() ), contentsSize );
+        painter.setRenderHint( QPainter::SmoothPixmapTransform );
+        painter.setOpacity( 0.85 );
+        painter.drawPixmap( contentsRect, contents );
+        painter.setOpacity( 1 );
+        painter.setPen( palette().color( QPalette::Mid ) );
+        painter.drawRect( contentsRect.adjusted( 0, 0, -1, -1 ) );
+    }
+    return pixmap;
+}
+
+void TabbedCrawlerWidget::startTabDrag( int tab, QPoint hotSpot, QPoint globalPos )
+{
+    auto* crawler = qobject_cast<CrawlerWidget*>( widget( tab ) );
+
+    // The window shows a file once it is loaded: a file still loading stays in its window
+    if ( !crawler || crawler->isLoading() ) {
+        return;
+    }
+
+    draggedCrawler_ = crawler;
+    dragHotSpot_ = hotSpot;
+
+    // A window of its own above the others, that the mouse goes through and that does
+    // not take the focus
+    dragPreview_ = std::make_unique<QLabel>(
+        nullptr, Qt::ToolTip | Qt::FramelessWindowHint | Qt::WindowTransparentForInput
+                     | Qt::WindowDoesNotAcceptFocus );
+    dragPreview_->setAttribute( Qt::WA_TranslucentBackground );
+    dragPreview_->setAttribute( Qt::WA_ShowWithoutActivating );
+    dragPreview_->setPixmap( tabDragPixmap( tab ) );
+    dragPreview_->adjustSize();
+    moveTabDrag( globalPos );
+    dragPreview_->show();
+
+    qApp->installEventFilter( this );
+}
+
+void TabbedCrawlerWidget::moveTabDrag( QPoint globalPos )
+{
+    if ( dragPreview_ ) {
+        dragPreview_->move( globalPos - dragHotSpot_ );
+    }
+}
+
+void TabbedCrawlerWidget::finishTabDrag( QPoint globalPos )
+{
+    const auto crawler = draggedCrawler_;
+    cancelTabDrag();
+    if ( crawler ) {
+        Q_EMIT tabDropped( crawler, globalPos, dragHotSpot_ );
+    }
+}
+
+void TabbedCrawlerWidget::cancelTabDrag()
+{
+    qApp->removeEventFilter( this );
+    draggedCrawler_ = nullptr;
+    // Its window is gone before looking for the window under the mouse
+    dragPreview_.reset();
+}
+
+bool TabbedCrawlerWidget::eventFilter( QObject* watched, QEvent* event )
+{
+    // Before a shortcut of the window takes the key
+    const auto type = event->type();
+    if ( draggedCrawler_ && ( type == QEvent::ShortcutOverride || type == QEvent::KeyPress )
+         && static_cast<QKeyEvent*>( event )->key() == Qt::Key_Escape ) {
+        cancelTabDrag();
+        event->accept();
+        return true;
+    }
+    return QTabWidget::eventFilter( watched, event );
+}
+
+void CrawlerTabBar::mousePressEvent( QMouseEvent* mouseEvent )
+{
+    if ( mouseEvent->button() == Qt::LeftButton ) {
+        draggedOut_ = false;
+        pressPos_ = mouseEvent->pos();
+        const auto tab = tabAt( pressPos_ );
+        pressedTab_ = tab >= 0;
+        if ( pressedTab_ ) {
+            pressOffset_ = pressPos_ - tabRect( tab ).topLeft();
+        }
+    }
+
+    QTabBar::mousePressEvent( mouseEvent );
+}
+
+void CrawlerTabBar::mouseMoveEvent( QMouseEvent* mouseEvent )
+{
+    if ( pressedTab_ && !draggedOut_ && ( mouseEvent->buttons() & Qt::LeftButton ) ) {
+        // A tab moved along the bar stays in it, it leaves the bar further away
+        const auto margin = std::max( height(), QApplication::startDragDistance() * 4 );
+        if ( !rect().adjusted( -margin, -margin, margin, margin ).contains( mouseEvent->pos() ) ) {
+            draggedOut_ = true;
+
+            // Ends the move of the tab along the bar, the pressed tab is the current one
+            QMouseEvent release( QEvent::MouseButtonRelease, mouseEvent->position(),
+                                 mouseEvent->globalPosition(), Qt::LeftButton, Qt::NoButton,
+                                 mouseEvent->modifiers() );
+            QTabBar::mouseReleaseEvent( &release );
+
+            Q_EMIT tabDraggedOut( currentIndex(), pressOffset_,
+                                  mouseEvent->globalPosition().toPoint() );
+            return;
+        }
+    }
+
+    if ( draggedOut_ ) {
+        Q_EMIT tabDragMoved( mouseEvent->globalPosition().toPoint() );
+        return;
+    }
+
+    QTabBar::mouseMoveEvent( mouseEvent );
+}
+
 void CrawlerTabBar::mouseReleaseEvent( QMouseEvent* mouseEvent )
 {
+    if ( mouseEvent->button() == Qt::LeftButton ) {
+        pressedTab_ = false;
+        if ( std::exchange( draggedOut_, false ) ) {
+            Q_EMIT tabDragReleased( mouseEvent->globalPosition().toPoint() );
+            return;
+        }
+    }
+
     if ( mouseEvent->button() == Qt::RightButton ) {
         int tab = tabAt( mouseEvent->pos() );
         if ( tab != -1 ) {
@@ -276,6 +470,7 @@ void TabbedCrawlerWidget::showContextMenu( int tab, QPoint globalPoint )
     menu.addSeparator();
     auto renameTab = menu.addAction( tr( "Rename tab" ) );
     auto resetTabName = menu.addAction( tr( "Reset tab name" ) );
+    Q_EMIT tabContextMenuAboutToShow( &menu, tab );
 
     const auto& shortcuts = Configuration::get().shortcuts();
     ShortcutAction::showInMenu( closeThis, ShortcutAction::MainWindowCloseFile, shortcuts );

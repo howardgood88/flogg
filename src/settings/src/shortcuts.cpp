@@ -309,6 +309,20 @@ const ShortcutAction::ShortcutList& ShortcutAction::defaultShortcutList()
             },
         },
         {
+            MainWindowToggleFileTree,
+            {
+                QApplication::tr( "Show/hide file tree panel" ),
+                QStringList{},
+            },
+        },
+        {
+            MainWindowOpenFolder,
+            {
+                QApplication::tr( "Open folder in the file tree" ),
+                QStringList{},
+            },
+        },
+        {
             FilterPanelFindNext,
             {
                 QApplication::tr( "Find next match of selected filters" ),

@@ -79,6 +79,16 @@ class Session : public std::enable_shared_from_this<Session> {
     // Get the file name for the passed view.
     QString getFilename( const ViewInterface* view ) const;
 
+    // The files open in every window
+    QStringList openFileNames() const
+    {
+        QStringList names;
+        for ( const auto& file : openFiles_ ) {
+            names.append( file.second.fileName );
+        }
+        return names;
+    }
+
     // Get the size (in bytes) and number of lines in the current file.
     // The file is identified by the view attached to it.
     void getFileInfo( const ViewInterface* view, uint64_t* fileSize, uint64_t* fileNbLine,
@@ -185,6 +195,21 @@ class WindowSession {
         appSession_->close( view );
     }
 
+    // The file of the view moves to another window and stays open
+    void release( const ViewInterface* view )
+    {
+        auto it = std::find( openedFiles_.begin(), openedFiles_.end(), getFilename( view ) );
+        if ( it != openedFiles_.end() ) {
+            openedFiles_.erase( it );
+        }
+    }
+
+    // The file of a view released by another window comes to this one
+    void adopt( const ViewInterface* view )
+    {
+        openedFiles_.push_back( getFilename( view ) );
+    }
+
     QString getFilename( const ViewInterface* view ) const
     {
         return appSession_->getFilename( view );
@@ -199,6 +224,12 @@ class WindowSession {
     std::vector<QString> openedFiles() const
     {
         return openedFiles_;
+    }
+
+    // The files open in every window
+    QStringList allOpenFiles() const
+    {
+        return appSession_->openFileNames();
     }
 
     // Get a (non-const) reference to the QuickFind pattern.
@@ -233,13 +264,17 @@ class WindowSession {
     // Name given to the window by the user, from persistent storage
     QString restoreName() const;
 
+    // Folder of the file tree and whether its panel was shown
+    std::pair<QString, bool> restoreFolder() const;
+
     // Save the session to persistent storage. An ordered list of
     // (view, topline, ViewContextInterface) is passed, this is because only
     // the main window know the order in which the views are presented to
     // the user (it might have changed since file were opened).
     // Also, the geometry information is passed as an opaque string.
     void save( const std::vector<SaveFileInfo>& view_list, const QByteArray& geometry,
-               const QString& screen, const QString& name );
+               const QString& screen, const QString& name, const QString& folder = {},
+               bool folderVisible = false );
 
     // returns true if caller needs to save settings
     bool close();

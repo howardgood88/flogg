@@ -33,26 +33,56 @@
 // This is a very slightly customised QTabWidget, with
 // a particular style.
 
+#include <QPointer>
+
+#include <memory>
+
+class QLabel;
+class QMenu;
+class CrawlerWidget;
+
 class CrawlerTabBar : public QTabBar {
   Q_OBJECT
 
   Q_SIGNALS:
     void showTabContextMenu(int tab, QPoint point);
+    // The tab was dragged off the bar, hotSpot is where the mouse holds the tab
+    // (in the coordinates of the tab). The mouse moves and is released after.
+    void tabDraggedOut( int tab, QPoint hotSpot, QPoint globalPos );
+    void tabDragMoved( QPoint globalPos );
+    void tabDragReleased( QPoint globalPos );
 
   protected:
+    void mousePressEvent( QMouseEvent* ) override;
+    void mouseMoveEvent( QMouseEvent* ) override;
     void mouseReleaseEvent( QMouseEvent* ) override;
 
+  private:
+    QPoint pressPos_;
+    // Where the mouse holds the pressed tab, in the coordinates of the tab
+    QPoint pressOffset_;
+    bool pressedTab_ = false;
+    bool draggedOut_ = false;
 };
 
 class TabbedCrawlerWidget : public QTabWidget {
     Q_OBJECT
   public:
     TabbedCrawlerWidget();
+    ~TabbedCrawlerWidget() override;
 
     template <typename T>
     int addCrawler( T* crawler, const QString& fileName )
     {
-        const auto index = QTabWidget::addTab( crawler, QString{} );
+        return insertCrawler( -1, crawler, fileName );
+    }
+
+    // At the end for a negative index
+    template <typename T>
+    int insertCrawler( int index, T* crawler, const QString& fileName,
+                       DataStatus status = DataStatus::OLD_DATA )
+    {
+        index = QTabWidget::insertTab( index, crawler, QString{} );
 
         connect( crawler, &T::dataStatusChanged, this, [ this, fileName ]( DataStatus status ) {
             const auto tabsCount = count();
@@ -65,11 +95,20 @@ class TabbedCrawlerWidget : public QTabWidget {
         } );
 
         addTabBarItem( index, fileName );
+        if ( status != DataStatus::OLD_DATA ) {
+            setTabDataStatus( index, status );
+        }
 
         return index;
     }
 
     void removeCrawler( int index );
+
+    DataStatus tabDataStatus( int index ) const;
+
+    // Index where a tab dropped at the position (in the coordinates of this widget) goes:
+    // before or after the tab under it, at the end right of the tabs. -1 away from the bar.
+    int dropIndexAt( QPoint pos ) const;
 
     // The style sheet of the tab bar makes Qt skip this widget and the tabs when the palette
     // of the application changes, the window passes it on
@@ -80,7 +119,26 @@ class TabbedCrawlerWidget : public QTabWidget {
     void mouseReleaseEvent( QMouseEvent* event ) override;
     void changeEvent( QEvent* event ) override;
 
+  Q_SIGNALS:
+    // Before the context menu of the tab is shown, to add actions to it
+    void tabContextMenuAboutToShow( QMenu* menu, int tab );
+    // A tab dragged off the bar was released at the global position
+    void tabDropped( CrawlerWidget* crawler, QPoint globalPos, QPoint hotSpot );
+
+  protected:
+    // Esc while a tab is dragged
+    bool eventFilter( QObject* watched, QEvent* event ) override;
+
   private:
+    // The drag is followed here and not by a system drag: on macOS a drag dropped out of
+    // every window first slides back to where it started, and ends with its window active
+    void startTabDrag( int tab, QPoint hotSpot, QPoint globalPos );
+    void moveTabDrag( QPoint globalPos );
+    void finishTabDrag( QPoint globalPos );
+    void cancelTabDrag();
+    // The tab over a small picture of its contents
+    QPixmap tabDragPixmap( int tab );
+
     void addTabBarItem( int index, const QString& fileName );
     QString tabPathAt( int index ) const;
 
@@ -104,6 +162,11 @@ class TabbedCrawlerWidget : public QTabWidget {
     QIcon newfiltered_icon_;
 
     CrawlerTabBar myTabBar_;
+
+    // The tab being dragged off the bar, and its picture under the mouse
+    QPointer<CrawlerWidget> draggedCrawler_;
+    QPoint dragHotSpot_;
+    std::unique_ptr<QLabel> dragPreview_;
 };
 
 #endif

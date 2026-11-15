@@ -148,6 +148,12 @@ class CrawlerWidget : public QSplitter,
     // showing it again restores the previous ratio of the two views
     void setMainViewVisible( bool visible );
 
+    // True until the loading of the file has finished
+    bool isLoading() const
+    {
+        return loadingInProgress_;
+    }
+
   public Q_SLOTS:
     // Stop the asynchoronous loading of the file if one is in progress
     // The file is identified by the view attached to it.

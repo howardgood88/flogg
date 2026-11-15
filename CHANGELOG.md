@@ -1,5 +1,25 @@
 # flogg changes
 
+## 1.2.0 (2026-11-15)
+
+- **New: file tree panel** (`File > Open Folder...`, or drop a folder on the window or on the
+  panel): browse a folder beside the tabs and open its files with a double click, `Enter` or by
+  dragging them to the log views
+  - Each window has its own folder, kept with the session; recent folders, parent folder and
+    `Set as Root Folder` to move around
+  - Filter the file names (`*.log`, several patterns separated by spaces or `;`, a text
+    without `*` matches a part of the name); folders without a matching file are hidden
+  - Files open in a tab are shown in bold, the file of the current tab is selected
+  - Sort by name, date modified, size or type; show hidden files (`Ctrl+Shift+.`)
+  - Right click: reveal in the file manager, copy the path / relative path / file name,
+    rename (`F2`) and move to the trash; files open in a tab are not renamed or removed
+  - Hovering a file shows its size and modification time
+  - `Show/hide file tree panel` and `Open folder in the file tree` can be given a shortcut
+- Tabs move between windows without loading the file again, with their filters: drag a tab
+  to another window, or out of every window for a new one, or use `Move to new window` /
+  `Move to window` in the tab menu
+- Tool tips next to a large mouse cursor no longer appear under it
+
 ## 1.1.13 (2026-11-13)
 
 - A window maximized on a second screen restores there after it is minimized (or hidden to the

@@ -65,6 +65,7 @@
 
 class QAction;
 class QActionGroup;
+class QScreen;
 class Session;
 
 // What a command line asks of a window
@@ -82,6 +83,7 @@ struct WindowCommand {
 class RecentFiles;
 class QDockWidget;
 class FilterPanel;
+class FileTreePanel;
 struct UnsavedFilters;
 
 // Main window of the application, creates menus, toolbar and
@@ -120,6 +122,15 @@ class MainWindow : public QMainWindow {
     }
     void setWindowName( const QString& name );
 
+    // Folder shown in the file tree panel (one per window), the panel is shown for a
+    // folder, empty closes it
+    void setRootFolder( const QString& folder );
+    QString rootFolder() const;
+    FileTreePanel* fileTreePanel() const
+    {
+        return fileTreePanel_;
+    }
+
     struct TabInfo {
         QString file;
         bool current = false;
@@ -132,6 +143,12 @@ class MainWindow : public QMainWindow {
 
     // Brings the window to the front, also from another application
     void bringToFront();
+
+    // Moves the tab to the window at the index (at the end for a negative one, along the
+    // tab bar for this window), its file stays loaded. False when the tab can't go there.
+    bool moveTabTo( CrawlerWidget* crawler, MainWindow& target, int index );
+    // A file still loading stays in its window, a window has one tab per file
+    bool canMoveTabTo( const CrawlerWidget* crawler, const MainWindow& target ) const;
 
     void runCommand( const WindowCommand& command );
 
@@ -163,6 +180,7 @@ class MainWindow : public QMainWindow {
 
   private Q_SLOTS:
     void open();
+    void openFolder();
     void openFileFromRecent( QAction* action );
     void openFileFromFavorites( QAction* action );
     void switchToOpenedFile( QAction* action );
@@ -241,6 +259,8 @@ class MainWindow : public QMainWindow {
     void exitingQuickFind();
 
     void newWindow();
+    // A new window at the geometry (excluding the frame) should take the tab
+    void newWindowForTab( CrawlerWidget* crawler, QRect geometry );
     void windowActivated();
     void windowClosed();
     void exitRequested();
@@ -248,8 +268,28 @@ class MainWindow : public QMainWindow {
   private:
     void renameWindow();
     void updateWindowMenu();
+    // The visible windows by number
+    static std::vector<MainWindow*> visibleWindows();
+
+    bool hasOpenFile( const QString& fileName ) const;
+    // A tab of this window dragged off its bar was released at the global position: it
+    // goes to the window under the mouse, or to a new window out of every window
+    void handleTabDropped( CrawlerWidget* crawler, QPoint globalPos, QPoint hotSpot );
+    // Raises and activates the window from another window of flogg (bringToFront also
+    // works from another application, but makes the window disappear for a moment)
+    void activateInApp();
+    // "Move to new window" and "Move to window" in the context menu of the tab
+    void addMoveTabActions( QMenu* menu, int tab );
+    // Geometry of a new window for a tab dropped at the global position, the tab under
+    // the mouse where it is held (hotSpot, in the coordinates of the tab)
+    QRect detachedWindowGeometry( QPoint globalPos, QPoint hotSpot ) const;
+    // Size and position kept inside the screen, the title bar reachable
+    QRect keptOnScreen( QRect geometry, const QScreen* screen ) const;
     void applyOptionsToOtherWindows( bool reloadFilterSettings );
 
+    void setupFileTree();
+    // A window without a folder hides the panel restored from the shared dock state
+    void hideEmptyFileTree();
     void setupFilterPanel();
     void applyFiltersToCurrentCrawler();
     void switchFilterTab( CrawlerWidget* crawler );
@@ -324,6 +364,7 @@ class MainWindow : public QMainWindow {
 
     QAction* newWindowAction;
     QAction* openAction;
+    QAction* openFolderAction;
     QAction* closeAction;
     QAction* closeAllAction;
     QAction* exitAction;
@@ -388,6 +429,8 @@ class MainWindow : public QMainWindow {
     // The main widget
     TabbedCrawlerWidget mainTabWidget_;
 
+    QDockWidget* fileTreeDock_ = nullptr;
+    FileTreePanel* fileTreePanel_ = nullptr;
     QDockWidget* filterDock_ = nullptr;
     FilterPanel* filterPanel_ = nullptr;
     // Tab whose filters are shown in the filter panel

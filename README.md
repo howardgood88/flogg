@@ -4,7 +4,7 @@
 
 flogg is a log viewer built on [klogg](https://github.com/variar/klogg). It keeps klogg's fast file reading and search, and adds a more customisable [TextAnalysisTool (TAT)](https://textanalysistool.github.io/) style filter panel.
 
-![flogg with the filter panel](docs/images/filter-panel.png)
+![flogg with the file panel and the filter panel](docs/images/filter-panel.png)
 
 Downloads for Windows (x64) and Linux (x64 AppImage: `chmod +x` it and run it) are on the [releases page](https://github.com/howardgood88/flogg/releases/latest). macOS (Apple Silicon) packages are only in releases up to 1.1.0 for now.
 
@@ -26,6 +26,13 @@ a newly opened file loads the filter file opened or saved last by default (see [
     - Import klogg predefined filters and highlighters.
 - A filter or a group can be suspended to turn it off temporarily, without changing whether it is enabled.
 - `[TAT]` With filters selected, `F8` / `Shift+F8` in the main or filtered view jumps between their matching lines.
+
+### 🪧 File panel: browse a folder beside the logs and open them from there
+
+- Open a folder with `File > Open Folder...`, by dropping it on the window or the panel, or from the command line (`flogg <folder>`).
+- Open files in tabs with a double click, `Enter`, or by dragging them to the log views on the right; several files can be opened at once.
+- Each window has its own folder, kept with the session; the top of the panel has the parent folder and the recent folders, and `Set as Root Folder` in the right click menu moves into a subfolder.
+- 🔍 File name filter: type `*.log`, several patterns separated by spaces or `;`; a text without `*` matches a part of the name. Folders without a matching file are hidden.
 
 ### ✅ Main and filtered views
 
@@ -52,6 +59,7 @@ a newly opened file loads the filter file opened or saved last by default (see [
 
 - Every start of flogg, however it is started (double click, taskbar, file association or command line), opens a new window in the same process, so the windows can share filters and the command line can target a given window (`-w`); `-m` starts a separate flogg process instead.
 - 🖼️ `Window > Rename window...` gives a window a name, shown in its title instead of the file name; the `Window` menu lists every window with its id (`#2`).
+- Tabs move between windows without loading the file again, and their filters go with them: drag a tab to another window, or out of every window for a new one, or use `Move to new window` / `Move to window` in the tab's right click menu.
 
 ### Updates
 
@@ -98,6 +106,21 @@ Shortcuts added by flogg. All of them can be changed in File > Preferences > Sho
 | --- | --- | --- |
 | Show/hide main view | `Ctrl+H` (macOS: `Control+H`) | View menu |
 | Show/hide filter panel | none by default | View and Tools menus, close button of the panel |
+| Show/hide file panel | none by default | Tools menu, close button of the panel |
+| Open a folder in the file panel | none by default | `File > Open Folder...`, folder menu |
+
+### File panel
+
+These work while the file panel has the focus.
+
+| Action | Shortcut | Mouse |
+| --- | --- | --- |
+| Open the selected files / expand or collapse a folder | `Enter` | Double click, drag to the log views |
+| Rename | `F2` | Right click menu |
+| Move to the trash | `Delete` (macOS: `Cmd+Backspace`) | Right click menu |
+| Show/hide hidden files | `Ctrl+Shift+.` (macOS: `Cmd+Shift+.`) | Right click menu, folder menu |
+| Sort | | `⇅` button, right click menu |
+| Copy path / relative path / file name | | Right click menu |
 
 ### Filter panel
 

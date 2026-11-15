@@ -464,6 +464,16 @@ class KloggApp : public QApplication {
 
         LOG_INFO << "Window " << &window << " created";
         connect( window, &MainWindow::newWindow, [ = ]() { newWindow()->show(); } );
+        connect( window, &MainWindow::newWindowForTab,
+                 [ this, window ]( CrawlerWidget* crawler, QRect geometry ) {
+                     auto* target = newWindow();
+                     target->setWindowState( Qt::WindowNoState );
+                     target->setGeometry( geometry );
+                     window->moveTabTo( crawler, *target, -1 );
+                     target->show();
+                     target->raise();
+                     target->activateWindow();
+                 } );
         connect( window, &MainWindow::windowActivated,
                  [ this, window ]() { onWindowActivated( *window ); } );
         connect( window, &MainWindow::windowClosed,

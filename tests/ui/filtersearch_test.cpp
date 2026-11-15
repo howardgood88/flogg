@@ -3017,3 +3017,216 @@ SCENARIO( "Main window new tabs get the last splitter position", "[ui]" )
     config.setSplitterSizes( previousSizes );
     config.save();
 }
+
+SCENARIO( "Tabs move between windows with their file and filters", "[ui]" )
+{
+    QTemporaryDir dir;
+    QStringList logs;
+    for ( const auto* name : { "first.log", "second.log" } ) {
+        logs.append( dir.filePath( name ) );
+        QFile file( logs.back() );
+        REQUIRE( file.open( QIODevice::WriteOnly ) );
+        file.write( "line 1\nline 2\nline 3\n" );
+    }
+
+    auto& settings = PersistentInfo::getSettings( app_settings{} );
+    const auto previousFile = settings.value( "filterPanel/currentFile" );
+    settings.setValue( "filterPanel/currentFile", dir.filePath( "none.flogg-filters.json" ) );
+    SharedFilters::instance().clear();
+
+    auto appSession = std::make_shared<Session>();
+    WindowSession sourceSession{ appSession, "MoveSource", 0 };
+    WindowSession targetSession{ appSession, "MoveTarget", 1 };
+    MainWindow source( sourceSession );
+    MainWindow target( targetSession );
+    source.show();
+    target.show();
+
+    auto* sourceTabs = source.findChild<TabbedCrawlerWidget*>();
+    auto* targetTabs = target.findChild<TabbedCrawlerWidget*>();
+    REQUIRE( sourceTabs );
+    REQUIRE( targetTabs );
+    const auto crawlerAt = []( TabbedCrawlerWidget* tabs, int index ) {
+        return qobject_cast<CrawlerWidget*>( tabs->widget( index ) );
+    };
+    const auto loaded = []( TabbedCrawlerWidget* tabs, int count ) {
+        if ( tabs->count() != count ) {
+            return false;
+        }
+        for ( int i = 0; i < count; ++i ) {
+            if ( qobject_cast<CrawlerWidget*>( tabs->widget( i ) )->isLoading() ) {
+                return false;
+            }
+        }
+        return true;
+    };
+
+    source.runCommand( WindowCommand{ { logs.at( 0 ) } } );
+    source.runCommand( WindowCommand{ { logs.at( 1 ) } } );
+    REQUIRE( waitUiState( [ & ] { return loaded( sourceTabs, 2 ); } ) );
+
+    auto* first = crawlerAt( sourceTabs, 0 );
+    auto* second = crawlerAt( sourceTabs, 1 );
+
+    WHEN( "A tab moves along its own bar" )
+    {
+        REQUIRE( source.moveTabTo( second, source, 0 ) );
+
+        THEN( "The tabs are swapped" )
+        {
+            CHECK( crawlerAt( sourceTabs, 0 ) == second );
+            CHECK( crawlerAt( sourceTabs, 1 ) == first );
+            CHECK( sourceTabs->currentIndex() == 0 );
+        }
+    }
+
+    WHEN( "The current tab with a filter moves to the other window" )
+    {
+        sourceTabs->setCurrentIndex( 0 );
+        source.findChild<FilterPanel*>()->appendFilters( { FilterNode::makeFilter( "MOVED" ) } );
+        REQUIRE( source.moveTabTo( first, target, -1 ) );
+
+        THEN( "The same view goes there with its filter, the file is not loaded again" )
+        {
+            CHECK( sourceTabs->count() == 1 );
+            CHECK( crawlerAt( sourceTabs, 0 ) == second );
+            REQUIRE( targetTabs->count() == 1 );
+            CHECK( crawlerAt( targetTabs, 0 ) == first );
+            CHECK( first->window() == &target );
+            CHECK_FALSE( first->isLoading() );
+
+            const auto infos = target.tabInfos();
+            REQUIRE( infos.size() == 1 );
+            CHECK( infos.front().file == logs.at( 0 ) );
+            CHECK( infos.front().current );
+
+            const auto state = target.findChild<FilterPanel*>()->tabState();
+            REQUIRE( state.root.children.size() == 1 );
+            CHECK( state.root.children.front().pattern == "MOVED" );
+
+            // The tab left behind does not get the filter
+            CHECK( source.findChild<FilterPanel*>()->tabState().root.children.empty() );
+        }
+
+        AND_WHEN( "The last tab of the window moves too" )
+        {
+            REQUIRE( source.moveTabTo( second, target, 0 ) );
+
+            THEN( "The window stays open without tabs" )
+            {
+                CHECK( sourceTabs->count() == 0 );
+                CHECK( source.isVisible() );
+                CHECK( crawlerAt( targetTabs, 0 ) == second );
+                CHECK( crawlerAt( targetTabs, 1 ) == first );
+                // Shown although the window had a tab
+                CHECK( targetTabs->currentIndex() == 0 );
+                CHECK( target.tabInfos().front().current );
+            }
+        }
+    }
+
+    WHEN( "The other window has the file open already" )
+    {
+        target.runCommand( WindowCommand{ { logs.at( 0 ) } } );
+        REQUIRE( waitUiState( [ & ] { return loaded( targetTabs, 1 ); } ) );
+
+        THEN( "The tab stays" )
+        {
+            CHECK_FALSE( source.canMoveTabTo( first, target ) );
+            CHECK_FALSE( source.moveTabTo( first, target, -1 ) );
+            CHECK( sourceTabs->count() == 2 );
+            CHECK( targetTabs->count() == 1 );
+        }
+    }
+
+    source.setFiltersConfirmed( true );
+    target.setFiltersConfirmed( true );
+    SharedFilters::instance().clear();
+    settings.setValue( "filterPanel/currentFile", previousFile );
+}
+
+SCENARIO( "Tabs dragged off the bar out of every window", "[ui]" )
+{
+    QTemporaryDir dir;
+    QStringList logs;
+    for ( const auto* name : { "first.log", "second.log" } ) {
+        logs.append( dir.filePath( name ) );
+        QFile file( logs.back() );
+        REQUIRE( file.open( QIODevice::WriteOnly ) );
+        file.write( "line 1\nline 2\n" );
+    }
+
+    auto appSession = std::make_shared<Session>();
+    WindowSession sourceSession{ appSession, "DragSource", 0 };
+    WindowSession targetSession{ appSession, "DragTarget", 1 };
+    MainWindow source( sourceSession );
+    MainWindow target( targetSession );
+    source.setGeometry( 0, 40, 600, 400 );
+    target.setGeometry( 700, 40, 600, 400 );
+    source.show();
+    target.show();
+
+    auto* sourceTabs = source.findChild<TabbedCrawlerWidget*>();
+    auto* targetTabs = target.findChild<TabbedCrawlerWidget*>();
+    source.runCommand( WindowCommand{ { logs.at( 0 ) } } );
+    source.runCommand( WindowCommand{ { logs.at( 1 ) } } );
+    REQUIRE( waitUiState( [ & ] {
+        return sourceTabs->count() == 2
+               && !qobject_cast<CrawlerWidget*>( sourceTabs->widget( 0 ) )->isLoading()
+               && !qobject_cast<CrawlerWidget*>( sourceTabs->widget( 1 ) )->isLoading();
+    } ) );
+    auto* first = qobject_cast<CrawlerWidget*>( sourceTabs->widget( 0 ) );
+
+    auto* bar = sourceTabs->tabBar();
+    const auto pressPos = bar->tabRect( 0 ).center();
+    const auto send = [ bar ]( QEvent::Type type, QPoint globalPos, Qt::MouseButtons buttons ) {
+        QMouseEvent event( type, bar->mapFromGlobal( globalPos ), globalPos,
+                           type == QEvent::MouseMove ? Qt::NoButton : Qt::LeftButton, buttons,
+                           Qt::NoModifier );
+        QApplication::sendEvent( bar, &event );
+    };
+    const auto dragTo = [ & ]( QPoint globalPos ) {
+        send( QEvent::MouseButtonPress, bar->mapToGlobal( pressPos ), Qt::LeftButton );
+        // Off the bar, then where it is dropped
+        send( QEvent::MouseMove, bar->mapToGlobal( pressPos + QPoint( 0, 200 ) ),
+              Qt::LeftButton );
+        send( QEvent::MouseMove, globalPos, Qt::LeftButton );
+    };
+
+    SafeQSignalSpy newWindowSpy( &source, SIGNAL( newWindowForTab( CrawlerWidget*, QRect ) ) );
+
+    // (The offscreen platform finds no window under a position, the move to the window
+    // found is tested above)
+    WHEN( "The tab is released out of every window" )
+    {
+        const QPoint outside( 300, 700 );
+        REQUIRE( QApplication::topLevelAt( outside ) == nullptr );
+        dragTo( outside );
+        send( QEvent::MouseButtonRelease, outside, Qt::NoButton );
+
+        THEN( "A new window is asked for" )
+        {
+            REQUIRE( newWindowSpy.count() == 1 );
+            CHECK( newWindowSpy.front().front().value<CrawlerWidget*>() == first );
+            CHECK( sourceTabs->count() == 2 );
+        }
+    }
+
+    WHEN( "Escape is pressed while dragging" )
+    {
+        const QPoint outside( 300, 700 );
+        dragTo( outside );
+        QTest::keyClick( &source, Qt::Key_Escape );
+        send( QEvent::MouseButtonRelease, outside, Qt::NoButton );
+
+        THEN( "The tab stays" )
+        {
+            CHECK( newWindowSpy.count() == 0 );
+            CHECK( sourceTabs->count() == 2 );
+            CHECK( targetTabs->count() == 0 );
+        }
+    }
+
+    source.setFiltersConfirmed( true );
+    target.setFiltersConfirmed( true );
+}

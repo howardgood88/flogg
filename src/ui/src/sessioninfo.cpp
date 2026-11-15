@@ -42,6 +42,8 @@ void SessionInfo::retrieveFromStorage( QSettings& settings )
             window.name = settings.value( "name" ).toString();
             window.geometry = settings.value( "geometry" ).toByteArray();
             window.screen = settings.value( "screen" ).toString();
+            window.folder = settings.value( "folder" ).toString();
+            window.folderVisible = settings.value( "folderVisible", false ).toBool();
 
             if ( settings.contains( "OpenFiles/version" ) ) {
                 settings.beginGroup( "OpenFiles" );
@@ -92,6 +94,8 @@ void SessionInfo::saveToStorage( QSettings& settings ) const
         settings.setValue( "name", window.name );
         settings.setValue( "geometry", window.geometry );
         settings.setValue( "screen", window.screen );
+        settings.setValue( "folder", window.folder );
+        settings.setValue( "folderVisible", window.folderVisible );
 
         settings.beginGroup( "OpenFiles" );
         settings.setValue( "version", OPENFILES_VERSION );

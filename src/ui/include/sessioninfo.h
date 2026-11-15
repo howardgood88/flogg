@@ -40,6 +40,7 @@
 #define SESSIONINFO_H
 
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <QByteArray>
@@ -86,6 +87,9 @@ class SessionInfo : public Persistable<SessionInfo, session_settings> {
         QByteArray geometry;
         // Name of the screen the window was on, to keep a maximized window there
         QString screen;
+        // Folder of the file tree, empty for none
+        QString folder;
+        bool folderVisible = false;
         std::vector<OpenFile> openFiles;
     };
 
@@ -156,6 +160,22 @@ class SessionInfo : public Persistable<SessionInfo, session_settings> {
         auto window = findWindow( windowId );
         if ( window ) {
             window->screen = screen;
+        }
+    }
+
+    std::pair<QString, bool> folder( const QString& windowId ) const
+    {
+        auto window = findWindow( windowId );
+        return window ? std::make_pair( window->folder, window->folderVisible )
+                      : std::make_pair( QString{}, false );
+    }
+
+    void setFolder( const QString& windowId, const QString& folder, bool visible )
+    {
+        auto window = findWindow( windowId );
+        if ( window ) {
+            window->folder = folder;
+            window->folderVisible = visible;
         }
     }
 

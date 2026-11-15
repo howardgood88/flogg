@@ -4,7 +4,7 @@
 
 flogg 是以 [klogg](https://github.com/variar/klogg) 為基礎的 log 檢視器，保留了 klogg 快速的檔案讀取與搜尋，並加入客製化程度更高的 [TextAnalysisTool (TAT)](https://textanalysistool.github.io/) 風格 filter panel。
 
-![顯示 filter panel 的 flogg](docs/images/filter-panel.png)
+![顯示 file panel 與 filter panel 的 flogg](docs/images/filter-panel.png)
 
 Windows（x64）與 Linux（x64 AppImage，`chmod +x` 後直接執行）的安裝檔請到 [Releases 頁面](https://github.com/howardgood88/flogg/releases/latest)下載。macOS（Apple Silicon）安裝檔目前只有 1.1.0 以前的版本。
 
@@ -26,6 +26,13 @@ Emoji：亮點功能
     - 支援匯入 klogg 的 predefined filters 與 highlighters。
 - 支援 suspend 使 filter / group 暫時失效（不會改動原本的啟用狀態）。
 - `[TAT]`選中 filter 後，在主視窗或過濾視窗按 `F8` / `Shift+F8` 在命中行間跳轉。
+
+### 🪧 File panel：在視窗旁瀏覽資料夾，直接開 log
+
+- 用 `File > Open Folder...` 開啟資料夾，或把資料夾拖到視窗或 panel 上；也可以從命令列傳入資料夾（`flogg <folder>`）。
+- 雙擊、`Enter` 或拖到右邊的 log 檢視區開啟檔案，可一次選多個檔案開啟。
+- 每個視窗各自有一個資料夾，會跟 session 一起保存；panel 上方有上一層資料夾與最近開過的資料夾，右鍵 `Set as Root Folder` 可切換到子資料夾。
+- 🔍 檔名過濾：輸入 `*.log`，多個 pattern 用空白或 `;` 隔開；沒有 `*` 的文字會比對檔名的一部分。沒有符合檔案的資料夾會被隱藏。
 
 ### ✅ 主視窗 / 過濾視窗優化
 
@@ -52,6 +59,7 @@ Emoji：亮點功能
 
 - 不論以何種方式啟動（雙擊、工作列、檔案關聯、命令列），每次啟動都會以同 process 開一個新視窗，可以共用 filter，也可以從命令列指定特定視窗 (`-w`)；`-m` 則會另外啟動一個獨立 process 的 flogg。
 - 🖼️ `Window > Rename window...` 可為視窗命名，標題會顯示這個名稱而不是檔名；`Window` 選單會列出所有視窗及其 id（`#2`）。
+- 分頁可以在視窗之間移動，檔案不會重新載入，filter 也會跟著移過去：把分頁拖到另一個視窗，或拖到所有視窗外面開一個新視窗；也可以用分頁右鍵選單的 `Move to new window`／`Move to window`。
 
 ### 更新
 
@@ -98,6 +106,21 @@ Predefined filters、highlighter sets、常駐搜尋結果高亮(highlight match
 | --- | --- | --- |
 | 顯示／隱藏主視窗檢視 | `Ctrl+H`（macOS：`Control+H`） | View 選單 |
 | 顯示／隱藏 filter panel | 預設無 | View 與 Tools 選單、panel 右上角的關閉按鈕 |
+| 顯示／隱藏 file panel | 預設無 | Tools 選單、panel 右上角的關閉按鈕 |
+| 在 file panel 開啟資料夾 | 預設無 | `File > Open Folder...`、資料夾選單 |
+
+### File panel
+
+以下快捷鍵在 file panel 取得焦點時有效。
+
+| 操作 | 快捷鍵 | 滑鼠 |
+| --- | --- | --- |
+| 開啟選取的檔案／展開或收起資料夾 | `Enter` | 雙擊、拖到 log 檢視區 |
+| 重新命名 | `F2` | 右鍵選單 |
+| 移到垃圾桶 | `Delete`（macOS：`Cmd+Backspace`） | 右鍵選單 |
+| 顯示／隱藏隱藏檔 | `Ctrl+Shift+.`（macOS：`Cmd+Shift+.`） | 右鍵選單、資料夾選單 |
+| 排序 | | `⇅` 按鈕、右鍵選單 |
+| 複製路徑／相對路徑／檔名 | | 右鍵選單 |
 
 ### Filter panel
 

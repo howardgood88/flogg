@@ -155,7 +155,8 @@ std::vector<WindowSession> Session::windowSessions()
 void WindowSession::save(
     const std::vector<std::tuple<const ViewInterface*, uint64_t,
                                  std::shared_ptr<const ViewContextInterface>>>& view_list,
-    const QByteArray& geometry, const QString& screen, const QString& name )
+    const QByteArray& geometry, const QString& screen, const QString& name,
+    const QString& folder, bool folderVisible )
 {
     LOG_DEBUG << "Session::save";
 
@@ -181,6 +182,7 @@ void WindowSession::save(
     session.setGeometry( windowId_, geometry );
     session.setScreen( windowId_, screen );
     session.setName( windowId_, name );
+    session.setFolder( windowId_, folder, folderVisible );
     session.save();
 }
 
@@ -227,6 +229,11 @@ void WindowSession::restoreGeometry( QByteArray* geometry ) const
 QString WindowSession::restoreScreen() const
 {
     return SessionInfo::getSynced().screen( windowId_ );
+}
+
+std::pair<QString, bool> WindowSession::restoreFolder() const
+{
+    return SessionInfo::getSynced().folder( windowId_ );
 }
 
 QString WindowSession::restoreName() const
