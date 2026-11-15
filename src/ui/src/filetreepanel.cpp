@@ -106,6 +106,60 @@ void listFolder( const QString& path, bool hidden, QStringList& files, QStringLi
         }
     }
 }
+
+bool isAsciiDigit( QChar c )
+{
+    return c >= u'0' && c <= u'9';
+}
+
+// Natural order: app.log.2 before app.log.10. The numbers are compared here, the text
+// between them with the collator: QCollator::setNumericMode is not supported without ICU
+// (the Linux builds of Qt).
+int naturalCompare( const QCollator& collator, QStringView left, QStringView right )
+{
+    qsizetype i = 0;
+    qsizetype j = 0;
+    while ( i < left.size() && j < right.size() ) {
+        const auto leftDigits = isAsciiDigit( left[ i ] );
+        const auto rightDigits = isAsciiDigit( right[ j ] );
+        auto leftEnd = i;
+        while ( leftEnd < left.size() && isAsciiDigit( left[ leftEnd ] ) == leftDigits ) {
+            ++leftEnd;
+        }
+        auto rightEnd = j;
+        while ( rightEnd < right.size() && isAsciiDigit( right[ rightEnd ] ) == rightDigits ) {
+            ++rightEnd;
+        }
+        auto leftPart = left.sliced( i, leftEnd - i );
+        auto rightPart = right.sliced( j, rightEnd - j );
+
+        int order = 0;
+        if ( leftDigits && rightDigits ) {
+            // By value: the leading zeros out, then the longer is larger
+            while ( leftPart.size() > 1 && leftPart.front() == u'0' ) {
+                leftPart = leftPart.sliced( 1 );
+            }
+            while ( rightPart.size() > 1 && rightPart.front() == u'0' ) {
+                rightPart = rightPart.sliced( 1 );
+            }
+            order = leftPart.size() != rightPart.size()
+                        ? ( leftPart.size() < rightPart.size() ? -1 : 1 )
+                        : leftPart.compare( rightPart );
+        }
+        else {
+            order = collator.compare( leftPart, rightPart );
+        }
+        if ( order != 0 ) {
+            return order;
+        }
+        i = leftEnd;
+        j = rightEnd;
+    }
+    if ( i < left.size() ) {
+        return 1;
+    }
+    return j < right.size() ? -1 : 0;
+}
 } // namespace
 
 // Every folder under the root with the names of its files. Built once in a worker thread,
@@ -326,8 +380,7 @@ class FileTreeFilter : public QSortFilterProxyModel {
         , source_( source )
         , order_( order )
     {
-        // Natural order: app.log.2 before app.log.10
-        collator_.setNumericMode( true );
+        // Natural order (app.log.2 before app.log.10) in naturalCompare
         collator_.setCaseSensitivity( Qt::CaseInsensitive );
         setSourceModel( source );
         // The direction is in lessThan
@@ -429,7 +482,7 @@ class FileTreeFilter : public QSortFilterProxyModel {
             return leftDir;
         }
         const auto byName = [ & ] {
-            return collator_.compare( source_->fileName( left ), source_->fileName( right ) );
+            return naturalCompare( collator_, source_->fileName( left ), source_->fileName( right ) );
         };
         switch ( order_ ) {
         case FileTreeSort::NameDescending:
@@ -455,7 +508,7 @@ class FileTreeFilter : public QSortFilterProxyModel {
         }
         case FileTreeSort::Type: {
             const auto typeOrder
-                = collator_.compare( QFileInfo( source_->fileName( left ) ).suffix(),
+                = naturalCompare( collator_, QFileInfo( source_->fileName( left ) ).suffix(),
                                      QFileInfo( source_->fileName( right ) ).suffix() );
             if ( typeOrder != 0 ) {
                 return typeOrder < 0;

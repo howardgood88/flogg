@@ -53,12 +53,30 @@
 #include "tabbedcrawlerwidget.h"
 #include "tooltipplacement.h"
 
+#ifdef Q_OS_WIN
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 namespace {
 void writeFile( const QString& path )
 {
     QFile file( path );
     REQUIRE( file.open( QIODevice::WriteOnly ) );
     file.write( "line one\nline two\n" );
+}
+
+// A leading dot hides a file on macOS and Linux, Windows has an attribute for it
+void markHidden( const QString& path )
+{
+#ifdef Q_OS_WIN
+    REQUIRE( SetFileAttributesW( reinterpret_cast<LPCWSTR>( QDir::toNativeSeparators( path ).utf16() ),
+                                 FILE_ATTRIBUTE_HIDDEN ) );
+#else
+    Q_UNUSED( path );
+#endif
 }
 
 // A folder with app/main.log, app/worker.log, sys.log.gz and notes.txt
@@ -233,6 +251,8 @@ SCENARIO( "File tree panel hidden files", "[ui]" )
     REQUIRE( QDir( folder ).mkpath( ".cache/deep" ) );
     writeFile( folder + "/.cache/deep/old.log" );
     writeFile( folder + "/.secret.log" );
+    markHidden( folder + "/.cache" );
+    markHidden( folder + "/.secret.log" );
 
     FileTreePanel panel;
     panel.setShowHidden( false );
