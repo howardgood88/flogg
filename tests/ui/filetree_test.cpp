@@ -35,6 +35,8 @@
 #include <QMimeData>
 #include <QToolTip>
 #include <QToolButton>
+#include <QMenuBar>
+#include <QToolBar>
 #include <QSortFilterProxyModel>
 #include <QSignalSpy>
 #include <QStackedWidget>
@@ -612,6 +614,44 @@ SCENARIO( "Main window opens a folder in the file tree", "[ui]" )
     }
 }
 
+SCENARIO( "Side panels moved in a window open there in the next one", "[ui]" )
+{
+    auto appSession = std::make_shared<Session>();
+    WindowSession firstSession{ appSession, "PanelsFirst", 0 };
+    WindowSession secondSession{ appSession, "PanelsSecond", 1 };
+    WindowSession thirdSession{ appSession, "PanelsThird", 2 };
+
+    MainWindow first( firstSession );
+    auto* fileTree = first.findChild<QDockWidget*>( "fileTreeDock" );
+    auto* filters = first.findChild<QDockWidget*>( "filterDock" );
+    REQUIRE( fileTree );
+    REQUIRE( filters );
+
+    // Their title bars and toggle buttons show the panel icons
+    CHECK_FALSE( fileTree->toggleViewAction()->icon().isNull() );
+    CHECK_FALSE( filters->toggleViewAction()->icon().isNull() );
+    CHECK( fileTree->titleBarWidget() );
+    CHECK( filters->titleBarWidget() );
+
+    // Dropped on the other side while the first window stays open
+    first.addDockWidget( Qt::RightDockWidgetArea, fileTree );
+    first.addDockWidget( Qt::LeftDockWidgetArea, filters );
+    {
+        MainWindow second( secondSession );
+        CHECK( second.dockWidgetArea( second.findChild<QDockWidget*>( "fileTreeDock" ) )
+               == Qt::RightDockWidgetArea );
+        CHECK( second.dockWidgetArea( second.findChild<QDockWidget*>( "filterDock" ) )
+               == Qt::LeftDockWidgetArea );
+    }
+
+    // Back to the default places for the other tests
+    first.addDockWidget( Qt::LeftDockWidgetArea, fileTree );
+    first.addDockWidget( Qt::RightDockWidgetArea, filters );
+    MainWindow third( thirdSession );
+    CHECK( third.dockWidgetArea( third.findChild<QDockWidget*>( "fileTreeDock" ) )
+           == Qt::LeftDockWidgetArea );
+}
+
 // Hidden, saves a picture of the panel: FLOGG_RENDER_DIR=<dir> klogg_itests "[.render]"
 SCENARIO( "File tree panel rendering", "[.render]" )
 {
@@ -655,6 +695,18 @@ SCENARIO( "File tree panel rendering", "[.render]" )
     mainWindow.show();
     QTest::qWait( 300 );
     REQUIRE( mainWindow.grab().save( renderDir + "/file_tree_window.png" ) );
+
+    // The panel buttons at the end of the tool bar, and the Tools menu
+    mainWindow.resize( 1400, 500 );
+    QTest::qWait( 300 );
+    auto* toolBar = mainWindow.findChild<QToolBar*>();
+    REQUIRE( toolBar->grab().save( renderDir + "/tool_bar.png" ) );
+    for ( auto* menu : mainWindow.menuBar()->findChildren<QMenu*>( Qt::FindDirectChildrenOnly ) ) {
+        if ( menu->title().remove( '&' ) == "Tools" ) {
+            menu->adjustSize();
+            REQUIRE( menu->grab().save( renderDir + "/tools_menu.png" ) );
+        }
+    }
 }
 
 // Hidden, times the name filter on a folder of a few thousand files:

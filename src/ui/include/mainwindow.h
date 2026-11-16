@@ -82,6 +82,7 @@ struct WindowCommand {
 };
 class RecentFiles;
 class QDockWidget;
+class DockTitleBar;
 class FilterPanel;
 class FileTreePanel;
 struct UnsavedFilters;
@@ -291,6 +292,8 @@ class MainWindow : public QMainWindow {
     // A window without a folder hides the panel restored from the shared dock state
     void hideEmptyFileTree();
     void setupFilterPanel();
+    // The side panels are placed alike in the windows opened next
+    void watchDockLayout( QDockWidget* dock );
     void applyFiltersToCurrentCrawler();
     void switchFilterTab( CrawlerWidget* crawler );
     std::vector<CrawlerWidget*> crawlers() const;
@@ -356,7 +359,6 @@ class MainWindow : public QMainWindow {
     PathLine* infoLine;
     QLabel* lineNbField;
     QLabel* sizeField;
-    QLabel* dateField;
     QLabel* encodingField;
     std::vector<QAction*> infoToolbarSeparators;
 
@@ -430,8 +432,10 @@ class MainWindow : public QMainWindow {
     TabbedCrawlerWidget mainTabWidget_;
 
     QDockWidget* fileTreeDock_ = nullptr;
+    DockTitleBar* fileTreeTitle_ = nullptr;
     FileTreePanel* fileTreePanel_ = nullptr;
     QDockWidget* filterDock_ = nullptr;
+    DockTitleBar* filterTitle_ = nullptr;
     FilterPanel* filterPanel_ = nullptr;
     // Tab whose filters are shown in the filter panel
     QPointer<CrawlerWidget> filterTab_;

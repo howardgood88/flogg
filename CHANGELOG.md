@@ -1,5 +1,13 @@
 # flogg changes
 
+## 1.2.1 (2026-11-16)
+
+- Buttons at the right of the tool bar show and hide the file tree and the filter panel; the
+  panels show their icon in their title bar, and the Tools menu items have icons
+- The modification time of the file moved to the tool tip of its size, to make room
+- A panel moved to another side (or floated) stays there in the windows opened next, not only
+  after the last window is closed
+
 ## 1.2.0 (2026-11-15)
 
 - **New: file tree panel** (`File > Open Folder...`, or drop a folder on the window or on the

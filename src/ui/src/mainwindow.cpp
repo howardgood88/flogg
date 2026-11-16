@@ -104,6 +104,7 @@
 #include "openfilehelper.h"
 #include "optionsdialog.h"
 #include "filetreepanel.h"
+#include "paneldock.h"
 #include "tooltipplacement.h"
 #include "filterpanel.h"
 #include "persistentinfo.h"
@@ -838,8 +839,17 @@ void MainWindow::loadIcons()
     reloadAction->setIcon( iconLoader_.load( "icons8-restore-page" ) );
     followAction->setIcon( iconLoader_.load( "icons8-fast-forward" ) );
     showScratchPadAction->setIcon( iconLoader_.load( "icons8-create" ) );
+    showScratchPadAction->setIconVisibleInMenu( true );
     addToFavoritesAction->setIcon( iconLoader_.load( "icons8-star" ) );
     addToFavoritesMenuAction->setIcon( iconLoader_.load( "icons8-star" ) );
+
+    const auto lines = palette().color( QPalette::WindowText );
+    const auto fileTreeIcon = panelicons::fileTree( lines );
+    const auto filtersIcon = panelicons::filters( lines );
+    fileTreeDock_->toggleViewAction()->setIcon( fileTreeIcon );
+    fileTreeTitle_->setIcon( fileTreeIcon );
+    filterDock_->toggleViewAction()->setIcon( filtersIcon );
+    filterTitle_->setIcon( filtersIcon );
 }
 
 void MainWindow::createMenus()
@@ -938,11 +948,8 @@ void MainWindow::createToolBars()
     sizeField = new QLabel();
     sizeField->setAlignment( Qt::AlignHCenter | Qt::AlignVCenter );
 
-    dateField = new QLabel();
-    dateField->setAlignment( Qt::AlignHCenter | Qt::AlignVCenter );
-
     encodingField = new QLabel();
-    dateField->setAlignment( Qt::AlignHCenter | Qt::AlignVCenter );
+    encodingField->setAlignment( Qt::AlignHCenter | Qt::AlignVCenter );
 
     lineNbField = new QLabel();
     lineNbField->setAlignment( Qt::AlignRight | Qt::AlignVCenter );
@@ -960,11 +967,10 @@ void MainWindow::createToolBars()
     toolBar->addWidget( infoLine );
     toolBar->addAction( stopAction );
 
-    infoToolbarSeparators.reserve( 5 );
+    // The modification date is the tool tip of the size, the panel buttons take its room
+    infoToolbarSeparators.reserve( 4 );
     infoToolbarSeparators.push_back( toolBar->addSeparator() );
     toolBar->addWidget( sizeField );
-    infoToolbarSeparators.push_back( toolBar->addSeparator() );
-    toolBar->addWidget( dateField );
     infoToolbarSeparators.push_back( toolBar->addSeparator() );
     toolBar->addWidget( encodingField );
     infoToolbarSeparators.push_back( toolBar->addSeparator() );
@@ -2499,11 +2505,10 @@ void MainWindow::updateInfoLine()
 
     if ( lastModified.isValid() ) {
         const QString date = defaultLocale.toString( lastModified, QLocale::NarrowFormat );
-        dateField->setText( tr( "modified on %1" ).arg( date ) );
-        dateField->show();
+        sizeField->setToolTip( tr( "modified on %1" ).arg( date ) );
     }
     else {
-        dateField->hide();
+        sizeField->setToolTip( {} );
     }
 }
 
@@ -2740,7 +2745,7 @@ void MainWindow::showInfoLabels( bool show )
     }
     if ( !show ) {
         sizeField->clear();
-        dateField->clear();
+        sizeField->setToolTip( {} );
         encodingField->clear();
         lineNbField->clear();
     }
@@ -2777,6 +2782,8 @@ void MainWindow::setupFileTree()
     fileTreeDock_ = new QDockWidget( tr( "Files" ), this );
     fileTreeDock_->setObjectName( "fileTreeDock" );
     fileTreeDock_->setWidget( fileTreePanel_ );
+    fileTreeTitle_ = new DockTitleBar( fileTreeDock_ );
+    fileTreeDock_->setTitleBarWidget( fileTreeTitle_ );
     addDockWidget( Qt::LeftDockWidgetArea, fileTreeDock_ );
     fileTreeDock_->hide();
 
@@ -2789,8 +2796,23 @@ void MainWindow::setupFileTree()
     connect( fileTreePanel_, &FileTreePanel::openFolderRequested, this, &MainWindow::openFolder );
     fileTreePanel_->setOpenFilesProvider( [ this ] { return session_.allOpenFiles(); } );
 
+    fileTreeDock_->toggleViewAction()->setIconVisibleInMenu( true );
     toolsMenu->addSeparator();
     toolsMenu->addAction( fileTreeDock_->toggleViewAction() );
+    toolBar->addSeparator();
+    toolBar->addAction( fileTreeDock_->toggleViewAction() );
+}
+
+void MainWindow::watchDockLayout( QDockWidget* dock )
+{
+    // Saved when a panel is dropped somewhere else, not only when the last window is
+    // closed: a window opened meanwhile would put it back in its old place
+    const auto save = [ this ] {
+        PersistentInfo::getSettings( app_settings{} ).setValue( "filterPanel/windowState",
+                                                                saveState() );
+    };
+    connect( dock, &QDockWidget::dockLocationChanged, this, save );
+    connect( dock, &QDockWidget::topLevelChanged, this, save );
 }
 
 void MainWindow::hideEmptyFileTree()
@@ -2838,6 +2860,8 @@ void MainWindow::setupFilterPanel()
     filterDock_ = new QDockWidget( tr( "Filters" ), this );
     filterDock_->setObjectName( "filterDock" );
     filterDock_->setWidget( filterPanel_ );
+    filterTitle_ = new DockTitleBar( filterDock_ );
+    filterDock_->setTitleBarWidget( filterTitle_ );
     addDockWidget( Qt::RightDockWidgetArea, filterDock_ );
 
     const auto windowState
@@ -2845,9 +2869,14 @@ void MainWindow::setupFilterPanel()
     if ( windowState.isValid() ) {
         restoreState( windowState.toByteArray() );
     }
+    // After the restore, which moves the panels too
+    watchDockLayout( fileTreeDock_ );
+    watchDockLayout( filterDock_ );
 
+    filterDock_->toggleViewAction()->setIconVisibleInMenu( true );
     toolsMenu->addSeparator();
     toolsMenu->addAction( filterDock_->toggleViewAction() );
+    toolBar->addAction( filterDock_->toggleViewAction() );
     updateShortcuts();
 
     connect( filterPanel_, &FilterPanel::filtersChanged, this,
