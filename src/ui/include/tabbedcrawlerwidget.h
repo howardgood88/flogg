@@ -94,6 +94,11 @@ class TabbedCrawlerWidget : public QTabWidget {
             }
         } );
 
+        // A tab with changes of the edit mode not saved shows a star
+        connect( crawler, &T::editModifiedChanged, this, [ this, crawler ]( bool modified ) {
+            setTabModified( indexOf( crawler ), modified );
+        } );
+
         addTabBarItem( index, fileName );
         if ( status != DataStatus::OLD_DATA ) {
             setTabDataStatus( index, status );
@@ -103,6 +108,9 @@ class TabbedCrawlerWidget : public QTabWidget {
     }
 
     void removeCrawler( int index );
+
+    // " *" after the name of the tab
+    void setTabModified( int index, bool modified );
 
     DataStatus tabDataStatus( int index ) const;
 

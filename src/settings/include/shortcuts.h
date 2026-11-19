@@ -78,6 +78,8 @@ struct ShortcutAction {
     static constexpr auto MainWindowOpenFromUrl = "mainwindow.open_from_url";
     static constexpr auto MainWindowToggleMainView = "mainwindow.toggle_main_view";
     static constexpr auto MainWindowToggleFilterPanel = "mainwindow.toggle_filter_panel";
+    static constexpr auto MainWindowRenderMode = "mainwindow.render_mode";
+    static constexpr auto MainWindowEditMode = "mainwindow.edit_mode";
     static constexpr auto MainWindowToggleFileTree = "mainwindow.toggle_file_tree";
     static constexpr auto MainWindowOpenFolder = "mainwindow.open_folder";
 

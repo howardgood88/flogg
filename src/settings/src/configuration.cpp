@@ -222,6 +222,10 @@ void Configuration::retrieveFromStorage( QSettings& settings )
         = settings
               .value( "perf.indexReadBufferSizeMb", DefaultConfiguration.indexReadBufferSizeMb_ )
               .toInt();
+    renderSizeLimitMb_
+        = std::clamp( settings.value( "perf.renderSizeLimitMb", DefaultConfiguration.renderSizeLimitMb_ )
+                          .toInt(),
+                      1, 2048 );
     searchReadBufferSizeLines_ = settings
                                      .value( "perf.searchReadBufferSizeLines",
                                              DefaultConfiguration.searchReadBufferSizeLines_ )
@@ -405,6 +409,7 @@ void Configuration::saveToStorage( QSettings& settings ) const
     settings.setValue( "perf.useSearchResultsCache", useSearchResultsCache_ );
     settings.setValue( "perf.searchResultsCacheLines", searchResultsCacheLines_ );
     settings.setValue( "perf.indexReadBufferSizeMb", indexReadBufferSizeMb_ );
+    settings.setValue( "perf.renderSizeLimitMb", renderSizeLimitMb_ );
     settings.setValue( "perf.searchReadBufferSizeLines", searchReadBufferSizeLines_ );
     settings.setValue( "perf.searchThreadPoolSize", searchThreadPoolSize_ );
     settings.setValue( "perf.keepFileClosed", keepFileClosed_ );

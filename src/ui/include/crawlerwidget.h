@@ -64,6 +64,7 @@
 #include "logfiltereddata.h"
 #include "logmainview.h"
 #include "overview.h"
+#include "renderformat.h"
 #include "signalmux.h"
 #include "viewinterface.h"
 
@@ -73,6 +74,8 @@ class SavedSearches;
 class QStandardItemModel;
 class QCompleter;
 class OverviewWidget;
+class RenderView;
+class EditView;
 
 // Implements the central widget of the application.
 // It includes both windows, the search line, the info
@@ -147,6 +150,39 @@ class CrawlerWidget : public QSplitter,
     // Hides the main view to give all the room to the filtered view,
     // showing it again restores the previous ratio of the two views
     void setMainViewVisible( bool visible );
+
+    // Render mode: the file shown as a document, a tree or a table instead of the two views.
+    // The render view is made when the mode is entered and deleted when it is left.
+    void setRenderMode( bool on );
+    bool isRenderMode() const
+    {
+        return renderView_ != nullptr;
+    }
+    // Format of the render mode, None to detect it
+    RenderFormat renderFormat() const
+    {
+        return renderFormat_;
+    }
+    RenderView* renderView() const
+    {
+        return renderView_;
+    }
+
+    // Edit mode: the file in a text editor, loaded when the mode is entered. Leaving it asks
+    // to save the changes, false when the user stays.
+    bool setEditMode( bool on );
+    bool isEditMode() const
+    {
+        return editView_ != nullptr;
+    }
+    EditView* editView() const
+    {
+        return editView_;
+    }
+    // Changes of the edit mode not saved yet
+    bool isEditModified() const;
+    // Asks to save them before the tab is closed, false to keep it
+    bool confirmEditClose();
 
     // True until the loading of the file has finished
     bool isLoading() const
@@ -225,6 +261,14 @@ class CrawlerWidget : public QSplitter,
 
     // Sent up when the current filtered view has been changed
     void filteredViewChanged();
+
+    // The render mode has been entered or left
+    void renderModeChanged( bool on );
+    // A link of the rendered document to a file (and a section of it), opened in a tab
+    void openFileRequested( QString fileName, QString anchor );
+    // The edit mode has been entered or left, its changes saved or not
+    void editModeChanged( bool on );
+    void editModifiedChanged( bool modified );
 
   private Q_SLOTS:
     // Instructs the widget to start a search using the current search line.
@@ -415,6 +459,8 @@ class CrawlerWidget : public QSplitter,
     std::shared_ptr<QuickFindPattern> quickFindPattern_;
 
     LogMainView* logMainView_;
+    // The search line and the filtered views
+    QWidget* bottomWindow_ = nullptr;
     // Share of the height taken by the main view when it was hidden
     double hiddenMainViewRatio_ = 0.5;
     // A moved splitter becomes the default of the new tabs once it stops moving
@@ -494,6 +540,19 @@ class CrawlerWidget : public QSplitter,
     bool filterMode_ = true;
     std::shared_ptr<const FilterSnapshot> filters_;
     FilterTabState filterTabState_;
+
+    RenderView* renderView_ = nullptr;
+    EditView* editView_ = nullptr;
+    bool editStartPending_ = false;
+    // The render or edit view shown instead of the log views
+    QWidget* modeView() const;
+    void showModeView( QWidget* view );
+    void hideModeView( QWidget* view );
+    RenderFormat renderFormat_ = RenderFormat::None;
+    // Splitter sizes and main view state from before the render mode, given back after it
+    QList<int> renderSavedSizes_;
+    bool mainViewVisibleBeforeRender_ = true;
+    std::optional<bool> mainViewVisibleAfterRender_;
 };
 
 #endif

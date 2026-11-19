@@ -1,5 +1,56 @@
 # flogg changes
 
+## 1.3.0 (2026-11-20)
+
+- **New: edit mode** (the pencil at the right of the tool bar, `View > Edit mode` or
+  `Ctrl+Shift+E`): the file in a text editor (Scintilla, as in Notepad++), at the line of
+  the log view; the other modes read the file on disk, again once it is saved
+  - Loaded in the background (1.2 s for 1.8 GB) and held in memory, about the size of the
+    file; a file larger than half of the memory available asks first; freed when the mode
+    is left
+  - `Ctrl+S` saves in the background, atomically (a temporary file renamed over it, its
+    permissions kept), in the encoding, byte order mark and line ends of the file; a file
+    that is not saved unchanged (bytes its encoding can not read) or a character the
+    encoding can not write is told before
+  - Undo, multiple and rectangular selections, input methods; `Ctrl+F` finds and replaces
+    (match case, regular expression with `\1` in the replacement, replace all as one undo),
+    the matches around the lines shown on a yellow background
+  - Leaving the mode, closing the tab or the window asks to save the changes; the tab shows
+    `*` while they are not saved; a change of the file on disk offers to reload it
+  - Copies made by flogg (archives, downloads, the clipboard) and files that can not be
+    written are read only, `Save as` writes them elsewhere
+- **New: render mode** (the eye at the right of the tool bar, `View > Render mode` or
+  `Ctrl+Shift+V`): the tab shows the file rendered instead of its lines, the filter panel
+  stays
+  - Markdown (tables, task lists, code blocks) and HTML as a document, laid out like GitHub:
+    the alerts (`> [!NOTE]`), the footnotes, `<details>` (shown open), the images fitting the
+    page; `Open in browser` shows mermaid diagrams, math and code highlighting with libraries
+    from cdn.jsdelivr.net
+  - JSON (also `.har` network logs and `.ipynb` notebooks) and XML as a tree: right click to
+    copy a value or its JSON path; an error gives its line and `Show in log view` goes there
+  - CSV, TSV and JSON Lines as a table of any size, read from the log as it is scrolled and
+    following the file; the separator of a CSV file is guessed, the first line can be the
+    header; `Ctrl+C` copies the selected cells
+  - `Ctrl+F` opens a find bar in the render mode (match case, regular expression; `Enter`/`F3`
+    for the next match, `Shift+Enter`/`Shift+F3` for the previous one), alike in documents,
+    trees and tables: every occurrence of the text shown is a match, counted (`3 / 120`), the
+    current one is shown like selected text and the others on a yellow background; the find
+    starts from where the user is (the cursor, the selected node or cell) and takes the text
+    selected; a tree is expanded and a narrow column widened and scrolled to the match
+  - The lines of a table are searched like the search line and the matches counted in the
+    background (2 s for 30 million lines, `120+` meanwhile); a regular expression with
+    anchors or looking around is matched cell by cell; a line matching only outside of its
+    cells (the keys of JSON Lines) is left out
+  - A cell of a tree or a table opens (double click, `F2`) to select a part of its text;
+    rows are selected by their header
+  - Files of these formats (by their extension) open rendered, the eye goes back to the
+    lines; the format of another file comes from its content and can be changed in the list
+    of the view; the tab is restored in the render mode
+  - Links of a rendered document open the files in tabs of flogg, rendered, at the section
+    of the link (`other.md#section`, `#L120` for a line); web links go to the browser
+  - Markdown and JSON are parsed in the background up to a size set in
+    `Options > Advanced` (20 MiB for JSON and XML, a quarter for Markdown and HTML)
+
 ## 1.2.1 (2026-11-16)
 
 - Buttons at the right of the tool bar show and hide the file tree and the filter panel; the

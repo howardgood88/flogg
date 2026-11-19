@@ -214,6 +214,15 @@ class Configuration final : public Persistable<Configuration> {
     {
         indexReadBufferSizeMb_ = bufferSizeMb;
     }
+    // Largest JSON or XML file parsed by the render mode, a quarter of it for Markdown and HTML
+    int renderSizeLimitMb() const
+    {
+        return renderSizeLimitMb_;
+    }
+    void setRenderSizeLimitMb( int limitMb )
+    {
+        renderSizeLimitMb_ = limitMb;
+    }
     int searchReadBufferSizeLines() const
     {
         return searchReadBufferSizeLines_;
@@ -597,6 +606,7 @@ class Configuration final : public Persistable<Configuration> {
     unsigned searchResultsCacheLines_ = 1000000;
     bool useParallelSearch_ = true;
     int indexReadBufferSizeMb_ = 16;
+    int renderSizeLimitMb_ = 20;
     int searchReadBufferSizeLines_ = 10000;
     int searchThreadPoolSize_ = 0;
     bool keepFileClosed_ = false;

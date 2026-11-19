@@ -146,6 +146,59 @@ message("Resetting CPM_USE_LOCAL_PACKAGES to ${_TMP_CPM_USE_LOCAL_PACKAGES}")
 set(CPM_USE_LOCAL_PACKAGES ${_TMP_CPM_USE_LOCAL_PACKAGES})
 endif()
 
+# Scintilla, the text editor of the edit mode (as in Notepad++): its Qt widget only, built
+# here as a static library. Historical Permission Notice and Disclaimer license.
+cpmaddpackage(
+  NAME
+  scintilla
+  VERSION
+  5.6.9
+  URL
+  https://www.scintilla.org/scintilla569.tgz
+  URL_HASH
+  SHA256=1622546ce1d3804b589292f1adae98ad1d87fa8c43bb401edc098adae12dcacb
+  DOWNLOAD_ONLY
+  YES
+)
+if(scintilla_ADDED)
+  set(SCINTILLA_SOURCES
+      AutoComplete CallTip CaseConvert CaseFolder CellBuffer ChangeHistory
+      CharacterCategoryMap CharacterType CharClassify ContractionState DBCS Decoration
+      Document EditModel Editor EditView Geometry Indicator KeyMap LineMarker MarginView
+      PerLine PositionCache RESearch RunStyles ScintillaBase Selection Style UndoHistory
+      UniConversion UniqueString ViewStyle XPM
+  )
+  list(TRANSFORM SCINTILLA_SOURCES PREPEND ${scintilla_SOURCE_DIR}/src/)
+  list(TRANSFORM SCINTILLA_SOURCES APPEND .cxx)
+  add_library(
+    klogg_scintilla STATIC
+    ${SCINTILLA_SOURCES}
+    ${scintilla_SOURCE_DIR}/qt/ScintillaEditBase/PlatQt.cpp
+    ${scintilla_SOURCE_DIR}/qt/ScintillaEditBase/ScintillaQt.cpp
+    ${scintilla_SOURCE_DIR}/qt/ScintillaEditBase/ScintillaEditBase.cpp
+    ${scintilla_SOURCE_DIR}/qt/ScintillaEditBase/ScintillaQt.h
+    ${scintilla_SOURCE_DIR}/qt/ScintillaEditBase/ScintillaEditBase.h
+  )
+  set_target_properties(klogg_scintilla PROPERTIES AUTOMOC ON CXX_STANDARD 17)
+  # The header of the widget includes some of src
+  target_include_directories(
+    klogg_scintilla SYSTEM PUBLIC ${scintilla_SOURCE_DIR}/include ${scintilla_SOURCE_DIR}/src
+                                  ${scintilla_SOURCE_DIR}/qt/ScintillaEditBase
+  )
+  # A static library: no import or export of the widget class
+  target_compile_definitions(
+    klogg_scintilla PUBLIC SCINTILLA_QT=1 EXPORT_IMPORT_API= PRIVATE MAKING_LIBRARY=1
+  )
+  target_link_libraries(
+    klogg_scintilla PUBLIC Qt${QT_VERSION_MAJOR}::Widgets
+  )
+  if(${QT_VERSION_MAJOR} EQUAL 6)
+    # QTextCodec, for the documents that are not in UTF-8
+    find_package(Qt6 COMPONENTS Core5Compat REQUIRED)
+    target_link_libraries(klogg_scintilla PUBLIC Qt6::Core5Compat)
+  endif()
+endif()
+
 cpmaddpackage(
   NAME
   robin_hood

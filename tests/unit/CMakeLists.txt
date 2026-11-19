@@ -3,6 +3,8 @@ add_executable(klogg_tests
     linepositionarray_test.cpp
     patternmatcher_test.cpp
     filtertree_test.cpp
+    render_test.cpp
+    edit_test.cpp
     tests_main.cpp
 )
 

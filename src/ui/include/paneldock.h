@@ -33,6 +33,10 @@ namespace panelicons {
 
 QIcon fileTree( const QColor& lines );
 QIcon filters( const QColor& lines );
+// Render mode of the tab: an eye, the file is previewed
+QIcon render( const QColor& lines );
+// Edit mode of the tab: a pencil
+QIcon edit( const QColor& lines );
 
 } // namespace panelicons
 

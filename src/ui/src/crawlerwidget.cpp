@@ -78,6 +78,8 @@
 #include "fontutils.h"
 #include "infoline.h"
 #include "quickfindpattern.h"
+#include "editview.h"
+#include "renderview.h"
 #include "savedsearches.h"
 #include "shortcuts.h"
 
@@ -94,7 +96,7 @@ public:
     // Construct from the value passsed
     CrawlerWidgetContext( QList<int> sizes, bool ignoreCase, bool autoRefresh, bool followFile,
                           bool useRegexp, bool inverseRegexp, bool useBooleanCombination,
-                          QList<LineNumber> markedLines, QVariantMap filters )
+                          QList<LineNumber> markedLines, QVariantMap filters, QString render )
         : sizes_( sizes )
         , ignoreCase_( ignoreCase )
         , autoRefresh_( autoRefresh )
@@ -103,6 +105,7 @@ public:
         , inverseRegexp_( inverseRegexp )
         , useBooleanCombination_( useBooleanCombination )
         , filters_( std::move( filters ) )
+        , render_( std::move( render ) )
     {
         std::transform( markedLines.cbegin(), markedLines.cend(), std::back_inserter( marks_ ),
                         []( const auto& m ) { return m.get(); } );
@@ -153,6 +156,12 @@ public:
         return filters_;
     }
 
+    // Format of the render mode the tab was in, empty when it was not
+    QString render() const
+    {
+        return render_;
+    }
+
 private:
     void loadFromString( const QString& string );
     void loadFromJson( const QString& json );
@@ -170,6 +179,7 @@ private:
     QList<LineNumber::UnderlyingType> marks_;
 
     QVariantMap filters_;
+    QString render_;
 };
 
 // Constructor only does trivial construction. The real work is done once
@@ -329,6 +339,10 @@ void CrawlerWidget::goToLine()
         if ( newLine == 0 ) {
             newLine = 1;
         }
+        if ( editView_ ) {
+            editView_->goToLine( static_cast<qint64>( newLine - 1 ) );
+            return;
+        }
 
         const auto selectedLine
             = LineNumber( static_cast<LineNumber::UnderlyingType>( newLine - 1 ) );
@@ -412,6 +426,11 @@ void CrawlerWidget::doSetViewContext( const QString& view_context )
     const auto savedMarks = context.marks();
     std::transform( savedMarks.cbegin(), savedMarks.cend(), std::back_inserter( savedMarkedLines_ ),
                     []( const auto& l ) { return LineNumber( l ); } );
+
+    if ( !context.render().isEmpty() ) {
+        renderFormat_ = render::formatFromId( context.render() );
+        setRenderMode( true );
+    }
 }
 
 std::shared_ptr<const ViewContextInterface> CrawlerWidget::doGetViewContext() const
@@ -438,10 +457,18 @@ std::shared_ptr<const ViewContextInterface> CrawlerWidget::doGetViewContext() co
         }
     }
 
+    // "auto" when the format is detected again when the tab is restored
+    QString render;
+    if ( renderView_ ) {
+        render = renderFormat_ == RenderFormat::None ? QStringLiteral( "auto" )
+                                                     : render::formatId( renderFormat_ );
+    }
+
     auto context = std::make_shared<const CrawlerWidgetContext>(
-        sizes(), ( !matchCaseButton_->isChecked() ), searchRefreshButton_->isChecked(),
-        logMainView_->isFollowEnabled(), useRegexpButton_->isChecked(), inverseButton_->isChecked(),
-        booleanButton_->isChecked(), logFilteredData_->getMarks(), filters );
+        modeView() ? renderSavedSizes_ : sizes(), ( !matchCaseButton_->isChecked() ),
+        searchRefreshButton_->isChecked(), logMainView_->isFollowEnabled(),
+        useRegexpButton_->isChecked(), inverseButton_->isChecked(), booleanButton_->isChecked(),
+        logFilteredData_->getMarks(), filters, render );
 
     return static_cast<std::shared_ptr<const ViewContextInterface>>( context );
 }
@@ -840,6 +867,10 @@ void CrawlerWidget::loadingFinishedHandler( LoadingStatus status )
     }
 
     loadingInProgress_ = false;
+    // The edit mode entered while the file was loading
+    if ( editView_ && std::exchange( editStartPending_, false ) ) {
+        editView_->start( static_cast<qint64>( currentLineNumber_.get() ) );
+    }
     Q_EMIT loadingFinished( status );
 }
 
@@ -1061,8 +1092,8 @@ void CrawlerWidget::setup()
     assert( logFilteredData_ );
 
     // The views
-    auto bottomWindow = new QWidget;
-    bottomWindow->setContentsMargins( 2, 0, 2, 0 );
+    bottomWindow_ = new QWidget;
+    bottomWindow_->setContentsMargins( 2, 0, 2, 0 );
 
     overviewWidget_ = new OverviewWidget();
     logMainView_
@@ -1259,10 +1290,10 @@ void CrawlerWidget::setup()
     bottomMainLayout->addLayout( searchLineLayout );
     bottomMainLayout->addWidget( tabbedFilteredView_ );
     bottomMainLayout->setContentsMargins( 2, 2, 2, 2 );
-    bottomWindow->setLayout( bottomMainLayout );
+    bottomWindow_->setLayout( bottomMainLayout );
 
     addWidget( logMainView_ );
-    addWidget( bottomWindow );
+    addWidget( bottomWindow_ );
 
     // Default search checkboxes
     auto& config = Configuration::get();
@@ -1451,6 +1482,11 @@ void CrawlerWidget::filteredViewDestroyed( QObject* view )
 
 void CrawlerWidget::saveSplitterSizes() const
 {
+    // The views are hidden in the render and edit modes
+    if ( modeView() ) {
+        return;
+    }
+
     LOG_INFO << "Saving default splitter size";
     auto& splitterConfig = Configuration::get();
     splitterConfig.setSplitterSizes( sizes() );
@@ -1913,6 +1949,12 @@ void CrawlerWidget::updateEncoding()
 
 void CrawlerWidget::setMainViewVisible( bool visible )
 {
+    // Done when the render or edit mode is left, the sizes are not those of the views meanwhile
+    if ( modeView() ) {
+        mainViewVisibleAfterRender_ = visible;
+        return;
+    }
+
     if ( visible == !logMainView_->isHidden() ) {
         return;
     }
@@ -1941,9 +1983,142 @@ void CrawlerWidget::setMainViewVisible( bool visible )
     setSizes( { mainViewSize, total - mainViewSize } );
 }
 
+QWidget* CrawlerWidget::modeView() const
+{
+    return renderView_ ? static_cast<QWidget*>( renderView_ ) : static_cast<QWidget*>( editView_ );
+}
+
+void CrawlerWidget::showModeView( QWidget* view )
+{
+    renderSavedSizes_ = sizes();
+    mainViewVisibleBeforeRender_ = !logMainView_->isHidden();
+    mainViewVisibleAfterRender_.reset();
+
+    logMainView_->hide();
+    bottomWindow_->hide();
+    addWidget( view );
+    view->setFocus();
+}
+
+void CrawlerWidget::hideModeView( QWidget* view )
+{
+    // Out of the splitter right away, deleted later: this can be called by a signal of the
+    // view
+    view->hide();
+    view->setParent( nullptr );
+    view->deleteLater();
+
+    logMainView_->setVisible( mainViewVisibleBeforeRender_ );
+    bottomWindow_->show();
+    setSizes( renderSavedSizes_ );
+    if ( mainViewVisibleAfterRender_ ) {
+        setMainViewVisible( *std::exchange( mainViewVisibleAfterRender_, std::nullopt ) );
+    }
+
+    if ( !logMainView_->isHidden() ) {
+        logMainView_->setFocus();
+    }
+    else {
+        filteredView_->setFocus();
+    }
+}
+
+void CrawlerWidget::setRenderMode( bool on )
+{
+    if ( on == isRenderMode() ) {
+        return;
+    }
+
+    if ( on ) {
+        // One mode at a time: the edit mode may keep the tab for its changes
+        if ( !setEditMode( false ) ) {
+            Q_EMIT renderModeChanged( false );
+            return;
+        }
+
+        renderView_ = new RenderView( logData_, renderFormat_ );
+        renderView_->setEncodingChosen( encodingMib_.has_value() );
+        connect( renderView_, &RenderView::formatChanged, this,
+                 [ this ]( RenderFormat format ) { renderFormat_ = format; } );
+        connect( renderView_, &RenderView::openFileRequested, this,
+                 &CrawlerWidget::openFileRequested );
+        connect( renderView_, &RenderView::showLineRequested, this, [ this ]( qint64 line ) {
+            setRenderMode( false );
+            selectLineWhenLoaded( LineNumber( static_cast<LineNumber::UnderlyingType>( line ) ) );
+        } );
+        showModeView( renderView_ );
+
+        // Otherwise started by the end of the loading
+        if ( !loadingInProgress_ ) {
+            renderView_->start();
+        }
+    }
+    else {
+        hideModeView( std::exchange( renderView_, nullptr ) );
+    }
+
+    Q_EMIT renderModeChanged( on );
+}
+
+bool CrawlerWidget::setEditMode( bool on )
+{
+    if ( on == isEditMode() ) {
+        return true;
+    }
+
+    if ( on ) {
+        setRenderMode( false );
+
+        editView_ = new EditView( logData_ );
+        // The other modes show the file as saved
+        connect( editView_, &EditView::saved, this, &CrawlerWidget::reload );
+        connect( editView_, &EditView::modifiedChanged, this,
+                 &CrawlerWidget::editModifiedChanged );
+        showModeView( editView_ );
+
+        // At the line of the log view
+        if ( loadingInProgress_ ) {
+            editStartPending_ = true;
+        }
+        else {
+            editView_->start( static_cast<qint64>( currentLineNumber_.get() ) );
+        }
+    }
+    else {
+        // The changes are saved, discarded, or the mode is not left
+        if ( !editView_->confirmClose() ) {
+            Q_EMIT editModeChanged( true );
+            return false;
+        }
+        const auto wasModified = editView_->isModified();
+        editStartPending_ = false;
+        hideModeView( std::exchange( editView_, nullptr ) );
+        if ( wasModified ) {
+            Q_EMIT editModifiedChanged( false );
+        }
+    }
+
+    Q_EMIT editModeChanged( on );
+    return true;
+}
+
+bool CrawlerWidget::isEditModified() const
+{
+    return editView_ && editView_->isModified();
+}
+
+bool CrawlerWidget::confirmEditClose()
+{
+    return !editView_ || editView_->confirmClose();
+}
+
 // Change the respective size of the two views
 void CrawlerWidget::changeTopViewSize( int32_t delta )
 {
+    if ( modeView() ) {
+        return;
+    }
+
     int min, max;
     getRange( 1, &min, &max );
     LOG_DEBUG << "CrawlerWidget::changeTopViewSize " << sizes().at( 0 ) << " " << min << " " << max;
@@ -2132,6 +2307,7 @@ void CrawlerWidgetContext::loadFromJson( const QString& json )
     }
 
     filters_ = properties.value( "FL" ).toMap();
+    render_ = properties.value( "RD" ).toString();
 }
 
 QString CrawlerWidgetContext::toString() const
@@ -2156,6 +2332,9 @@ QString CrawlerWidgetContext::toString() const
     properies[ "M" ] = toVariantList( marks_ );
     if ( !filters_.isEmpty() ) {
         properies[ "FL" ] = filters_;
+    }
+    if ( !render_.isEmpty() ) {
+        properies[ "RD" ] = render_;
     }
 
     return QJsonDocument::fromVariant( properies ).toJson( QJsonDocument::Compact );

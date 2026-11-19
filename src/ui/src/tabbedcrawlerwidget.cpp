@@ -235,6 +235,19 @@ void TabbedCrawlerWidget::addTabBarItem( int index, const QString& fileName )
     myTabBar_.show();
 }
 
+void TabbedCrawlerWidget::setTabModified( int index, bool modified )
+{
+    if ( index < 0 ) {
+        return;
+    }
+    static const QString mark = QStringLiteral( " *" );
+    auto text = myTabBar_.tabText( index );
+    if ( text.endsWith( mark ) ) {
+        text.chop( mark.size() );
+    }
+    myTabBar_.setTabText( index, modified ? text + mark : text );
+}
+
 void TabbedCrawlerWidget::removeCrawler( int index )
 {
     // The status of the tab follows the file while it is in this widget only

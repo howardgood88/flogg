@@ -221,6 +221,12 @@ class MainWindow : public QMainWindow {
 
     // Change the follow mode checkbox and send the followSet signal down
     void changeFollowMode( bool follow );
+    // The render mode of the current tab has been entered or left
+    void changeRenderMode( bool on );
+    // The edit mode of the current tab has been entered or left
+    void changeEditMode( bool on );
+    // A link of a rendered document: the file in a tab, rendered when flogg renders it
+    void openLinkedFile( QString fileName, QString anchor );
 
     // Update the selection information displayed in the status bar.
     // Must be passed as the internal (starts at 0) line number.
@@ -296,6 +302,8 @@ class MainWindow : public QMainWindow {
     void watchDockLayout( QDockWidget* dock );
     void applyFiltersToCurrentCrawler();
     void switchFilterTab( CrawlerWidget* crawler );
+    // A new tab of a format flogg renders is shown rendered
+    void showRenderedIfRenderable( CrawlerWidget* crawler, const QString& fileName );
     std::vector<CrawlerWidget*> crawlers() const;
     // Unsaved filters lost when the tabs are closed: their own filters, and the shared ones
     // when no tab left uses them (closingWindow: the other tabs of the window are closed too,
@@ -391,6 +399,8 @@ class MainWindow : public QMainWindow {
     QAction* importSettingsAction;
     QAction* exportSettingsAction;
     QAction* showScratchPadAction;
+    QAction* renderModeAction;
+    QAction* editModeAction;
     QAction* checkForUpdatesAction;
     // Red dot on checkForUpdatesAction while a newer release is not installed
     void updateCheckForUpdatesMark();

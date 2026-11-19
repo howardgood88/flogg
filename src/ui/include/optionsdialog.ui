@@ -758,6 +758,32 @@
                 </property>
                </widget>
               </item>
+              <item row="3" column="0">
+               <widget class="QLabel" name="renderSizeLimitLabel">
+                <property name="toolTip">
+                 <string>Largest JSON or XML file the render mode parses, Markdown and HTML take more memory and get a quarter of it. CSV, TSV and JSON Lines have no limit.</string>
+                </property>
+                <property name="text">
+                 <string>Render documents up to (MiB):</string>
+                </property>
+               </widget>
+              </item>
+              <item row="3" column="1">
+               <widget class="QSpinBox" name="renderSizeLimitSpinBox">
+                <property name="sizePolicy">
+                 <sizepolicy hsizetype="MinimumExpanding" vsizetype="Fixed">
+                  <horstretch>0</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
+                <property name="minimum">
+                 <number>1</number>
+                </property>
+                <property name="maximum">
+                 <number>2048</number>
+                </property>
+               </widget>
+              </item>
              </layout>
             </item>
             <item>

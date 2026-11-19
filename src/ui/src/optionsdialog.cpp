@@ -652,6 +652,7 @@ void OptionsDialog::updateDialogFromConfig()
     searchResultsCacheCheckBox->setChecked( config.useSearchResultsCache() );
     searchCacheSpinBox->setValue( static_cast<int>( config.searchResultsCacheLines() ) );
     indexReadBufferSpinBox->setValue( config.indexReadBufferSizeMb() );
+    renderSizeLimitSpinBox->setValue( config.renderSizeLimitMb() );
     searchReadBufferSpinBox->setValue( config.searchReadBufferSizeLines() );
     keepFileClosedCheckBox->setChecked( config.keepFileClosed() );
     compressedIndexCheckBox->setChecked( config.useCompressedIndex() );
@@ -936,6 +937,7 @@ void OptionsDialog::updateConfigFromDialog()
     config.setUseSearchResultsCache( searchResultsCacheCheckBox->isChecked() );
     config.setSearchResultsCacheLines( static_cast<unsigned>( searchCacheSpinBox->value() ) );
     config.setIndexReadBufferSizeMb( indexReadBufferSpinBox->value() );
+    config.setRenderSizeLimitMb( renderSizeLimitSpinBox->value() );
     config.setSearchReadBufferSizeLines( searchReadBufferSpinBox->value() );
     config.setKeepFileClosed( keepFileClosedCheckBox->isChecked() );
     config.setUseCompressedIndex( compressedIndexCheckBox->isChecked() );

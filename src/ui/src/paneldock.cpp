@@ -93,6 +93,39 @@ QIcon filters( const QColor& lines )
     } );
 }
 
+QIcon render( const QColor& lines )
+{
+    return drawIcon( [ &lines ]( QPainter& painter ) {
+        painter.setRenderHint( QPainter::Antialiasing, true );
+        painter.setPen( linePen( lines ) );
+        QPainterPath eye;
+        eye.moveTo( 1.0, 8.0 );
+        eye.quadTo( 8.0, 0.5, 15.0, 8.0 );
+        eye.quadTo( 8.0, 15.5, 1.0, 8.0 );
+        painter.drawPath( eye );
+        painter.setBrush( lines );
+        painter.drawEllipse( QPointF( 8.0, 8.0 ), 2.5, 2.5 );
+    } );
+}
+
+QIcon edit( const QColor& lines )
+{
+    return drawIcon( [ &lines ]( QPainter& painter ) {
+        painter.setRenderHint( QPainter::Antialiasing, true );
+        painter.setPen( linePen( lines ) );
+        // A pencil going down to the left, its point on the line
+        QPainterPath pencil;
+        pencil.moveTo( 11.0, 2.0 );
+        pencil.lineTo( 14.0, 5.0 );
+        pencil.lineTo( 5.5, 13.5 );
+        pencil.lineTo( 2.0, 14.0 );
+        pencil.lineTo( 2.5, 10.5 );
+        pencil.closeSubpath();
+        painter.drawPath( pencil );
+        painter.drawLine( QPointF( 9.5, 3.5 ), QPointF( 12.5, 6.5 ) );
+    } );
+}
+
 } // namespace panelicons
 
 DockTitleBar::DockTitleBar( QDockWidget* dock )

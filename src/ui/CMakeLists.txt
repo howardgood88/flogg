@@ -48,6 +48,11 @@ add_library(
   ${CMAKE_CURRENT_SOURCE_DIR}/include/paneldock.h
   ${CMAKE_CURRENT_SOURCE_DIR}/include/filtereditdialog.h
   ${CMAKE_CURRENT_SOURCE_DIR}/include/horizontalwheelfilter.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/include/renderformat.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/include/rendermodels.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/include/renderview.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/include/editdocument.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/include/editview.h
   ${CMAKE_CURRENT_SOURCE_DIR}/include/highlighteredit.ui
   ${CMAKE_CURRENT_SOURCE_DIR}/include/optionsdialog.ui
   ${CMAKE_CURRENT_SOURCE_DIR}/src/abstractlogview.cpp
@@ -93,6 +98,11 @@ add_library(
   ${CMAKE_CURRENT_SOURCE_DIR}/src/paneldock.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/src/filtereditdialog.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/src/horizontalwheelfilter.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/renderformat.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/rendermodels.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/renderview.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/editdocument.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/editview.cpp
 )
 
 set_target_properties(klogg_ui PROPERTIES AUTOUIC ON)
@@ -117,6 +127,8 @@ target_link_libraries(
          klogg_karchive
          Qt${QT_VERSION_MAJOR}::Widgets
          Qt${QT_VERSION_MAJOR}::Xml
+         Qt${QT_VERSION_MAJOR}::Concurrent
+         klogg_scintilla
 )
 
 if(WIN32)

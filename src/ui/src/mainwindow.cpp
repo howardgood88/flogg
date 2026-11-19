@@ -105,6 +105,10 @@
 #include "optionsdialog.h"
 #include "filetreepanel.h"
 #include "paneldock.h"
+#include "Scintilla.h"
+#include "editview.h"
+#include "renderformat.h"
+#include "renderview.h"
 #include "tooltipplacement.h"
 #include "filterpanel.h"
 #include "persistentinfo.h"
@@ -174,6 +178,11 @@ MainWindow::MainWindow( WindowSession session )
     // Actions from the CrawlerWidget
     signalMux_.connect( SIGNAL( followModeChanged( bool ) ), this,
                         SLOT( changeFollowMode( bool ) ) );
+    signalMux_.connect( SIGNAL( renderModeChanged( bool ) ), this,
+                        SLOT( changeRenderMode( bool ) ) );
+    signalMux_.connect( SIGNAL( editModeChanged( bool ) ), this, SLOT( changeEditMode( bool ) ) );
+    signalMux_.connect( SIGNAL( openFileRequested( QString, QString ) ), this,
+                        SLOT( openLinkedFile( QString, QString ) ) );
     signalMux_.connect(
         SIGNAL( newSelection( LineNumber, LinesCount, LineColumn, LineLength ) ), this,
         SLOT( lineNumberHandler( LineNumber, LinesCount, LineColumn, LineLength ) ) );
@@ -367,6 +376,7 @@ void MainWindow::reloadSession()
 
         if ( crawler_widget ) {
             mainTabWidget_.addCrawler( crawler_widget, file_name );
+            showRenderedIfRenderable( crawler_widget, file_name );
 
             if ( followFileOnLoad ) {
                 signalCrawlerToFollowFile( crawler_widget );
@@ -732,6 +742,30 @@ void MainWindow::createActions()
     connect( showScratchPadAction, &QAction::triggered, this,
              [ this ]( auto ) { this->showScratchPad(); } );
 
+    renderModeAction = new QAction( tr( "&Render mode" ), this );
+    renderModeAction->setCheckable( true );
+    renderModeAction->setEnabled( false );
+    renderModeAction->setStatusTip(
+        tr( "Show the file rendered: Markdown, JSON, JSON Lines, CSV, TSV, XML or HTML" ) );
+    renderModeAction->setToolTip( tr( "Render mode" ) );
+    connect( renderModeAction, &QAction::triggered, this, [ this ]( bool checked ) {
+        if ( auto* crawler = currentCrawlerWidget() ) {
+            crawler->setRenderMode( checked );
+        }
+    } );
+
+    editModeAction = new QAction( tr( "&Edit mode" ), this );
+    editModeAction->setCheckable( true );
+    editModeAction->setEnabled( false );
+    editModeAction->setStatusTip(
+        tr( "Edit the file: it is loaded in memory, the changes are saved to the file" ) );
+    editModeAction->setToolTip( tr( "Edit mode" ) );
+    connect( editModeAction, &QAction::triggered, this, [ this ]( bool checked ) {
+        if ( auto* crawler = currentCrawlerWidget() ) {
+            crawler->setEditMode( checked );
+        }
+    } );
+
     encodingGroup = new QActionGroup( this );
     connect( encodingGroup, &QActionGroup::triggered, this, &MainWindow::encodingChanged );
 
@@ -817,6 +851,8 @@ void MainWindow::updateShortcuts()
     setShortcuts( reloadAction, ShortcutAction::MainWindowReload );
     setShortcuts( stopAction, ShortcutAction::MainWindowStop );
     setShortcuts( showScratchPadAction, ShortcutAction::MainWindowScratchpad );
+    setShortcuts( renderModeAction, ShortcutAction::MainWindowRenderMode );
+    setShortcuts( editModeAction, ShortcutAction::MainWindowEditMode );
     setShortcuts( selectOpenFileAction, ShortcutAction::MainWindowSelectOpenFile );
     setShortcuts( goToLineAction, ShortcutAction::LogViewJumpToLine );
     setShortcuts( optionsAction, ShortcutAction::MainWindowPreference );
@@ -850,6 +886,10 @@ void MainWindow::loadIcons()
     fileTreeTitle_->setIcon( fileTreeIcon );
     filterDock_->toggleViewAction()->setIcon( filtersIcon );
     filterTitle_->setIcon( filtersIcon );
+    renderModeAction->setIcon( panelicons::render( lines ) );
+    renderModeAction->setIconVisibleInMenu( true );
+    editModeAction->setIcon( panelicons::edit( lines ) );
+    editModeAction->setIconVisibleInMenu( true );
 }
 
 void MainWindow::createMenus()
@@ -912,6 +952,8 @@ void MainWindow::createMenus()
     viewMenu->addAction( lineNumbersVisibleInFilteredAction );
     viewMenu->addSeparator();
     viewMenu->addAction( textWrapAction );
+    viewMenu->addAction( renderModeAction );
+    viewMenu->addAction( editModeAction );
     viewMenu->addSeparator();
     viewMenu->addAction( followAction );
     viewMenu->addSeparator();
@@ -1193,6 +1235,16 @@ void MainWindow::copy()
     try {
         if ( infoLine->hasFocus() && infoLine->hasSelectedText() ) {
             sendTextToClipboard( infoLine->selectedText() );
+            return;
+        }
+
+        // The render and edit modes copy what they show
+        if ( auto* crawler = currentCrawlerWidget(); crawler && crawler->isRenderMode() ) {
+            crawler->renderView()->copy();
+            return;
+        }
+        if ( auto* crawler = currentCrawlerWidget(); crawler && crawler->isEditMode() ) {
+            crawler->editView()->editor()->send( SCI_COPY );
             return;
         }
 
@@ -1621,6 +1673,12 @@ bool MainWindow::closeTab( int index, ActionInitiator initiator )
         return false;
     }
 
+    // Changes of the edit mode: saved, discarded, or the tab is kept (the window asks for all
+    // of its tabs before closing them)
+    if ( initiator == ActionInitiator::User && !widget->confirmEditClose() ) {
+        return false;
+    }
+
     widget->stopLoading();
     SharedFilters::instance().setUser( widget, false );
     mainTabWidget_.removeCrawler( index );
@@ -1658,6 +1716,8 @@ void MainWindow::currentTabChanged( int index )
         updateFavoritesMenu();
 
         editMenu->setEnabled( true );
+        renderModeAction->setEnabled( true );
+        editModeAction->setEnabled( true );
     }
     else {
         // No tab left
@@ -1672,6 +1732,10 @@ void MainWindow::currentTabChanged( int index )
         updateTitleBar( QString() );
 
         editMenu->setEnabled( false );
+        renderModeAction->setChecked( false );
+        renderModeAction->setEnabled( false );
+        editModeAction->setChecked( false );
+        editModeAction->setEnabled( false );
         addToFavoritesAction->setEnabled( false );
         addToFavoritesMenuAction->setEnabled( false );
     }
@@ -1747,6 +1811,16 @@ void MainWindow::closeEvent( QCloseEvent* event )
                  true ) ) {
             event->ignore();
             return;
+        }
+        // Edited files not saved
+        for ( auto* crawler : crawlers() ) {
+            if ( crawler->isEditModified() ) {
+                mainTabWidget_.setCurrentWidget( crawler );
+                if ( !crawler->confirmEditClose() ) {
+                    event->ignore();
+                    return;
+                }
+            }
         }
 
         const auto saveSettings = session_.close();
@@ -1987,6 +2061,7 @@ bool MainWindow::loadFile( const QString& fileName, bool followFile )
                 LOG_INFO << "Found existing context";
                 crawler_widget->setViewContext( previousViewContext );
             }
+            showRenderedIfRenderable( crawler_widget, fileName );
 
             // A file matching a rule of the settings gets its filter file, also over the
             // filters kept by the session when the file was open before (restoring the
@@ -2480,6 +2555,57 @@ void MainWindow::updateMenuBarFromDocument( const CrawlerWidget* crawler )
 
     followAction->setChecked( crawler->isFollowEnabled() );
     textWrapAction->setChecked( crawler->isTextWrapEnabled() );
+    renderModeAction->setChecked( crawler->isRenderMode() );
+    editModeAction->setChecked( crawler->isEditMode() );
+}
+
+void MainWindow::changeRenderMode( bool on )
+{
+    renderModeAction->setChecked( on );
+}
+
+void MainWindow::changeEditMode( bool on )
+{
+    editModeAction->setChecked( on );
+}
+
+void MainWindow::showRenderedIfRenderable( CrawlerWidget* crawler, const QString& fileName )
+{
+    // The formats flogg renders open rendered (the render button goes back to the lines)
+    if ( !crawler->isRenderMode()
+         && render::formatFromFileName( fileName ) != RenderFormat::None ) {
+        crawler->setRenderMode( true );
+    }
+}
+
+void MainWindow::openLinkedFile( QString fileName, QString anchor )
+{
+    // Out of the click on the link: the tab of the link is left
+    dispatchToMainThread( [ this, fileName, anchor ] {
+        if ( !loadFile( fileName ) ) {
+            return;
+        }
+        auto* crawler = currentCrawlerWidget();
+        if ( crawler == nullptr ) {
+            return;
+        }
+        const auto renderable = render::formatFromFileName( fileName ) != RenderFormat::None;
+        if ( renderable && !crawler->isRenderMode() && !crawler->isEditMode() ) {
+            crawler->setRenderMode( true );
+        }
+        if ( crawler->isRenderMode() ) {
+            // The section, once the document is shown
+            crawler->renderView()->scrollToAnchor( anchor );
+            return;
+        }
+        // A line of GitHub (#L120) in the log view
+        static const QRegularExpression lineAnchor( QStringLiteral( "^L(\\d+)" ) );
+        if ( const auto match = lineAnchor.match( anchor ); match.hasMatch() ) {
+            const auto line = std::max( 1ULL, match.captured( 1 ).toULongLong() ) - 1;
+            crawler->selectLineWhenLoaded(
+                LineNumber( static_cast<LineNumber::UnderlyingType>( line ) ) );
+        }
+    } );
 }
 
 // Update the top info line from the session
@@ -2877,6 +3003,10 @@ void MainWindow::setupFilterPanel()
     toolsMenu->addSeparator();
     toolsMenu->addAction( filterDock_->toggleViewAction() );
     toolBar->addAction( filterDock_->toggleViewAction() );
+    // The mode of the tab, at the end of the tool bar
+    toolBar->addSeparator();
+    toolBar->addAction( renderModeAction );
+    toolBar->addAction( editModeAction );
     updateShortcuts();
 
     connect( filterPanel_, &FilterPanel::filtersChanged, this,
@@ -3101,6 +3231,16 @@ void MainWindow::readSettings()
 void MainWindow::displayQuickFindBar( QuickFindMux::QFDirection direction )
 {
     LOG_DEBUG << "MainWindow::displayQuickFindBar";
+
+    // The render and edit modes have a find bar of their own, for what they show
+    if ( auto* crawler = currentCrawlerWidget(); crawler && crawler->isRenderMode() ) {
+        crawler->renderView()->showFindBar();
+        return;
+    }
+    if ( auto* crawler = currentCrawlerWidget(); crawler && crawler->isEditMode() ) {
+        crawler->editView()->showFindBar();
+        return;
+    }
 
     // Warn crawlers so they can save the position of the focus in order
     // to do incremental search in the right view.

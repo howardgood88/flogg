@@ -5,6 +5,8 @@ set(UI_TEST_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/crawlerwidget_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/filtersearch_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/filetree_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/renderview_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/editview_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/updatechecker_test.cpp
 )
 

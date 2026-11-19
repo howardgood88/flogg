@@ -309,6 +309,21 @@ const ShortcutAction::ShortcutList& ShortcutAction::defaultShortcutList()
             },
         },
         {
+            MainWindowRenderMode,
+            {
+                QApplication::tr( "Toggle render mode" ),
+                // Like the Markdown preview of VS Code
+                QStringList{ "Ctrl+Shift+V" },
+            },
+        },
+        {
+            MainWindowEditMode,
+            {
+                QApplication::tr( "Toggle edit mode" ),
+                QStringList{ "Ctrl+Shift+E" },
+            },
+        },
+        {
             MainWindowToggleFileTree,
             {
                 QApplication::tr( "Show/hide file tree panel" ),
