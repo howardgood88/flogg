@@ -399,6 +399,13 @@ void DirSearchPanel::setModifiedFilesProvider( std::function<QStringList()> prov
     modifiedFilesProvider_ = std::move( provider );
 }
 
+void DirSearchPanel::setFileHandlers( std::function<void( const QStringList& )> release,
+                                      std::function<void( const QStringList& )> restore )
+{
+    releaseFiles_ = std::move( release );
+    restoreFiles_ = std::move( restore );
+}
+
 void DirSearchPanel::setConfirmHandler( std::function<bool( const QString& )> confirm )
 {
     confirm_ = std::move( confirm );
@@ -806,6 +813,14 @@ void DirSearchPanel::replaceIn(
         return;
     }
 
+    replacedFiles_.clear();
+    for ( const auto& file : files ) {
+        replacedFiles_.append( file.first );
+    }
+    if ( releaseFiles_ ) {
+        releaseFiles_( replacedFiles_ );
+    }
+
     auto job = std::make_shared<ReplaceJob>();
     job->filesTotal = static_cast<int>( files.size() );
     replace_ = job;
@@ -835,6 +850,10 @@ void DirSearchPanel::replaceIn(
 void DirSearchPanel::replaceFinished()
 {
     auto job = std::exchange( replace_, nullptr );
+    if ( restoreFiles_ ) {
+        restoreFiles_( replacedFiles_ );
+    }
+    replacedFiles_.clear();
     replaceMessage_ = tr( "Replaced %1." ).arg( matchesInFiles( job->replaced, job->changedFiles.size() ) );
     if ( !job->changedFiles.isEmpty() ) {
         Q_EMIT filesChanged( job->changedFiles );

@@ -181,6 +181,9 @@ class CrawlerWidget : public QSplitter,
     }
     // Changes of the edit mode not saved yet
     bool isEditModified() const;
+    // The file closed while something else replaces it (Windows), see LogData::releaseFile()
+    void releaseFile();
+    void restoreFile();
     // Asks to save them before the tab is closed, false to keep it
     bool confirmEditClose();
 

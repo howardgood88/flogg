@@ -29,7 +29,25 @@
 
 #include "dirsearch.h"
 
+#ifdef Q_OS_WIN
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 namespace {
+// A leading dot hides a file on macOS and Linux, Windows has an attribute for it
+void markHidden( const QString& path )
+{
+#ifdef Q_OS_WIN
+    REQUIRE( SetFileAttributesW( reinterpret_cast<LPCWSTR>( QDir::toNativeSeparators( path ).utf16() ),
+                                 FILE_ATTRIBUTE_HIDDEN ) );
+#else
+    Q_UNUSED( path );
+#endif
+}
+
 
 QByteArray readAll( const QString& path )
 {
@@ -94,6 +112,8 @@ TEST_CASE( "Search in a folder lists the files", "[dirsearch]" )
     writeAll( dir.filePath( "sub/deep/d.log" ), "x\n" );
     writeAll( dir.filePath( ".hidden/e.log" ), "x\n" );
     writeAll( dir.filePath( ".f.log" ), "x\n" );
+    markHidden( dir.filePath( ".hidden" ) );
+    markHidden( dir.filePath( ".f.log" ) );
 
     const auto names = []( const QStringList& files, const QString& root ) {
         QStringList relative;

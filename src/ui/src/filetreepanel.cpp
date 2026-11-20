@@ -1522,6 +1522,17 @@ void FileTreePanel::searchInFolder( const QString& folder )
         searchPanel_->setModifiedFilesProvider( [ this ] {
             return modifiedFilesProvider_ ? modifiedFilesProvider_() : QStringList{};
         } );
+        searchPanel_->setFileHandlers(
+            [ this ]( const QStringList& files ) {
+                if ( releaseFiles_ ) {
+                    releaseFiles_( files );
+                }
+            },
+            [ this ]( const QStringList& files ) {
+                if ( restoreFiles_ ) {
+                    restoreFiles_( files );
+                }
+            } );
         connect( searchPanel_, &DirSearchPanel::closeRequested, this, &FileTreePanel::closeSearch );
         connect( searchPanel_, &DirSearchPanel::openRequested, this,
                  &FileTreePanel::openSearchResult );
@@ -1568,6 +1579,13 @@ void FileTreePanel::closeSearch()
 void FileTreePanel::setModifiedFilesProvider( std::function<QStringList()> provider )
 {
     modifiedFilesProvider_ = std::move( provider );
+}
+
+void FileTreePanel::setFileHandlers( std::function<void( const QStringList& )> release,
+                                     std::function<void( const QStringList& )> restore )
+{
+    releaseFiles_ = std::move( release );
+    restoreFiles_ = std::move( restore );
 }
 
 void FileTreePanel::changeEvent( QEvent* event )

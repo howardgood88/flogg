@@ -2107,6 +2107,20 @@ bool CrawlerWidget::isEditModified() const
     return editView_ && editView_->isModified();
 }
 
+void CrawlerWidget::releaseFile()
+{
+    if ( logData_ ) {
+        logData_->releaseFile();
+    }
+}
+
+void CrawlerWidget::restoreFile()
+{
+    if ( logData_ ) {
+        logData_->restoreFile();
+    }
+}
+
 bool CrawlerWidget::confirmEditClose()
 {
     return !editView_ || editView_->confirmClose();

@@ -58,6 +58,12 @@ bool isCancelled( const std::atomic_bool* cancelled )
 // The file read in blocks of whole lines, each one given in its bytes and as text
 class LineBlocks {
   public:
+    // Before the file is replaced: Windows does not replace a file that is open
+    void close()
+    {
+        file_.close();
+    }
+
     bool open( const QString& path, QString* error )
     {
         file_.setFileName( path );
@@ -643,6 +649,7 @@ qint64 replaceInFile( const QString& path, const QRegularExpression& pattern,
         output.cancelWriting();
         return 0;
     }
+    blocks.close();
     if ( !output.commit() ) {
         *error = tr( "The file can not be written: %1" ).arg( output.errorString() );
         return -1;

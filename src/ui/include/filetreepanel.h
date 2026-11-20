@@ -127,6 +127,9 @@ class FileTreePanel : public QWidget {
     }
     // The files with changes not saved in the edit mode, not replaced in
     void setModifiedFilesProvider( std::function<QStringList()> provider );
+    // See DirSearchPanel::setFileHandlers()
+    void setFileHandlers( std::function<void( const QStringList& )> release,
+                          std::function<void( const QStringList& )> restore );
     // Where the results of the search are written to be opened in a tab
     void setTemporaryFolder( const QString& folder );
 
@@ -208,6 +211,8 @@ class FileTreePanel : public QWidget {
     QSplitter* splitter_ = nullptr;
     DirSearchPanel* searchPanel_ = nullptr;
     std::function<QStringList()> modifiedFilesProvider_;
+    std::function<void( const QStringList& )> releaseFiles_;
+    std::function<void( const QStringList& )> restoreFiles_;
     QString temporaryFolder_;
     // Created with the first folder
     FileTreeModel* model_ = nullptr;

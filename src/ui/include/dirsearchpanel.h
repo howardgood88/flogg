@@ -86,6 +86,10 @@ class DirSearchPanel : public QWidget {
 
     // The files with changes not saved in the edit mode: not replaced in
     void setModifiedFilesProvider( std::function<QStringList()> provider );
+    // Called before and after the files are replaced: the log views close the ones they have
+    // open meanwhile (Windows does not replace a file that is open)
+    void setFileHandlers( std::function<void( const QStringList& )> release,
+                          std::function<void( const QStringList& )> restore );
     // For the tests: the question before replacing all, the warnings
     void setConfirmHandler( std::function<bool( const QString& )> confirm );
     void setWarningHandler( std::function<void( const QString& )> warn );
@@ -166,6 +170,10 @@ class DirSearchPanel : public QWidget {
     QString replaceMessage_;
 
     std::function<QStringList()> modifiedFilesProvider_;
+    std::function<void( const QStringList& )> releaseFiles_;
+    std::function<void( const QStringList& )> restoreFiles_;
+    // Released while they are replaced
+    QStringList replacedFiles_;
     std::function<bool( const QString& )> confirm_;
     std::function<void( const QString& )> warn_;
 };

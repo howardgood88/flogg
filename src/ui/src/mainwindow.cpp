@@ -74,6 +74,7 @@
 #include <QTextBrowser>
 #include <QVBoxLayout>
 #include <QResource>
+#include <QSet>
 #include <QSettings>
 #include <QScreen>
 #include <QShortcut>
@@ -2964,6 +2965,40 @@ void MainWindow::setupFileTree()
         }
         return files;
     } );
+    // The tabs of every window with a file the search replaces in close it meanwhile:
+    // Windows does not replace a file that is open (nothing is done on the other systems)
+    const auto forTabsOf = []( const QStringList& paths, void ( CrawlerWidget::*action )() ) {
+        const auto key = []( const QString& path ) {
+            const auto absolute = QDir::cleanPath( QFileInfo( path ).absoluteFilePath() );
+#ifdef Q_OS_WIN
+            return absolute.toLower();
+#else
+            return absolute;
+#endif
+        };
+        QSet<QString> files;
+        for ( const auto& path : paths ) {
+            files.insert( key( path ) );
+        }
+        for ( auto* widget : QApplication::topLevelWidgets() ) {
+            auto* window = qobject_cast<MainWindow*>( widget );
+            if ( !window ) {
+                continue;
+            }
+            for ( int i = 0; i < window->mainTabWidget_.count(); ++i ) {
+                auto* crawler = qobject_cast<CrawlerWidget*>( window->mainTabWidget_.widget( i ) );
+                if ( !crawler ) {
+                    continue;
+                }
+                if ( files.contains( key( window->session_.getFilename( crawler ) ) ) ) {
+                    ( crawler->*action )();
+                }
+            }
+        }
+    };
+    fileTreePanel_->setFileHandlers(
+        [ forTabsOf ]( const QStringList& paths ) { forTabsOf( paths, &CrawlerWidget::releaseFile ); },
+        [ forTabsOf ]( const QStringList& paths ) { forTabsOf( paths, &CrawlerWidget::restoreFile ); } );
 
     fileTreeDock_->toggleViewAction()->setIconVisibleInMenu( true );
 }
