@@ -264,6 +264,8 @@ SCENARIO( "File tree panel hidden files", "[ui]" )
 
     panel.setShowHidden( true );
     CHECK( FileTreePanel( nullptr ).showHidden() );
+    // The file system model lists the hidden entries again a moment later
+    waitUiState( [ & ] { return childNames( &panel, folder ).size() == 5; } );
     CHECK( childNames( &panel, folder )
            == QStringList{ ".cache", ".secret.log", "app", "notes.txt", "sys.log.gz" } );
 
