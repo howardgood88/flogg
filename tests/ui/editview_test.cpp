@@ -357,6 +357,27 @@ SCENARIO( "Edit mode of copies and changed files", "[ui]" )
     }
 }
 
+SCENARIO( "A file whose folder was deleted is closed", "[ui]" )
+{
+    // Its folder stops being watched (Windows: no read of the folder is pending then)
+    QTemporaryDir dir( QDir::tempPath() + "/edit-test-XXXXXX" );
+    const auto path = writeFile( dir.filePath( "app.log" ), "a\nb\n" );
+    {
+        OpenedFile opened( path );
+        auto* view = opened.edit();
+        insert( view, 0, "x" );
+        REQUIRE( view->save() );
+        REQUIRE( waitUiState( [ view ] { return !view->isBusy(); } ) );
+        REQUIRE( opened.crawler->setEditMode( false ) );
+        QTest::qWait( 200 );
+        CHECK( QDir( dir.path() ).removeRecursively() );
+        QTest::qWait( 500 );
+    }
+    QCoreApplication::sendPostedEvents( nullptr, QEvent::DeferredDelete );
+    QTest::qWait( 100 );
+    SUCCEED( "closed" );
+}
+
 SCENARIO( "Edit mode of a file in GBK", "[ui]" )
 {
     // Not named like the temporary folders of flogg, whose files are read only
