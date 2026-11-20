@@ -1,5 +1,21 @@
 # flogg changes
 
+## 1.3.1 (2026-11-20)
+
+- **New: search and replace in a folder** (`Search in Folder...` in the right click menu of
+  a folder of the file panel, the magnifier at its top or the File menu): the files of the
+  folder are searched in the background, the matching lines listed under the tree
+  - Double click a result to open the log view at its line; the right click menu opens it in
+    edit mode instead, copies it or removes it from the results
+  - `Open as Log` opens every matching line (not only the ones listed) as `file:line:text`
+    in a tab, to filter like any log
+  - `Replace` replaces the selected results (all of a selected file), `Replace All` every
+    file after asking; files are written back in their encoding, byte order mark and line
+    ends, files with changes not saved in edit mode are left alone; `\1` in the replacement
+    with a regular expression
+- The find bars of edit and render mode have the arrows of the filter panel
+- An empty tab area says "Open a file or drop it here"
+
 ## 1.3.0 (2026-11-20)
 
 - **New: edit mode** (the pencil at the right of the tool bar, `View > Edit mode` or
