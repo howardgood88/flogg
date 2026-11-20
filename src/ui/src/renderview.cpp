@@ -32,11 +32,13 @@
 #include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QHeaderView>
+#include <QImage>
 #include <QItemSelectionModel>
 #include <QLabel>
 #include <QLineEdit>
 #include <QElapsedTimer>
 #include <QPainter>
+#include <QPixmap>
 #include <QScrollBar>
 #include <QShortcut>
 #include <QStyledItemDelegate>
@@ -306,7 +308,9 @@ void styleMarkdown( QTextDocument* document )
                 if ( fragment.charFormat().isImageFormat() ) {
                     hasImage = true;
                     auto image = fragment.charFormat().toImageFormat();
+#if QT_VERSION >= QT_VERSION_CHECK( 6, 8, 0 )
                     image.setMaximumWidth( QTextLength( QTextLength::PercentageLength, 100 ) );
+#endif
                     QTextCursor imageCursor( document );
                     imageCursor.setPosition( fragment.position() );
                     imageCursor.setPosition( fragment.position() + fragment.length(),
@@ -1406,8 +1410,29 @@ void RenderView::fitImages()
         cursor.setPosition( image.position );
         cursor.setPosition( image.position + image.length, QTextCursor::KeepAnchor );
         auto format = cursor.charFormat().toImageFormat();
-        format.setMaximumWidth( QTextLength( QTextLength::FixedLength,
-                                             std::max( 32.0, page - image.indent - 8 ) ) );
+        const auto maximum = std::max( 32.0, page - image.indent - 8 );
+#if QT_VERSION >= QT_VERSION_CHECK( 6, 8, 0 )
+        format.setMaximumWidth( QTextLength( QTextLength::FixedLength, maximum ) );
+#else
+        // No maximum width before Qt 6.8: the size is set from the one of the image
+        const auto resource
+            = document->resource( QTextDocument::ImageResource, QUrl( format.name() ) );
+        QSizeF size;
+        if ( resource.canConvert<QImage>() ) {
+            const auto picture = resource.value<QImage>();
+            size = QSizeF( picture.size() ) / picture.devicePixelRatio();
+        }
+        else if ( resource.canConvert<QPixmap>() ) {
+            const auto picture = resource.value<QPixmap>();
+            size = QSizeF( picture.size() ) / picture.devicePixelRatio();
+        }
+        if ( size.isEmpty() ) {
+            continue;
+        }
+        const auto scale = std::min( 1.0, maximum / size.width() );
+        format.setWidth( size.width() * scale );
+        format.setHeight( size.height() * scale );
+#endif
         cursor.setCharFormat( format );
     }
     cursor.endEditBlock();
@@ -2208,7 +2233,7 @@ RenderView::RowSearch RenderView::nextRowBySearch( int fromRow, bool backward,
     }
 
     // The next lines found by the search, until one has a cell with matches
-    const auto checked = std::min( count, MaxRowsChecked );
+    const auto checked = std::min<quint64>( count, MaxRowsChecked );
     int lastRow = -1;
     for ( quint64 i = 0; i < checked; ++i ) {
         const auto row = model->rowOfLine( static_cast<qint64>( lineOf( index ) ) );

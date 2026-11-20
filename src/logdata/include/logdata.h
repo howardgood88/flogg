@@ -96,6 +96,11 @@ class LogData : public AbstractLogData {
     {
         return indexingFileName_;
     }
+    // While the file is replaced (a save of the edit mode): on Windows a file that is open
+    // can not be replaced, the file is closed meanwhile (no line can be read); nothing done
+    // elsewhere
+    void releaseFile();
+    void restoreFile();
     // Returns the size if the file in bytes
     qint64 getFileSize() const;
     // Returns the last modification date for the file.

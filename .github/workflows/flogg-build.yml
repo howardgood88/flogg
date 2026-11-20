@@ -113,7 +113,7 @@ jobs:
       - name: Test
         env:
           QT_QPA_PLATFORM: offscreen
-        run: ctest --test-dir ${{ env.BUILD_ROOT }} --output-on-failure
+        run: ctest --test-dir ${{ env.BUILD_ROOT }} --output-on-failure --timeout 900
 
       - name: Package
         shell: pwsh
@@ -224,7 +224,7 @@ jobs:
       - name: Test
         env:
           QT_QPA_PLATFORM: offscreen
-        run: ctest --test-dir "$BUILD_ROOT" --output-on-failure
+        run: ctest --test-dir "$BUILD_ROOT" --output-on-failure --timeout 900
 
       - name: Package
         run: |
@@ -332,7 +332,7 @@ jobs:
       - name: Test
         env:
           QT_QPA_PLATFORM: offscreen
-        run: ctest --test-dir "$BUILD_ROOT" --output-on-failure
+        run: ctest --test-dir "$BUILD_ROOT" --output-on-failure --timeout 900
 
       - name: Package
         run: |

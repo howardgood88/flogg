@@ -118,7 +118,7 @@ void FileHolder::attachReader()
 {
     ScopedRecursiveLock locker( file_mutex_ );
 
-    if ( keep_closed_ && counter_ == 0 ) {
+    if ( keep_closed_ && counter_ == 0 && !released_ ) {
         LOG_INFO << "fist reader opened for " << file_name_;
         reOpenFile();
     }
@@ -135,15 +135,46 @@ void FileHolder::detachReader()
         counter_--;
     }
 
-    if ( keep_closed_ && counter_ == 0 ) {
+    if ( keep_closed_ && counter_ == 0 && attached_file_ ) {
         attached_file_->close();
         LOG_INFO << "last reader closed for " << file_name_;
     }
 }
 
+void FileHolder::release()
+{
+    // Waits for the readers that hold the lock
+    ScopedRecursiveLock locker( file_mutex_ );
+    released_ = true;
+    if ( attached_file_ ) {
+        attached_file_->close();
+    }
+    LOG_INFO << "released " << file_name_;
+}
+
+void FileHolder::restore()
+{
+    ScopedRecursiveLock locker( file_mutex_ );
+    if ( !released_ ) {
+        return;
+    }
+    released_ = false;
+    if ( !keep_closed_ || counter_ > 0 ) {
+        reOpenFile();
+    }
+    LOG_INFO << "restored " << file_name_;
+}
+
 void FileHolder::reOpenFile()
 {
     LOG_DEBUG << "reopen " << file_name_;
+    {
+        ScopedRecursiveLock locker( file_mutex_ );
+        if ( released_ ) {
+            // Opened again by restore()
+            return;
+        }
+    }
 
     auto reopened = std::make_unique<QFile>( file_name_ );
     if ( QFileInfo( file_name_ ).isReadable() ) {

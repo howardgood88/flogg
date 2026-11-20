@@ -298,6 +298,9 @@ EditView::~EditView()
         }
         future_.waitForFinished();
     }
+    if ( saving_ ) {
+        logData_->restoreFile();
+    }
     if ( job_ && job_->loader ) {
         job_->loader->Release();
         job_->loader = nullptr;
@@ -560,6 +563,8 @@ bool EditView::save()
     const auto* data = reinterpret_cast<const char*>( editor_->send( SCI_GETCHARACTERPOINTER ) );
     const auto length = static_cast<std::size_t>( editor_->send( SCI_GETLENGTH ) );
 
+    // Not open in the log view meanwhile, else Windows does not replace it
+    logData_->releaseFile();
     job_ = std::make_shared<Job>();
     future_ = QtConcurrent::run( [ job = job_, fileName = fileName_, data, length,
                                    format = format_ ] {
@@ -574,6 +579,7 @@ bool EditView::save()
 void EditView::saveFinished( bool ok, const QString& error )
 {
     saving_ = false;
+    logData_->restoreFile();
     editor_->send( SCI_SETREADONLY, readOnly_ ? 1 : 0 );
     if ( !ok ) {
         showMessage( error.isEmpty() ? tr( "The file was not saved." ) : error, true );
@@ -599,9 +605,17 @@ void EditView::saveAs()
     QString error;
     const auto* data = reinterpret_cast<const char*>( editor_->send( SCI_GETCHARACTERPOINTER ) );
     const auto length = static_cast<std::size_t>( editor_->send( SCI_GETLENGTH ) );
+    // The file of the log view itself: not open meanwhile (Windows)
+    const auto sameFile = QFileInfo( target ) == QFileInfo( fileName_ );
+    if ( sameFile ) {
+        logData_->releaseFile();
+    }
     QApplication::setOverrideCursor( Qt::WaitCursor );
     const auto ok = edit::writeFile( target, data, length, format_, &error );
     QApplication::restoreOverrideCursor();
+    if ( sameFile ) {
+        logData_->restoreFile();
+    }
     showMessage( ok ? tr( "Saved as %1" ).arg( target ) : error, !ok );
 }
 

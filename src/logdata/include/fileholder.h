@@ -65,6 +65,11 @@ class FileHolder {
 
     void reOpenFile();
 
+    // Closes the file and keeps it closed until restore(): Windows can not replace a file
+    // that is open (a save of the edit mode)
+    void release();
+    void restore();
+
   private:
     Q_DISABLE_COPY( FileHolder )
 
@@ -79,6 +84,7 @@ class FileHolder {
 
     uint32_t counter_ = 0;
     bool keep_closed_ = false;
+    bool released_ = false;
 };
 
 #endif // FILEHOLDER_H

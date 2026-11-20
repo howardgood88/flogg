@@ -160,6 +160,20 @@ void LogData::reload( QTextCodec* forcedEncoding )
     operationQueue_.enqueueOperation<FullReindexOperation>( forcedEncoding );
 }
 
+void LogData::releaseFile()
+{
+#ifdef Q_OS_WIN
+    attached_file_->release();
+#endif
+}
+
+void LogData::restoreFile()
+{
+#ifdef Q_OS_WIN
+    attached_file_->restore();
+#endif
+}
+
 void LogData::fileChangedOnDisk( const QString& filename )
 {
     LOG_INFO << "signalFileChanged " << filename << ", indexed file " << indexingFileName_;

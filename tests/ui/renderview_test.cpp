@@ -853,9 +853,17 @@ SCENARIO( "Render mode links and images of Markdown", "[ui]" )
             const auto format = it.fragment().charFormat();
             if ( format.isImageFormat() ) {
                 imageFound = true;
+#if QT_VERSION >= QT_VERSION_CHECK( 6, 8, 0 )
                 const auto maximum = format.toImageFormat().maximumWidth();
                 CHECK( maximum.type() == QTextLength::FixedLength );
                 CHECK( maximum.rawValue() < browser->viewport()->width() );
+#else
+                // Sized to fit, keeping its proportions (3000 x 300)
+                const auto image = format.toImageFormat();
+                CHECK( image.width() > 0 );
+                CHECK( image.width() < browser->viewport()->width() );
+                CHECK( image.height() == Approx( image.width() / 10 ) );
+#endif
             }
         }
     }
