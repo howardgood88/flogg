@@ -37,6 +37,8 @@ QIcon filters( const QColor& lines );
 QIcon render( const QColor& lines );
 // Edit mode of the tab: a pencil
 QIcon edit( const QColor& lines );
+// Search in the files of a folder: a magnifying glass
+QIcon search( const QColor& lines );
 
 } // namespace panelicons
 

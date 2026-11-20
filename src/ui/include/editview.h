@@ -131,6 +131,9 @@ class EditView : public QWidget {
     void saved();
     void loaded();
 
+  protected:
+    void changeEvent( QEvent* event ) override;
+
   private:
     void setupEditor();
     void loadFinished( bool ok, const QString& error );
@@ -170,6 +173,8 @@ class EditView : public QWidget {
     QToolButton* caseButton_;
     QToolButton* regexButton_;
     QLabel* findStatus_;
+    QToolButton* previousButton_ = nullptr;
+    QToolButton* nextButton_ = nullptr;
 
     // Background loading and saving
     struct Job {

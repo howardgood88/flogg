@@ -126,6 +126,11 @@ class TabbedCrawlerWidget : public QTabWidget {
     void keyPressEvent( QKeyEvent* event ) override;
     void mouseReleaseEvent( QMouseEvent* event ) override;
     void changeEvent( QEvent* event ) override;
+    // Without a tab: the area of the views, framed, so that its edges (where the panels are
+    // resized) show
+    void paintEvent( QPaintEvent* event ) override;
+    void tabInserted( int index ) override;
+    void tabRemoved( int index ) override;
 
   Q_SIGNALS:
     // Before the context menu of the tab is shown, to add actions to it

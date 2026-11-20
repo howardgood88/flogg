@@ -579,6 +579,21 @@ void MainWindow::createActions()
     openFolderAction->setStatusTip( tr( "Browse the files of a folder in the file tree panel" ) );
     connect( openFolderAction, &QAction::triggered, this, &MainWindow::openFolder );
 
+    searchInFolderAction = new QAction( tr( "&Search in Folder..." ), this );
+    searchInFolderAction->setStatusTip( tr( "Search and replace in the files of the folder of "
+                                            "the file tree" ) );
+    connect( searchInFolderAction, &QAction::triggered, this, [ this ] {
+        if ( fileTreePanel_->rootFolder().isEmpty() ) {
+            openFolder();
+        }
+        if ( fileTreePanel_->rootFolder().isEmpty() ) {
+            return;
+        }
+        fileTreeDock_->show();
+        fileTreeDock_->raise();
+        fileTreePanel_->searchInFolder( {} );
+    } );
+
     recentFilesCleanup = new QAction( tr( action::recentFilesCleanupText ), this );
     connect( recentFilesCleanup, &QAction::triggered, this,
              [ this ]( auto ) { this->clearRecentFileActions(); } );
@@ -835,6 +850,7 @@ void MainWindow::updateShortcuts()
     setShortcuts( newWindowAction, ShortcutAction::MainWindowNewWindow );
     setShortcuts( openAction, ShortcutAction::MainWindowOpenFile );
     setShortcuts( openFolderAction, ShortcutAction::MainWindowOpenFolder );
+    setShortcuts( searchInFolderAction, ShortcutAction::MainWindowSearchInFolder );
     setShortcuts( closeAction, ShortcutAction::MainWindowCloseFile );
     setShortcuts( closeAllAction, ShortcutAction::MainWindowCloseAll );
     setShortcuts( exitAction, ShortcutAction::MainWindowQuit );
@@ -901,6 +917,7 @@ void MainWindow::createMenus()
     fileMenu->addAction( newWindowAction );
     fileMenu->addAction( openAction );
     fileMenu->addAction( openFolderAction );
+    fileMenu->addAction( searchInFolderAction );
     fileMenu->addAction( openClipboardAction );
     fileMenu->addAction( openUrlAction );
     recentFilesMenu = fileMenu->addMenu( tr( "Open Recent" ) );
@@ -2910,7 +2927,8 @@ void MainWindow::setupFileTree()
     fileTreeDock_->setWidget( fileTreePanel_ );
     fileTreeTitle_ = new DockTitleBar( fileTreeDock_ );
     fileTreeDock_->setTitleBarWidget( fileTreeTitle_ );
-    addDockWidget( Qt::LeftDockWidgetArea, fileTreeDock_ );
+    // The filters on the left, the files on the right
+    addDockWidget( Qt::RightDockWidgetArea, fileTreeDock_ );
     fileTreeDock_->hide();
 
     connect( fileTreePanel_, &FileTreePanel::openFilesRequested, this,
@@ -2921,12 +2939,33 @@ void MainWindow::setupFileTree()
              } );
     connect( fileTreePanel_, &FileTreePanel::openFolderRequested, this, &MainWindow::openFolder );
     fileTreePanel_->setOpenFilesProvider( [ this ] { return session_.allOpenFiles(); } );
+    connect( fileTreePanel_, &FileTreePanel::openSearchResult, this,
+             [ this ]( const QString& path, qint64 line, bool editMode,
+                       const dirsearch::Query& query ) {
+                 openForSearch( path, line, editMode, query );
+             } );
+    connect( fileTreePanel_, &FileTreePanel::searchInFileRequested, this,
+             [ this ]( const QString& path, const dirsearch::Query& query ) {
+                 openForSearch( path, -1, true, query );
+             } );
+    fileTreePanel_->setTemporaryFolder( tempDir_.path() );
+    // The files with edits not saved, in every window
+    fileTreePanel_->setModifiedFilesProvider( [] {
+        QStringList files;
+        for ( auto* widget : QApplication::topLevelWidgets() ) {
+            if ( auto* window = qobject_cast<MainWindow*>( widget ) ) {
+                for ( int i = 0; i < window->mainTabWidget_.count(); ++i ) {
+                    auto* crawler = qobject_cast<CrawlerWidget*>( window->mainTabWidget_.widget( i ) );
+                    if ( crawler && crawler->isEditModified() ) {
+                        files.append( window->session_.getFilename( crawler ) );
+                    }
+                }
+            }
+        }
+        return files;
+    } );
 
     fileTreeDock_->toggleViewAction()->setIconVisibleInMenu( true );
-    toolsMenu->addSeparator();
-    toolsMenu->addAction( fileTreeDock_->toggleViewAction() );
-    toolBar->addSeparator();
-    toolBar->addAction( fileTreeDock_->toggleViewAction() );
 }
 
 void MainWindow::watchDockLayout( QDockWidget* dock )
@@ -2988,7 +3027,7 @@ void MainWindow::setupFilterPanel()
     filterDock_->setWidget( filterPanel_ );
     filterTitle_ = new DockTitleBar( filterDock_ );
     filterDock_->setTitleBarWidget( filterTitle_ );
-    addDockWidget( Qt::RightDockWidgetArea, filterDock_ );
+    addDockWidget( Qt::LeftDockWidgetArea, filterDock_ );
 
     const auto windowState
         = PersistentInfo::getSettings( app_settings{} ).value( "filterPanel/windowState" );
@@ -2999,10 +3038,15 @@ void MainWindow::setupFilterPanel()
     watchDockLayout( fileTreeDock_ );
     watchDockLayout( filterDock_ );
 
+    // The panel buttons in the order of the panels: filters (left), then files (right)
     filterDock_->toggleViewAction()->setIconVisibleInMenu( true );
     toolsMenu->addSeparator();
     toolsMenu->addAction( filterDock_->toggleViewAction() );
+    toolsMenu->addSeparator();
+    toolsMenu->addAction( fileTreeDock_->toggleViewAction() );
+    toolBar->addSeparator();
     toolBar->addAction( filterDock_->toggleViewAction() );
+    toolBar->addAction( fileTreeDock_->toggleViewAction() );
     // The mode of the tab, at the end of the tool bar
     toolBar->addSeparator();
     toolBar->addAction( renderModeAction );
@@ -3281,5 +3325,46 @@ void MainWindow::generateDump()
 
     if ( userAction == QMessageBox::Yes ) {
         throw std::logic_error( "test dump" );
+    }
+}
+
+void MainWindow::openForSearch( const QString& path, qint64 line, bool editMode,
+                                const dirsearch::Query& query )
+{
+    if ( !loadFile( path ) ) {
+        return;
+    }
+    auto* crawler = currentCrawlerWidget();
+    if ( crawler == nullptr ) {
+        return;
+    }
+    if ( line >= 0 ) {
+        crawler->selectLineWhenLoaded( LineNumber( static_cast<LineNumber::UnderlyingType>( line ) ) );
+    }
+    if ( !editMode || ( !crawler->isEditMode() && !crawler->setEditMode( true ) ) ) {
+        return;
+    }
+    // Once the editor has the file: at the line, the text of the search in the find bar
+    QPointer<EditView> view = crawler->editView();
+    const auto showFind = [ view, line, query ] {
+        if ( !view ) {
+            return;
+        }
+        if ( line >= 0 ) {
+            view->goToLine( line );
+        }
+        if ( !query.text.isEmpty() ) {
+            view->setFindText( query.text, query.caseSensitive, query.regex );
+        }
+        view->showFindBar();
+        if ( !query.text.isEmpty() && line >= 0 ) {
+            view->findNext();
+        }
+    };
+    if ( view->isLoaded() ) {
+        showFind();
+    }
+    else {
+        connect( view, &EditView::loaded, view, showFind, Qt::SingleShotConnection );
     }
 }

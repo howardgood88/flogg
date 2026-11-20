@@ -60,3 +60,5 @@ cmake-build-relwithdebinfo/
 # Benchmark logs (regenerate with bench/gen_bench_log.py)
 /bench/*.log
 /bench/*.flogg-filters.json
+# README screenshot data (regenerate with bench/gen_demo.py)
+/bench/demo/

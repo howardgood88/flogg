@@ -5,6 +5,7 @@ add_executable(klogg_tests
     filtertree_test.cpp
     render_test.cpp
     edit_test.cpp
+    dirsearch_test.cpp
     tests_main.cpp
 )
 

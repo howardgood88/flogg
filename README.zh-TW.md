@@ -30,9 +30,17 @@ Emoji：亮點功能
 ### 🪧 File panel：在視窗旁瀏覽資料夾，直接開 log
 
 - 用 `File > Open Folder...` 開啟資料夾，或把資料夾拖到視窗或 panel 上；也可以從命令列傳入資料夾（`flogg <folder>`）。
-- 雙擊、`Enter` 或拖到右邊的 log 檢視區開啟檔案，可一次選多個檔案開啟。
+- 雙擊、`Enter` 或拖到左邊的 log 檢視區開啟檔案，可一次選多個檔案開啟。
 - 每個視窗各自有一個資料夾，會跟 session 一起保存；panel 上方有上一層資料夾與最近開過的資料夾，右鍵 `Set as Root Folder` 可切換到子資料夾。
 - 🔍 檔名過濾：輸入 `*.log`，多個 pattern 用空白或 `;` 隔開；沒有 `*` 的文字會比對檔名的一部分。沒有符合檔案的資料夾會被隱藏。
+- 🔎 資料夾搜尋與取代：在資料夾、panel 上方的放大鏡按右鍵 `Search in Folder...`。
+    - 雙擊結果在 log 檢視開到該行；右鍵可改用 edit mode 開啟、複製或從結果中移除。
+    - `Open as Log` 把所有命中行（不只畫面上列出的）以 `檔案:行號:內容` 的格式開成一個分頁，可以用 filter 進一步過濾與檢視。
+    - `Replace` 取代選取的結果（選檔案即取代該檔全部），`Replace All` 確認後取代所有檔案。檔案以原編碼、BOM 與換行寫回。
+    - regular expression 可在取代字串用 `\1`。例如：
+        - 搜尋：`id=(\d+) name=(\w+)`
+        - 取代：`\2:\1`
+        - 結果：假設 id=12 name=alice → `alice:12`
 
 ### ✅ 主視窗 / 過濾視窗優化
 
@@ -48,6 +56,24 @@ Emoji：亮點功能
   (建議至 `File > Preferences > Shortcuts` 修改按鍵設定，flogg 預設保留 klogg 原生 shortcuts)
 - 會記住主視窗與過濾視窗的比例：最後一次拖動分隔線的位置會套用到之後開啟的所有分頁，包括以前開過的檔案。
 - `[TAT]` `Ctrl+H`（macOS：`Control+H`）可隱藏主視窗，只顯示過濾視窗。
+
+### ✏️ Edit mode：直接編輯檔案
+
+- 工具列右側的鉛筆、`View > Edit mode` 或 `Ctrl+Shift+E` 進入，以 Scintilla（Notepad++ 使用的編輯器）開啟檔案，並停在 log 檢視目前的行。
+- 在背景載入（1.8 GB 約 1.2 秒）並放在記憶體中，約為檔案大小；檔案大於可用記憶體一半時會先詢問；離開 edit mode 即釋放。
+- `Ctrl+S` 在背景存檔，以原本的編碼、BOM 與換行寫回，並以暫存檔換名的方式寫入（不會寫壞原檔，權限保留）；無法以原編碼正確寫回的內容會先提示。
+- 支援 undo、多重(Ctrl)與矩形選取(Alt)、輸入法；`Ctrl+F` 搜尋與取代（Match case、regular expression，取代字串可用 `\1`，Replace all 可一次 undo），畫面附近的命中以黃底標示。
+- 離開 edit mode、關閉分頁或視窗時會詢問是否儲存；未儲存時分頁顯示 `*`；檔案在磁碟上被修改時會提示重新載入。
+- 其他模式讀取的是磁碟上的檔案，存檔後會重新讀取。flogg 自己產生的副本（解壓縮、下載、剪貼簿）與無法寫入的檔案為唯讀，可用 `Save as` 另存。
+
+### 👁️ Render mode：以文件、樹狀或表格檢視檔案
+
+- 工具列右側的眼睛、`View > Render mode` 或 `Ctrl+Shift+V` 切換；filter panel 仍保留。
+- Markdown 與 HTML 以接近 GitHub 的版面顯示（表格、task list、程式碼區塊、`> [!NOTE]` 提示、註腳、圖片）；`Open in browser` 可顯示 mermaid 圖、數學式與語法上色。
+- JSON（含 `.har`、`.ipynb`）與 XML 以樹狀顯示，右鍵可複製值或 JSON path；格式錯誤會標出行號，`Show in log view` 可跳過去。
+- CSV、TSV 與 JSON Lines 以表格顯示，不限檔案大小（捲動時才從 log 讀取，也支援 follow）；CSV 的分隔符號自動判斷，可選擇第一行是否為標題；`Ctrl+C` 複製選取的儲存格。
+- `Ctrl+F` 搜尋列：文件、樹狀與表格都能搜尋，顯示命中數（`3 / 120`）並以黃底標示；表格的命中數在背景計算（3000 萬行約 2 秒）。
+- 這些副檔名的檔案預設以 render mode 開啟；其他檔案可從內容判斷格式，也能在檢視中切換格式。文件中的連結會在 flogg 分頁中開啟（支援 `other.md#section` 與 `#L120`），網址則用瀏覽器開啟。
 
 ### ⚡️ 快速過濾：與 klogg 同樣高效的搜尋與過濾
 
@@ -108,6 +134,8 @@ Predefined filters、highlighter sets、常駐搜尋結果高亮(highlight match
 | 顯示／隱藏 filter panel | 預設無 | View 與 Tools 選單、panel 右上角的關閉按鈕 |
 | 顯示／隱藏 file panel | 預設無 | Tools 選單、panel 右上角的關閉按鈕 |
 | 在 file panel 開啟資料夾 | 預設無 | `File > Open Folder...`、資料夾選單 |
+| Edit mode | `Ctrl+Shift+E` | View 選單、工具列的鉛筆 |
+| Render mode | `Ctrl+Shift+V` | View 選單、工具列的眼睛 |
 
 ### File panel
 
@@ -121,6 +149,8 @@ Predefined filters、highlighter sets、常駐搜尋結果高亮(highlight match
 | 顯示／隱藏隱藏檔 | `Ctrl+Shift+.`（macOS：`Cmd+Shift+.`） | 右鍵選單、資料夾選單 |
 | 排序 | | `⇅` 按鈕、右鍵選單 |
 | 複製路徑／相對路徑／檔名 | | 右鍵選單 |
+| 在資料夾中搜尋與取代 | 預設無 | 資料夾或空白處的右鍵選單、放大鏡按鈕、`File > Search in Folder...` |
+| 在檔案中搜尋（edit mode） | | 檔案的右鍵選單 |
 
 ### Filter panel
 
@@ -142,6 +172,15 @@ Predefined filters、highlighter sets、常駐搜尋結果高亮(highlight match
 | 選擇要顯示的欄位 | | 在欄位標題按右鍵 |
 | 儲存 filter | `Ctrl+S` | `File` 按鈕 |
 | 開啟、另存、匯入 filter 檔 | | `File` 按鈕 |
+
+### Edit mode / Render mode 搜尋列
+
+| 操作 | 快捷鍵 | 滑鼠 |
+| --- | --- | --- |
+| 開啟搜尋列 | `Ctrl+F` | |
+| 下一個／上一個命中 | `Enter`、`F3`／`Shift+Enter`、`Shift+F3` | `↓`／`↑` 按鈕 |
+| 關閉搜尋列 | `Esc` | `✕` 按鈕 |
+| 取代、全部取代（edit mode） | 取代框按 `Enter` | `Replace`／`Replace all` 按鈕 |
 
 ### Log 檢視
 

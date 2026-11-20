@@ -640,3 +640,32 @@ void TabbedCrawlerWidget::setTabDataStatus( int index, DataStatus status )
 
     updateIcon( index );
 }
+
+void TabbedCrawlerWidget::paintEvent( QPaintEvent* event )
+{
+    if ( count() > 0 ) {
+        QTabWidget::paintEvent( event );
+        return;
+    }
+    QPainter painter( this );
+    painter.fillRect( rect(), palette().brush( QPalette::Base ) );
+    painter.setPen( palette().color( QPalette::Mid ) );
+    painter.drawRect( rect().adjusted( 0, 0, -1, -1 ) );
+    auto hint = palette().color( QPalette::Text );
+    hint.setAlphaF( 0.45f );
+    painter.setPen( hint );
+    painter.drawText( rect().adjusted( 16, 16, -16, -16 ), Qt::AlignCenter | Qt::TextWordWrap,
+                      tr( "Open a file or drop it here" ) );
+}
+
+void TabbedCrawlerWidget::tabInserted( int index )
+{
+    QTabWidget::tabInserted( index );
+    update();
+}
+
+void TabbedCrawlerWidget::tabRemoved( int index )
+{
+    QTabWidget::tabRemoved( index );
+    update();
+}

@@ -53,6 +53,7 @@
 
 #include "configuration.h"
 #include "crawlerwidget.h"
+#include "dirsearch.h"
 #include "downloader.h"
 #include "iconloader.h"
 #include "pathline.h"
@@ -304,6 +305,10 @@ class MainWindow : public QMainWindow {
     void switchFilterTab( CrawlerWidget* crawler );
     // A new tab of a format flogg renders is shown rendered
     void showRenderedIfRenderable( CrawlerWidget* crawler, const QString& fileName );
+    // A file of the search of the file tree, at the line (from 0, -1 for none), in the edit
+    // mode with the find bar when asked
+    void openForSearch( const QString& path, qint64 line, bool editMode,
+                        const dirsearch::Query& query );
     std::vector<CrawlerWidget*> crawlers() const;
     // Unsaved filters lost when the tabs are closed: their own filters, and the shared ones
     // when no tab left uses them (closingWindow: the other tabs of the window are closed too,
@@ -375,6 +380,7 @@ class MainWindow : public QMainWindow {
     QAction* newWindowAction;
     QAction* openAction;
     QAction* openFolderAction;
+    QAction* searchInFolderAction;
     QAction* closeAction;
     QAction* closeAllAction;
     QAction* exitAction;

@@ -179,6 +179,7 @@ class RenderView : public QWidget {
 
   protected:
     bool eventFilter( QObject* watched, QEvent* event ) override;
+    void changeEvent( QEvent* event ) override;
 
   private:
     // The images of the document fit the width of the view
@@ -279,6 +280,8 @@ class RenderView : public QWidget {
     QToolButton* caseButton_;
     QToolButton* regexButton_;
     QLabel* findStatus_;
+    QToolButton* previousButton_ = nullptr;
+    QToolButton* nextButton_ = nullptr;
 
     // Search done for the find bar, none until the first find
     std::optional<TextMatcher> searched_;

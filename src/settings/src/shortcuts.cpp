@@ -338,6 +338,13 @@ const ShortcutAction::ShortcutList& ShortcutAction::defaultShortcutList()
             },
         },
         {
+            MainWindowSearchInFolder,
+            {
+                QApplication::tr( "Search in the folder of the file tree" ),
+                QStringList{},
+            },
+        },
+        {
             FilterPanelFindNext,
             {
                 QApplication::tr( "Find next match of selected filters" ),

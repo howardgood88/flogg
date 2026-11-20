@@ -51,6 +51,7 @@
 #include <QRegularExpression>
 #include <QSet>
 #include <QSortFilterProxyModel>
+#include <QSplitter>
 #include <QStackedWidget>
 #include <QStyle>
 #include <QStyledItemDelegate>
@@ -61,6 +62,8 @@
 #include <QVBoxLayout>
 #include <QtConcurrent>
 
+#include "dirsearchpanel.h"
+#include "paneldock.h"
 #include "log.h"
 #include "openfilehelper.h"
 #include "persistentinfo.h"
@@ -713,11 +716,19 @@ FileTreePanel::FileTreePanel( QWidget* parent )
         addSortActions( sortMenu );
     } );
 
+    // The root folder is searched also when the tree has no room left to click
+    searchButton_ = new QToolButton;
+    searchButton_->setIcon( panelicons::search( palette().color( QPalette::WindowText ) ) );
+    searchButton_->setToolTip( tr( "Search in Folder" ) );
+    searchButton_->setAutoRaise( true );
+    connect( searchButton_, &QToolButton::clicked, this, [ this ] { searchInFolder( {} ); } );
+
     auto* header = new QHBoxLayout;
     header->setContentsMargins( 0, 0, 0, 0 );
     header->setSpacing( 2 );
     header->addWidget( upButton_ );
     header->addWidget( folderButton_, 1 );
+    header->addWidget( searchButton_ );
     header->addWidget( sortButton_ );
 
     filterEdit_ = new QLineEdit;
@@ -756,7 +767,11 @@ FileTreePanel::FileTreePanel( QWidget* parent )
     treeLayout->setSpacing( 4 );
     treeLayout->addLayout( header );
     treeLayout->addWidget( filterEdit_ );
-    treeLayout->addWidget( tree_, 1 );
+    // The search goes under the tree when used
+    splitter_ = new QSplitter( Qt::Vertical );
+    splitter_->setChildrenCollapsible( false );
+    splitter_->addWidget( tree_ );
+    treeLayout->addWidget( splitter_, 1 );
 
     auto* emptyPage = new QWidget;
     auto* emptyLayout = new QVBoxLayout( emptyPage );
@@ -814,6 +829,9 @@ void FileTreePanel::setShowHidden( bool show )
         return;
     }
     showHidden_ = show;
+    if ( searchPanel_ ) {
+        searchPanel_->setShowHidden( show );
+    }
     PersistentInfo::getSettings( app_settings{} ).setValue( ShowHiddenKey, show );
     if ( model_ ) {
         model_->setFilter( modelFilter() );
@@ -943,11 +961,8 @@ void FileTreePanel::setTrashHandlers( std::function<bool( const QStringList& )> 
 
 QString FileTreePanel::trashText()
 {
-#ifdef Q_OS_WIN
-    return tr( "Move to Recycle Bin" );
-#else
+    // The same on every system (Windows calls it the Recycle Bin)
     return tr( "Move to Trash" );
-#endif
 }
 
 QKeySequence FileTreePanel::trashShortcut()
@@ -1111,6 +1126,13 @@ void FileTreePanel::setRootFolder( const QString& folder )
         return;
     }
     rootFolder_ = path;
+
+    // A search of a folder out of the new root ends
+    if ( searchPanel_ && !searchPanel_->isHidden()
+         && ( path.isEmpty()
+              || !( searchPanel_->folder() + '/' ).startsWith( path.endsWith( '/' ) ? path : path + '/' ) ) ) {
+        closeSearch();
+    }
 
     if ( path.isEmpty() ) {
         // Drops the watched folders and the nodes read so far
@@ -1398,21 +1420,32 @@ void FileTreePanel::showContextMenu( QPoint pos )
     const auto targets = index.isValid() ? targetsAt( index ) : QStringList{ rootFolder_ };
 
     QMenu menu;
+    // Open, root, reveal; then search and copy; then rename and trash
     if ( !isDir ) {
         const auto files = selectedFiles();
         auto* open = menu.addAction( files.size() > 1 ? tr( "Open %1 Files" ).arg( files.size() )
                                                       : tr( "Open" ) );
         connect( open, &QAction::triggered, this, &FileTreePanel::openSelected );
-        menu.addSeparator();
     }
     else if ( index.isValid() ) {
         connect( menu.addAction( tr( "Set as Root Folder" ) ), &QAction::triggered, this,
                  [ this, path ] { setRootFolder( path ); } );
-        menu.addSeparator();
     }
-
     connect( menu.addAction( tr( "Reveal in File Manager" ) ), &QAction::triggered, this,
              [ path ] { showPathInFileExplorer( path ); } );
+    menu.addSeparator();
+
+    if ( !isDir ) {
+        connect( menu.addAction( tr( "Search in File" ) ), &QAction::triggered, this,
+                 [ this, path ] {
+                     Q_EMIT searchInFileRequested(
+                         path, searchPanel_ ? searchPanel_->query() : dirsearch::Query{} );
+                 } );
+    }
+    else {
+        connect( menu.addAction( tr( "Search in Folder..." ) ), &QAction::triggered, this,
+                 [ this, path ] { searchInFolder( path ); } );
+    }
     const auto addCopy = [ & ]( const QString& text, FileTreeCopy kind ) {
         connect( menu.addAction( text ), &QAction::triggered, this, [ this, kind, targets ] {
             QApplication::clipboard()->setText( copyText( kind, rootFolder_, targets ) );
@@ -1476,5 +1509,79 @@ void FileTreePanel::dropEvent( QDropEvent* event )
     event->acceptProposedAction();
     if ( !files.isEmpty() ) {
         Q_EMIT openFilesRequested( files );
+    }
+}
+
+void FileTreePanel::searchInFolder( const QString& folder )
+{
+    if ( rootFolder_.isEmpty() ) {
+        return;
+    }
+    if ( !searchPanel_ ) {
+        searchPanel_ = new DirSearchPanel;
+        searchPanel_->setModifiedFilesProvider( [ this ] {
+            return modifiedFilesProvider_ ? modifiedFilesProvider_() : QStringList{};
+        } );
+        connect( searchPanel_, &DirSearchPanel::closeRequested, this, &FileTreePanel::closeSearch );
+        connect( searchPanel_, &DirSearchPanel::openRequested, this,
+                 &FileTreePanel::openSearchResult );
+        connect( searchPanel_, &DirSearchPanel::filesChanged, this,
+                 &FileTreePanel::filesChangedBySearch );
+        connect( searchPanel_, &DirSearchPanel::exported, this,
+                 [ this ]( const QString& path ) { Q_EMIT openFilesRequested( { path } ); } );
+        searchPanel_->setExportFolder( temporaryFolder_ );
+        splitter_->addWidget( searchPanel_ );
+        splitter_->setStretchFactor( 0, 1 );
+        splitter_->setStretchFactor( 1, 2 );
+    }
+    const auto wasHidden = searchPanel_->isHidden();
+    const auto target = folder.isEmpty() ? rootFolder_ : folder;
+    const auto changed = target != searchPanel_->folder();
+    searchPanel_->setFolder( target, rootFolder_ );
+    searchPanel_->setShowHidden( showHidden_ );
+    if ( wasHidden || changed ) {
+        // The file name filter of the tree, as a start
+        searchPanel_->setIncludeText( filterEdit_->text() );
+    }
+    searchPanel_->show();
+    if ( wasHidden ) {
+        // A third of the height to the tree
+        const auto height = splitter_->height();
+        splitter_->setSizes( { height / 3, height - height / 3 } );
+    }
+    searchPanel_->focusFind();
+    if ( changed || wasHidden ) {
+        searchPanel_->startSearch();
+    }
+}
+
+void FileTreePanel::closeSearch()
+{
+    if ( !searchPanel_ ) {
+        return;
+    }
+    searchPanel_->stop();
+    searchPanel_->hide();
+    tree_->setFocus();
+}
+
+void FileTreePanel::setModifiedFilesProvider( std::function<QStringList()> provider )
+{
+    modifiedFilesProvider_ = std::move( provider );
+}
+
+void FileTreePanel::changeEvent( QEvent* event )
+{
+    if ( event->type() == QEvent::PaletteChange && searchButton_ ) {
+        searchButton_->setIcon( panelicons::search( palette().color( QPalette::WindowText ) ) );
+    }
+    QWidget::changeEvent( event );
+}
+
+void FileTreePanel::setTemporaryFolder( const QString& folder )
+{
+    temporaryFolder_ = folder;
+    if ( searchPanel_ ) {
+        searchPanel_->setExportFolder( folder );
     }
 }

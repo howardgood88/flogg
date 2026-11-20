@@ -41,6 +41,7 @@
 #include "Scintilla.h"
 
 #include "configuration.h"
+#include "filterpanel.h"
 #include "logdata.h"
 #include "readablesize.h"
 
@@ -186,12 +187,17 @@ EditView::EditView( std::shared_ptr<LogData> logData, QWidget* parent )
     regexButton_->setText( QStringLiteral( ".*" ) );
     regexButton_->setToolTip( tr( "Regular expression (ECMAScript, the basic syntax of "
                                   "Scintilla in documents over 64 MiB); \\1 in the replacement" ) );
+    // Arrows as in the filter panel, see changeEvent()
     auto* previousButton = new QToolButton;
-    previousButton->setArrowType( Qt::UpArrow );
+    previousButton->setIcon( moveArrowIcon( true, palette() ) );
+    previousButton->setIconSize( QSize( 12, 12 ) );
     previousButton->setToolTip( tr( "Previous match" ) );
     auto* nextButton = new QToolButton;
-    nextButton->setArrowType( Qt::DownArrow );
+    nextButton->setIcon( moveArrowIcon( false, palette() ) );
+    nextButton->setIconSize( QSize( 12, 12 ) );
     nextButton->setToolTip( tr( "Next match" ) );
+    previousButton_ = previousButton;
+    nextButton_ = nextButton;
     auto* replaceButton = new QPushButton( tr( "Replace" ) );
     auto* replaceAllButton = new QPushButton( tr( "Replace all" ) );
     auto* closeButton = new QToolButton;
@@ -937,4 +943,14 @@ void EditView::updateHighlights()
         position = end;
     }
     editor_->send( SCI_SETTARGETRANGE, static_cast<uptr_t>( targetStart ), targetEnd );
+}
+
+void EditView::changeEvent( QEvent* event )
+{
+    // The arrows are drawn with the text colour of the palette
+    if ( event->type() == QEvent::PaletteChange && previousButton_ ) {
+        previousButton_->setIcon( moveArrowIcon( true, palette() ) );
+        nextButton_->setIcon( moveArrowIcon( false, palette() ) );
+    }
+    QWidget::changeEvent( event );
 }

@@ -32,6 +32,8 @@
 #include <QStringList>
 #include <QWidget>
 
+#include "dirsearch.h"
+
 class QFileSystemModel;
 class QLineEdit;
 class QMenu;
@@ -43,6 +45,8 @@ class FileTreeModel;
 class FileTreeFilter;
 class FileTreeIndex;
 class QFutureWatcherBase;
+class QSplitter;
+class DirSearchPanel;
 
 // Order of the rows of the tree, the folders first
 enum class FileTreeSort {
@@ -112,6 +116,20 @@ class FileTreePanel : public QWidget {
     void setTrashHandlers( std::function<bool( const QStringList& )> confirm,
                            std::function<bool( const QString& )> trash );
 
+    // Opens the search under the tree for the folder (the root when empty), made when first
+    // used
+    void searchInFolder( const QString& folder );
+    void closeSearch();
+    // Null before the first search
+    DirSearchPanel* searchPanel() const
+    {
+        return searchPanel_;
+    }
+    // The files with changes not saved in the edit mode, not replaced in
+    void setModifiedFilesProvider( std::function<QStringList()> provider );
+    // Where the results of the search are written to be opened in a tab
+    void setTemporaryFolder( const QString& folder );
+
     // Helpers for the tests
     QTreeView* treeView() const
     {
@@ -137,11 +155,19 @@ class FileTreePanel : public QWidget {
     void rootFolderChanged( const QString& folder );
     void renameFailed( const QString& message );
     void trashFailed( const QString& message );
+    // A result of the search, the line from 0; in the edit mode with its find bar when asked
+    void openSearchResult( const QString& path, qint64 line, bool editMode,
+                           const dirsearch::Query& query );
+    // The file in the edit mode with its find bar (the text of the search, if any)
+    void searchInFileRequested( const QString& path, const dirsearch::Query& query );
+    // Written by a replacement of the search
+    void filesChangedBySearch( const QStringList& paths );
 
   protected:
     void dragEnterEvent( QDragEnterEvent* event ) override;
     void dropEvent( QDropEvent* event ) override;
     bool eventFilter( QObject* watched, QEvent* event ) override;
+    void changeEvent( QEvent* event ) override;
 
   private:
     void showContextMenu( QPoint pos );
@@ -176,8 +202,13 @@ class FileTreePanel : public QWidget {
     QToolButton* upButton_ = nullptr;
     QToolButton* folderButton_ = nullptr;
     QToolButton* sortButton_ = nullptr;
+    QToolButton* searchButton_ = nullptr;
     QLineEdit* filterEdit_ = nullptr;
     QTreeView* tree_ = nullptr;
+    QSplitter* splitter_ = nullptr;
+    DirSearchPanel* searchPanel_ = nullptr;
+    std::function<QStringList()> modifiedFilesProvider_;
+    QString temporaryFolder_;
     // Created with the first folder
     FileTreeModel* model_ = nullptr;
     FileTreeFilter* proxy_ = nullptr;

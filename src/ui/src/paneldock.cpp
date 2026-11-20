@@ -126,6 +126,20 @@ QIcon edit( const QColor& lines )
     } );
 }
 
+QIcon search( const QColor& lines )
+{
+    return drawIcon( [ &lines ]( QPainter& painter ) {
+        painter.setRenderHint( QPainter::Antialiasing, true );
+        QPen pen = linePen( lines );
+        painter.setPen( pen );
+        painter.drawEllipse( QPointF( 6.5, 6.5 ), 4.5, 4.5 );
+        pen.setWidthF( 1.8 );
+        pen.setCapStyle( Qt::RoundCap );
+        painter.setPen( pen );
+        painter.drawLine( QPointF( 10.0, 10.0 ), QPointF( 14.0, 14.0 ) );
+    } );
+}
+
 } // namespace panelicons
 
 DockTitleBar::DockTitleBar( QDockWidget* dock )

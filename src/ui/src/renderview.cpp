@@ -69,6 +69,7 @@
 #include <QTextLength>
 
 #include "configuration.h"
+#include "filterpanel.h"
 #include "log.h"
 #include "logdata.h"
 #include "logfiltereddata.h"
@@ -972,12 +973,17 @@ RenderView::RenderView( std::shared_ptr<LogData> logData, RenderFormat format, Q
     caseButton_->setToolTip( tr( "Match case" ) );
     regexButton_->setText( QStringLiteral( ".*" ) );
     regexButton_->setToolTip( tr( "Regular expression" ) );
+    // Arrows as in the filter panel, see changeEvent()
     auto* previousButton = new QToolButton;
-    previousButton->setArrowType( Qt::UpArrow );
+    previousButton->setIcon( moveArrowIcon( true, palette() ) );
+    previousButton->setIconSize( QSize( 12, 12 ) );
     previousButton->setToolTip( tr( "Previous match" ) );
     auto* nextButton = new QToolButton;
-    nextButton->setArrowType( Qt::DownArrow );
+    nextButton->setIcon( moveArrowIcon( false, palette() ) );
+    nextButton->setIconSize( QSize( 12, 12 ) );
     nextButton->setToolTip( tr( "Next match" ) );
+    previousButton_ = previousButton;
+    nextButton_ = nextButton;
     auto* closeButton = new QToolButton;
     closeButton->setText( QStringLiteral( "\u2715" ) );
     closeButton->setToolTip( tr( "Close" ) );
@@ -2539,4 +2545,14 @@ void RenderView::updateTableStatus()
         rank += searched_->matchRanges( tableModel_->cellDisplayText( row, column ) ).size();
     }
     setFindStatus( QStringLiteral( "%1 / %2" ).arg( rank ).arg( totalText ) );
+}
+
+void RenderView::changeEvent( QEvent* event )
+{
+    // The arrows are drawn with the text colour of the palette
+    if ( event->type() == QEvent::PaletteChange && previousButton_ ) {
+        previousButton_->setIcon( moveArrowIcon( true, palette() ) );
+        nextButton_->setIcon( moveArrowIcon( false, palette() ) );
+    }
+    QWidget::changeEvent( event );
 }

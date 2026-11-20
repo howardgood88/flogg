@@ -30,9 +30,17 @@ a newly opened file loads the filter file opened or saved last by default (see [
 ### 🪧 File panel: browse a folder beside the logs and open them from there
 
 - Open a folder with `File > Open Folder...`, by dropping it on the window or the panel, or from the command line (`flogg <folder>`).
-- Open files in tabs with a double click, `Enter`, or by dragging them to the log views on the right; several files can be opened at once.
+- Open files in tabs with a double click, `Enter`, or by dragging them to the log views on the left; several files can be opened at once.
 - Each window has its own folder, kept with the session; the top of the panel has the parent folder and the recent folders, and `Set as Root Folder` in the right click menu moves into a subfolder.
 - 🔍 File name filter: type `*.log`, several patterns separated by spaces or `;`; a text without `*` matches a part of the name. Folders without a matching file are hidden.
+- 🔎 Search and replace in a folder: `Search in Folder...` in the right click menu of a folder, or the magnifier at the top of the panel.
+    - Double click a result to open the log view at its line; the right click menu opens it in edit mode instead, copies it or removes it from the results.
+    - `Open as Log` opens every matching line (not only the ones listed) as `file:line:text` in a tab, to filter and view with the filters.
+    - `Replace` replaces the selected results (a selected file: all of its matches), `Replace All` replaces in every file after asking. Files are written back in their encoding, BOM and line ends.
+    - With a regular expression, the replacement can use `\1`. For example:
+        - Search: `id=(\d+) name=(\w+)`
+        - Replace: `\2:\1`
+        - Result: id=12 name=alice → `alice:12`
 
 ### ✅ Main and filtered views
 
@@ -48,6 +56,24 @@ a newly opened file loads the filter file opened or saved last by default (see [
   (Changing them in `File > Preferences > Shortcuts` is recommended; flogg keeps klogg's own shortcuts by default.)
 - The split between the main and filtered views is remembered: the last position you drag it to is used by every tab opened after, also for files opened before.
 - `[TAT]` `Ctrl+H` (macOS: `Control+H`) hides the main view and shows the filtered view only.
+
+### ✏️ Edit mode: edit the file in place
+
+- The pencil at the right of the tool bar, `View > Edit mode` or `Ctrl+Shift+E` opens the file in Scintilla (the editor of Notepad++), at the current line of the log view.
+- The file is loaded in the background (1.8 GB in about 1.2 seconds) and kept in memory, about the size of the file; flogg asks first when the file is larger than half of the free memory. Leaving edit mode frees it.
+- `Ctrl+S` saves in the background, in the original encoding, BOM and line ends, through a temporary file renamed over the original (the original is never left half written, permissions are kept); text that cannot be written in the original encoding is reported first.
+- Undo, multiple (Ctrl) and rectangular (Alt) selection, input methods; `Ctrl+F` find and replace (Match case, regular expression, `\1` in the replacement, Replace all undone in one step), with the matches near the view highlighted in yellow.
+- Leaving edit mode, closing the tab or the window asks to save; a tab with unsaved changes shows `*`; a change of the file on disk offers to reload it.
+- The other modes read the file on disk and read it again after a save. Copies made by flogg (decompressed, downloaded, clipboard) and files that cannot be written are read only; use `Save as`.
+
+### 👁️ Render mode: view the file as a document, a tree or a table
+
+- The eye at the right of the tool bar, `View > Render mode` or `Ctrl+Shift+V` switches to it; the filter panel stays.
+- Markdown and HTML are laid out close to GitHub (tables, task lists, code blocks, `> [!NOTE]` alerts, footnotes, images); `Open in browser` shows mermaid diagrams, math and syntax colouring.
+- JSON (also `.har`, `.ipynb`) and XML are shown as a tree; the right click menu copies a value or its JSON path. A syntax error shows its line, and `Show in log view` goes there.
+- CSV, TSV and JSON Lines are shown as a table of any size (rows are read from the log as it is scrolled, follow works too); the CSV separator is detected, the first row can be the header; `Ctrl+C` copies the selected cells.
+- `Ctrl+F` find bar in documents, trees and tables, with the match count (`3 / 120`) and the matches in yellow; the count of a table is computed in the background (30 million lines in about 2 seconds).
+- Files with these extensions open in render mode; others can be detected from their content, and the format can be changed in the view. Links in a document open in a flogg tab (`other.md#section` and `#L120` work), web addresses in the browser.
 
 ### ⚡️ Fast filtering: searching and filtering as fast as klogg
 
@@ -108,6 +134,8 @@ Shortcuts added by flogg. All of them can be changed in File > Preferences > Sho
 | Show/hide filter panel | none by default | View and Tools menus, close button of the panel |
 | Show/hide file panel | none by default | Tools menu, close button of the panel |
 | Open a folder in the file panel | none by default | `File > Open Folder...`, folder menu |
+| Edit mode | `Ctrl+Shift+E` | View menu, pencil in the tool bar |
+| Render mode | `Ctrl+Shift+V` | View menu, eye in the tool bar |
 
 ### File panel
 
@@ -121,6 +149,8 @@ These work while the file panel has the focus.
 | Show/hide hidden files | `Ctrl+Shift+.` (macOS: `Cmd+Shift+.`) | Right click menu, folder menu |
 | Sort | | `⇅` button, right click menu |
 | Copy path / relative path / file name | | Right click menu |
+| Search and replace in the folder | none by default | Right click menu of a folder or the empty area, magnifier button, `File > Search in Folder...` |
+| Find in the file (edit mode) | | Right click menu of a file |
 
 ### Filter panel
 
@@ -142,6 +172,15 @@ These work while the filter panel has the focus.
 | Choose visible columns | | Right click the column header |
 | Save filters | `Ctrl+S` | `File` button |
 | Open, save as, import filter files | | `File` button |
+
+### Edit mode / render mode find bar
+
+| Action | Shortcut | Mouse |
+| --- | --- | --- |
+| Open the find bar | `Ctrl+F` | |
+| Next / previous match | `Enter`, `F3` / `Shift+Enter`, `Shift+F3` | `↓` / `↑` buttons |
+| Close the find bar | `Esc` | `✕` button |
+| Replace, replace all (edit mode) | `Enter` in the replace box | `Replace` / `Replace all` buttons |
 
 ### Log views
 

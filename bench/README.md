@@ -134,3 +134,14 @@ FLOGG_TIMING_LOGS=../bench/big.log,../bench/mid.log,<big.log 的 hard link>,<mid
 - `Main window operations with several big files`：兩個視窗各開兩個檔案，量測切換分頁、開關 filter、標記行、捲動、調整視窗大小、切換視窗、關閉分頁時，事件迴圈最長的停頓。同一個 instance 不能重複開同一個檔案，所以後兩個檔案要用不同路徑（例如 `ln bench/big.log /tmp/big2.log`）。
 
 參考結果（Apple Silicon Mac，2026-10-28）：所有操作的最長停頓都在 30 ms 以內。修正 overview 之前，切換分頁、開關 filter、標記行和調整視窗大小在 big.log 上會卡 210～290 ms，原因是 overview 每次重算都會走過所有符合的行，現在改成每個像素列用一次 rank 查詢。
+
+## README 截圖
+
+`docs/images/filter-panel.png` 用的 log 資料夾與 filter 檔由 `bench/gen_demo.py` 產生（輸出到 `bench/demo/`，已加入 `.gitignore`）：
+
+```sh
+python3 bench/gen_demo.py
+flogg --filters bench/demo/demo.flogg-filters.json bench/demo/device_logs \
+      bench/demo/device_logs/2026-11-15/kernel.log bench/demo/device_logs/2026-11-15/wifi.log \
+      bench/demo/device_logs/2026-11-15/system.log
+```

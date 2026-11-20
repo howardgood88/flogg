@@ -48,6 +48,7 @@
 #include "test_utils.h"
 
 #include "filetreepanel.h"
+#include "persistentinfo.h"
 #include "mainwindow.h"
 #include "session.h"
 #include "sessioninfo.h"
@@ -559,11 +560,16 @@ SCENARIO( "Main window opens a folder in the file tree", "[ui]" )
 
     auto appSession = std::make_shared<Session>();
     WindowSession windowSession{ appSession, "FileTree", 0 };
+    // The default places, not those saved by the tests run before
+    PersistentInfo::getSettings( app_settings{} ).remove( "filterPanel/windowState" );
     {
         MainWindow mainWindow( windowSession );
         auto* dock = mainWindow.findChild<QDockWidget*>( "fileTreeDock" );
         REQUIRE( dock );
-        CHECK( mainWindow.dockWidgetArea( dock ) == Qt::LeftDockWidgetArea );
+        // The filters on the left, the files on the right
+        CHECK( mainWindow.dockWidgetArea( dock ) == Qt::RightDockWidgetArea );
+        CHECK( mainWindow.dockWidgetArea( mainWindow.findChild<QDockWidget*>( "filterDock" ) )
+               == Qt::LeftDockWidgetArea );
         CHECK( dock->isHidden() );
 
         // A folder from the command line (or dropped) goes to the tree, not to a tab
