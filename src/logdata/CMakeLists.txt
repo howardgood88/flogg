@@ -15,6 +15,8 @@ add_library(
   ${CMAKE_CURRENT_SOURCE_DIR}/include/filedigest.h
   ${CMAKE_CURRENT_SOURCE_DIR}/include/readablesize.h
   ${CMAKE_CURRENT_SOURCE_DIR}/include/timestamp.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/include/loganalysis.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/include/logtemplates.h
   ${CMAKE_CURRENT_SOURCE_DIR}/src/abstractlogdata.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/src/compressedlinestorage.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/src/encodingdetector.cpp
@@ -27,6 +29,8 @@ add_library(
   ${CMAKE_CURRENT_SOURCE_DIR}/src/filedigest.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/src/readablesize.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/src/timestamp.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/loganalysis.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/logtemplates.cpp
   src/filedigest.cpp
 )
 

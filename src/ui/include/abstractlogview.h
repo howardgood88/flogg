@@ -285,6 +285,8 @@ class AbstractLogView : public QAbstractScrollArea, public SearchableWidgetInter
     // Scrolling as necessary
     void trySelectLine( LineNumber newLine );
     void selectAndDisplayLine( LineNumber line );
+    // Both lines included, the first one shown
+    void selectAndDisplayLines( LineNumber first, LineNumber last );
     void selectPortionAndDisplayLine( LineNumber line, LinesCount nLines, LineColumn startCol,
                                       LineLength nSymbols );
 

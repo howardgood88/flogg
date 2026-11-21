@@ -184,6 +184,11 @@ class LogFilteredData : public AbstractLogData {
     void clearNotes();
     // Get all marked lines
     QList<LineNumber> getMarks() const;
+    // The lines of the file shown in the filtered view
+    const SearchResultArray& visibleLines() const
+    {
+        return currentResultArray();
+    }
 
     // Changes what the AbstractLogData returns via its getXLines/getNbLines
     // API.

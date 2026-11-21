@@ -88,6 +88,7 @@
 #include <QWindow>
 
 #include "mainwindow.h"
+#include "analysisdialog.h"
 
 #include "clipboard.h"
 #include "crawlerwidget.h"
@@ -583,6 +584,11 @@ void MainWindow::createActions()
     openFolderAction->setStatusTip( tr( "Browse the files of a folder in the file tree panel" ) );
     connect( openFolderAction, &QAction::triggered, this, &MainWindow::openFolder );
 
+    analyzeAction = new QAction( tr( "&Analyze Log..." ), this );
+    analyzeAction->setStatusTip(
+        tr( "Durations between events, rules of known problems, comparison with another tab" ) );
+    connect( analyzeAction, &QAction::triggered, this, [ this ] { openAnalysis( -1 ); } );
+
     searchInFolderAction = new QAction( tr( "&Search in Folder..." ), this );
     searchInFolderAction->setStatusTip( tr( "Search and replace in the files of the folder of "
                                             "the file tree" ) );
@@ -855,6 +861,7 @@ void MainWindow::updateShortcuts()
     setShortcuts( openAction, ShortcutAction::MainWindowOpenFile );
     setShortcuts( openFolderAction, ShortcutAction::MainWindowOpenFolder );
     setShortcuts( searchInFolderAction, ShortcutAction::MainWindowSearchInFolder );
+    setShortcuts( analyzeAction, ShortcutAction::MainWindowAnalyze );
     setShortcuts( closeAction, ShortcutAction::MainWindowCloseFile );
     setShortcuts( closeAllAction, ShortcutAction::MainWindowCloseAll );
     setShortcuts( exitAction, ShortcutAction::MainWindowQuit );
@@ -983,6 +990,7 @@ void MainWindow::createMenus()
     toolsMenu = menuBar()->addMenu( tr( menu::toolsTitle ) );
 
     toolsMenu->addAction( showScratchPadAction );
+    toolsMenu->addAction( analyzeAction );
 
     menuBar()->addMenu( EncodingMenu::generate( encodingGroup ) );
     menuBar()->addSeparator();
@@ -2146,6 +2154,31 @@ QString MainWindow::strippedName( const QString& fullFileName ) const
 }
 
 // Return the currently active CrawlerWidget, or NULL if none
+void MainWindow::openAnalysis( int page )
+{
+    if ( !analysisDialog_ ) {
+        AnalysisDialog::Context context;
+        context.current = [ this ] { return currentCrawlerWidget(); };
+        context.tabs = [ this ] {
+            std::vector<AnalysisDialog::Tab> tabs;
+            for ( int i = 0; i < mainTabWidget_.count(); ++i ) {
+                tabs.push_back( { mainTabWidget_.tabText( i ),
+                                  qobject_cast<CrawlerWidget*>( mainTabWidget_.widget( i ) ) } );
+            }
+            return tabs;
+        };
+        context.activate
+            = [ this ]( CrawlerWidget* crawler ) { mainTabWidget_.setCurrentWidget( crawler ); };
+        analysisDialog_ = new AnalysisDialog( std::move( context ), this );
+    }
+    if ( page >= 0 ) {
+        analysisDialog_->showPage( static_cast<AnalysisDialog::Page>( page ) );
+    }
+    analysisDialog_->show();
+    analysisDialog_->raise();
+    analysisDialog_->activateWindow();
+}
+
 CrawlerWidget* MainWindow::currentCrawlerWidget() const
 {
     auto current = qobject_cast<CrawlerWidget*>( mainTabWidget_.currentWidget() );

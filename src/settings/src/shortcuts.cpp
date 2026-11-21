@@ -343,6 +343,13 @@ const ShortcutAction::ShortcutList& ShortcutAction::defaultShortcutList()
             },
         },
         {
+            MainWindowAnalyze,
+            {
+                QApplication::tr( "Analyze the log (durations, rules, compare)" ),
+                QStringList{},
+            },
+        },
+        {
             MainWindowSearchInFolder,
             {
                 QApplication::tr( "Search in the folder of the file tree" ),

@@ -151,6 +151,16 @@ class CrawlerWidget : public QSplitter,
     // Next (or previous) line with the bookmark, wrapping around the file
     void jumpToBookmark( size_t slot, bool backward, bool fromFilterPanel = false );
 
+    // For the analyses: the data, the lines of the filtered view, the selected lines
+    std::shared_ptr<LogData> logData() const
+    {
+        return logData_;
+    }
+    SearchResultArray filteredViewLines() const;
+    std::optional<std::pair<LineNumber, LineNumber>> selectedLineBounds() const;
+    // Selects the lines in the main view (both included) and shows the first one
+    void showLines( LineNumber first, LineNumber last );
+
     // Notes on lines of the file, kept in the notes store (see NotesStore)
     void setNote( LineNumber line, const QString& text );
     QString note( LineNumber line ) const;

@@ -90,6 +90,8 @@ struct UnsavedFilters;
 
 // Main window of the application, creates menus, toolbar and
 // the CrawlerWidget
+class AnalysisDialog;
+
 class MainWindow : public QMainWindow {
     Q_OBJECT
 
@@ -385,6 +387,9 @@ class MainWindow : public QMainWindow {
     QAction* openAction;
     QAction* openFolderAction;
     QAction* searchInFolderAction;
+    QAction* analyzeAction;
+    QPointer<AnalysisDialog> analysisDialog_;
+    void openAnalysis( int page );
     QAction* closeAction;
     QAction* closeAllAction;
     QAction* exitAction;

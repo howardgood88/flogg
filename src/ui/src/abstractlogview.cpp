@@ -1879,6 +1879,21 @@ void AbstractLogView::selectAndDisplayLine( LineNumber line )
     Q_EMIT newSelection( line, 1_lcount, 0_lcol, 0_length );
 }
 
+void AbstractLogView::selectAndDisplayLines( LineNumber first, LineNumber last )
+{
+    if ( first == last ) {
+        selectAndDisplayLine( first );
+        return;
+    }
+    disableFollow();
+    selection_.selectRange( first, last );
+    selectionStartPos_ = FilePosition{ first, 0_lcol };
+    selectionCurrentEndPos_ = FilePosition{ last, 0_lcol };
+    displayLine( first );
+    Q_EMIT newSelection( first, 1_lcount, 0_lcol, 0_length );
+    update();
+}
+
 void AbstractLogView::selectPortionAndDisplayLine( LineNumber line, LinesCount nLines,
                                                    LineColumn startCol, LineLength nSymbols )
 {

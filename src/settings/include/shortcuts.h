@@ -83,6 +83,7 @@ struct ShortcutAction {
     static constexpr auto MainWindowToggleFileTree = "mainwindow.toggle_file_tree";
     static constexpr auto MainWindowOpenFolder = "mainwindow.open_folder";
     static constexpr auto MainWindowSearchInFolder = "mainwindow.search_in_folder";
+    static constexpr auto MainWindowAnalyze = "mainwindow.analyze";
 
     static constexpr auto FilterPanelFindNext = "filterpanel.find_next";
     static constexpr auto FilterPanelFindPrevious = "filterpanel.find_previous";

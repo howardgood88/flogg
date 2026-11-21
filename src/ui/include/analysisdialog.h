@@ -1,0 +1,204 @@
+/*
+ * Copyright (C) 2026 flogg contributors
+ *
+ * This file is part of flogg.
+ *
+ * flogg is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * flogg is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with flogg.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
+#ifndef FLOGG_ANALYSISDIALOG_H
+#define FLOGG_ANALYSISDIALOG_H
+
+#include <array>
+#include <functional>
+#include <memory>
+#include <vector>
+
+#include <QAbstractTableModel>
+#include <QDialog>
+#include <QFutureWatcher>
+#include <QPointer>
+
+#include "atomicflag.h"
+#include "loganalysis.h"
+#include "logtemplates.h"
+
+class CrawlerWidget;
+class LogData;
+class QCheckBox;
+class QComboBox;
+class QLabel;
+class QLineEdit;
+class QProgressBar;
+class QPushButton;
+class QStackedWidget;
+class QTabWidget;
+class QTreeView;
+class QTreeWidget;
+class QTreeWidgetItem;
+
+// The templates compared, filtered by their status
+class CompareModel : public QAbstractTableModel {
+  public:
+    enum Column { Status, Template, FirstCount, SecondCount, FirstLine, SecondLine, NbColumns };
+    enum Filter { All, Changed, OnlyFirst, OnlySecond, More, Fewer };
+
+    using QAbstractTableModel::QAbstractTableModel;
+
+    void setResults( std::vector<templates::Compared> rows, bool hasSecond );
+    void setFilter( Filter filter );
+    const templates::Compared& compared( int row ) const
+    {
+        return all_[ shown_[ static_cast<size_t>( row ) ] ];
+    }
+
+    int rowCount( const QModelIndex& parent = {} ) const override;
+    int columnCount( const QModelIndex& parent = {} ) const override;
+    QVariant data( const QModelIndex& index, int role ) const override;
+    QVariant headerData( int section, Qt::Orientation orientation, int role ) const override;
+
+  private:
+    std::vector<templates::Compared> all_;
+    std::vector<size_t> shown_;
+    bool hasSecond_ = false;
+    Filter filter_ = All;
+};
+
+// Analyses of the log of the current tab, in the background: the time between pairs of
+// events, the rules of known problems, the comparison with another tab. One runs at a time;
+// the window keeps the log data of the tabs it reads until it is done, so closing a tab
+// does not stop it from being read.
+class AnalysisDialog : public QDialog {
+    Q_OBJECT
+
+  public:
+    struct Tab {
+        QString name;
+        QPointer<CrawlerWidget> crawler;
+    };
+
+    struct Context {
+        std::function<CrawlerWidget*()> current;
+        std::function<std::vector<Tab>()> tabs;
+        // Brings the tab to the front before its lines are shown
+        std::function<void( CrawlerWidget* )> activate;
+    };
+
+    enum Page { Durations, Rules, Compare };
+
+    AnalysisDialog( Context context, QWidget* parent = nullptr );
+    ~AnalysisDialog() override;
+
+    void showPage( Page page );
+    bool isRunning() const
+    {
+        return watcher_ != nullptr;
+    }
+
+    // Run on the current tab, as the buttons do
+    void runDurations( const QString& startPattern, const QString& endPattern );
+    void runRules( const QString& rulesFile );
+    void runCompare( bool lineByLine );
+
+    // For the tests
+    QTreeWidget* durationTable() const
+    {
+        return durationTable_;
+    }
+    QTreeWidget* rulesTree() const
+    {
+        return rulesTree_;
+    }
+    QTreeWidget* diffTree() const
+    {
+        return diffTree_;
+    }
+    CompareModel* compareModel() const
+    {
+        return compareModel_;
+    }
+    QComboBox* otherTab() const
+    {
+        return otherTab_;
+    }
+    // The message of the last analysis
+    QString message() const;
+
+  protected:
+    void showEvent( QShowEvent* event ) override;
+    void closeEvent( QCloseEvent* event ) override;
+
+  private:
+    QWidget* createDurationsPage();
+    QWidget* createRulesPage();
+    QWidget* createComparePage();
+
+    // Runs `work` in the background, then `done` here unless the window is gone
+    template <typename Result>
+    void start( std::function<Result( AtomicFlag&, const analysis::Progress& )> work,
+                std::function<void( const Result& )> done,
+                std::vector<std::shared_ptr<LogData>> keep );
+    void stop();
+    void setRunning( bool running );
+    // The message of the page that started the last analysis
+    void setMessage( const QString& text, bool error = false );
+    void showMessageOf( int page );
+    // Whether `page` can start an analysis now; its messages go to it
+    bool startsOn( Page page );
+
+    CrawlerWidget* currentCrawler( bool tellWhenNone = true );
+    void refreshTabs();
+    std::optional<templates::Scope> scopeOf( CrawlerWidget* crawler, int kind,
+                                             QString* error ) const;
+    void showLinesOf( const QPointer<CrawlerWidget>& crawler, LineNumber first, LineNumber last );
+
+    Context context_;
+    QTabWidget* pages_ = nullptr;
+    QProgressBar* progress_ = nullptr;
+    QPushButton* stop_ = nullptr;
+    QLabel* message_ = nullptr;
+    std::vector<QPushButton*> runButtons_;
+
+    QLineEdit* startEdit_ = nullptr;
+    QLineEdit* endEdit_ = nullptr;
+    QCheckBox* durationCase_ = nullptr;
+    QLabel* durationSummary_ = nullptr;
+    QTreeWidget* durationTable_ = nullptr;
+    QPointer<CrawlerWidget> durationCrawler_;
+
+    QLineEdit* rulesPath_ = nullptr;
+    QTreeWidget* rulesTree_ = nullptr;
+    QPointer<CrawlerWidget> rulesCrawler_;
+
+    QComboBox* firstScope_ = nullptr;
+    QComboBox* otherTab_ = nullptr;
+    QComboBox* secondScope_ = nullptr;
+    QCheckBox* merge_ = nullptr;
+    QComboBox* statusFilter_ = nullptr;
+    QStackedWidget* compareResults_ = nullptr;
+    QTreeView* compareView_ = nullptr;
+    CompareModel* compareModel_ = nullptr;
+    QTreeWidget* diffTree_ = nullptr;
+    QPointer<CrawlerWidget> firstCrawler_;
+    QPointer<CrawlerWidget> secondCrawler_;
+
+    std::array<std::pair<QString, bool>, 3> messages_;
+    int messagePage_ = 0;
+
+    std::shared_ptr<AtomicFlag> cancel_;
+    QFutureWatcherBase* watcher_ = nullptr;
+    std::vector<std::shared_ptr<LogData>> keep_;
+};
+
+#endif

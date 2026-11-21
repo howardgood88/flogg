@@ -3133,3 +3133,33 @@ void CrawlerWidget::exportNotes()
                               tr( "Can not write %1" ).arg( fileName ) );
     }
 }
+
+//
+// For the analyses
+//
+
+SearchResultArray CrawlerWidget::filteredViewLines() const
+{
+    return logFilteredData_->visibleLines();
+}
+
+std::optional<std::pair<LineNumber, LineNumber>> CrawlerWidget::selectedLineBounds() const
+{
+    if ( selectionTimeView_ ) {
+        return selectionTimeView_->selectedFileLineBounds();
+    }
+    return logMainView_->selectedFileLineBounds();
+}
+
+void CrawlerWidget::showLines( LineNumber first, LineNumber last )
+{
+    if ( first >= logData_->getNbLine() ) {
+        return;
+    }
+    last = qMin( last, LineNumber( logData_->getNbLine().get() - 1 ) );
+    if ( logMainView_->isHidden() ) {
+        setMainViewVisible( true );
+    }
+    logMainView_->selectAndDisplayLines( first, last );
+    logMainView_->setFocus();
+}
