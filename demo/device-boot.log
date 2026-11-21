@@ -1,0 +1,10 @@
+[    0.461237] 2000-01-01 00:00:00.461 Booting Linux on physical CPU 0x0
+[    1.778158] 2000-01-01 00:00:01.778 Machine model: Demo Board rev B
+[    2.994687] 2000-01-01 00:00:02.994 init: starting service 'logd'
+[    3.600770] 2000-01-01 00:00:03.600 wlan0: driver loaded
+[    4.495292] 2000-01-01 00:00:04.495 wlan0: associated with demo-ap
+[    5.334681] 2000-01-01 00:00:05.334 init: starting service 'netd'
+[    6.416593] 2026-11-22 08:15:03.000 ntp: time synchronized with time.example.com
+[    7.663061] 2026-11-22 08:15:04.246 init: starting service 'payment-agent'
+[    8.075692] 2026-11-22 08:15:04.659 payment-agent: ready
+[    8.409709] 2026-11-22 08:15:04.993 init: boot completed

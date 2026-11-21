@@ -1,0 +1,67 @@
+{
+  "rules": [
+    {
+      "name": "Crash",
+      "description": "An exception that stopped a thread",
+      "type": "match",
+      "severity": "error",
+      "patterns": [ "FATAL EXCEPTION|OutOfMemoryError" ]
+    },
+    {
+      "name": "Database connection never established",
+      "description": "A connection did not succeed within 5 s. The (\\d+) groups tie the two lines of one connection.",
+      "type": "absence",
+      "severity": "error",
+      "patterns": [ "db connect start conn=(\\d+)", "db connected conn=(\\d+)" ],
+      "withinSeconds": 5
+    },
+    {
+      "name": "Request never answered",
+      "description": "A request without its end within 10 s",
+      "type": "absence",
+      "severity": "error",
+      "patterns": [ "request begin id=(\\d+)", "request end id=(\\d+)" ],
+      "withinSeconds": 10
+    },
+    {
+      "name": "Retry storm",
+      "description": "The same request retried 3 times or more within 60 s",
+      "type": "count",
+      "severity": "warning",
+      "patterns": [ "retry request=(\\w+)" ],
+      "count": 3,
+      "withinSeconds": 60
+    },
+    {
+      "name": "Database errors open the circuit breaker",
+      "description": "A database error, then the circuit breaker opening within 30 s: the ledger is cut off",
+      "type": "sequence",
+      "severity": "error",
+      "patterns": [ "db error", "circuit breaker OPEN" ],
+      "withinSeconds": 30,
+      "link": "https://example.com/runbooks/ledger-circuit-breaker"
+    },
+    {
+      "name": "Login then logout within 1 s",
+      "description": "Same user: a session that ends right away often means a broken token",
+      "type": "sequence",
+      "severity": "info",
+      "patterns": [ "login user=(\\w+)", "logout user=(\\w+)" ],
+      "withinSeconds": 1
+    },
+    {
+      "name": "Clock set",
+      "description": "Times before and after this line can not be compared",
+      "type": "match",
+      "severity": "warning",
+      "patterns": [ "clock adjusted|time synchronized" ]
+    },
+    {
+      "name": "Android: app not responding",
+      "description": "The main thread of an app was blocked",
+      "type": "match",
+      "severity": "error",
+      "patterns": [ "ANR in (\\S+)" ]
+    }
+  ]
+}

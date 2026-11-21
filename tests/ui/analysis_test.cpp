@@ -28,6 +28,7 @@
 #include "test_utils.h"
 
 #include "loganalysis.h"
+#include "timestamp.h"
 #include "logdata.h"
 
 using namespace analysis;
@@ -473,5 +474,113 @@ SCENARIO( "Analysis window", "[ui][analysis]" )
         dialog.grab().save( renderDir + "/analysis_rules.png" );
         dialog.showPage( AnalysisDialog::Durations );
         dialog.grab().save( renderDir + "/analysis_durations.png" );
+    }
+}
+
+// The claims of demo/README.md, on the files of demo/make_demo.py:
+// FLOGG_DEMO_DIR=<repo>/demo klogg_itests "[.demo]"
+SCENARIO( "Demo files", "[.demo]" )
+{
+    const auto demo = qEnvironmentVariable( "FLOGG_DEMO_DIR" );
+    if ( demo.isEmpty() ) {
+        WARN( "FLOGG_DEMO_DIR is not set" );
+        return;
+    }
+    Session session;
+    const auto open = [ &session ]( const QString& fileName ) {
+        std::unique_ptr<CrawlerWidget> crawler( static_cast<CrawlerWidget*>(
+            session.open( fileName, []() { return new CrawlerWidget(); } ) ) );
+        REQUIRE( waitUiState( [ & ]() { return !crawler->isLoading(); } ) );
+        crawler->resize( 1200, 800 );
+        return crawler;
+    };
+    const auto line = []( CrawlerWidget& crawler, uint64_t number ) {
+        return crawler.logData()->getLineString( LineNumber( number - 1 ) );
+    };
+    const auto delta = [ &line ]( CrawlerWidget& crawler, uint64_t first, uint64_t last ) {
+        return timestamps::difference( timestamps::parseLine( line( crawler, first ) ),
+                                       timestamps::parseLine( line( crawler, last ) ) );
+    };
+
+    auto good = open( demo + "/app-good.log" );
+    auto bad = open( demo + "/app-bad.log" );
+
+    // 1. Time between lines
+    CHECK( line( *bad, 1421 ).contains( "db error" ) );
+    CHECK( line( *bad, 1477 ).contains( "FATAL EXCEPTION" ) );
+    CHECK( line( *bad, 1478 ).contains( "at com.pay" ) );
+    CHECK( line( *bad, 1515 ).contains( "clock adjusted" ) );
+    CHECK( timestamps::formatDuration( *delta( *bad, 1421, 1477 ).us ) == "+18.794 s" );
+    CHECK( delta( *bad, 1477, 1478 ).error == "No time stamp in the last line" );
+    bad->showLines( 1504_lnum, 1524_lnum );
+    REQUIRE( waitUiState( [ & ]() { return bad->selectionTimeText().endsWith( "⚠" ); } ) );
+    WARN( "1505-1525: " << bad->selectionTimeText().toStdString() );
+
+    auto boot = open( demo + "/device-boot.log" );
+    const auto bootLines = boot->logData()->getNbLine().get();
+    const auto bootDelta = delta( *boot, 1, bootLines );
+    REQUIRE( bootDelta.us );
+    CHECK( bootDelta.first->isMonotonic() );
+    WARN( "boot: " << timestamps::formatDuration( *bootDelta.us, 6 ).toStdString() );
+
+    auto logcat = open( demo + "/logcat.txt" );
+    const auto logcatDelta = delta( *logcat, 1, logcat->logData()->getNbLine().get() );
+    REQUIRE( logcatDelta.us );
+    CHECK( logcatDelta.notes.size() == 1 );
+    WARN( "logcat: " << timestamps::formatDuration( *logcatDelta.us ).toStdString() );
+
+    AtomicFlag cancel;
+    // 3. Durations
+    const auto requests = measureDurations(
+        *bad->logData(), { "request begin id=(\\d+)", "request end id=(\\d+)", false }, cancel, {} );
+    CHECK( requests.openStarts == 3 );
+    CHECK( requests.slowest.front().us > 2500000 );
+    CHECK( requests.slowest.front().start.get() > 1422 );
+    WARN( "requests: " << requests.pairs << " pairs, slowest "
+                       << timestamps::formatDuration( requests.slowest.front().us ).toStdString()
+                       << ", median " << timestamps::formatDuration( requests.p50Us ).toStdString() );
+    const auto launches = measureDurations( *logcat->logData(),
+                                            { "START u0 \\{cmp=com\\.demo/\\.(\\w+)\\}",
+                                              "Displayed com\\.demo/\\.(\\w+)", false },
+                                            cancel, {} );
+    CHECK( launches.pairs == 5 );
+    CHECK( launches.slowest.front().us == 4200000 );
+    CHECK( launches.slowest.front().key == "PayActivity" );
+
+    // 4. Rules
+    QFile rulesFile( demo + "/rules.json" );
+    REQUIRE( rulesFile.open( QIODevice::ReadOnly ) );
+    const auto set = parseRules( rulesFile.readAll() );
+    REQUIRE( set.error.isEmpty() );
+    const auto badRules = runRules( *bad->logData(), set.rules, cancel, {} );
+    const auto goodRules = runRules( *good->logData(), set.rules, cancel, {} );
+    for ( size_t r = 0; r < set.rules.size(); ++r ) {
+        WARN( set.rules[ r ].name.toStdString() << ": bad " << badRules.totalFindings[ r ]
+                                                << ", good " << goodRules.totalFindings[ r ] );
+    }
+    CHECK( badRules.totalFindings[ 0 ] == 1 );
+    CHECK( badRules.totalFindings[ 1 ] >= 1 );
+    CHECK( badRules.totalFindings[ 2 ] == 3 );
+    CHECK( badRules.totalFindings[ 3 ] == 1 );
+    CHECK( badRules.totalFindings[ 4 ] == 1 );
+    CHECK( goodRules.totalFindings[ 0 ] == 0 );
+    CHECK( goodRules.totalFindings[ 1 ] == 0 );
+    CHECK( goodRules.totalFindings[ 2 ] == 0 );
+    CHECK( goodRules.totalFindings[ 3 ] == 0 );
+    CHECK( goodRules.totalFindings[ 4 ] == 0 );
+    CHECK( badRules.totalFindings[ 5 ] >= 1 );
+    CHECK( goodRules.totalFindings[ 5 ] == 0 );
+    CHECK( badRules.totalFindings[ 6 ] == 1 );
+    const auto logcatRules = runRules( *logcat->logData(), set.rules, cancel, {} );
+    CHECK( logcatRules.totalFindings[ 7 ] == 1 );
+
+    // 5. Compare
+    const auto badTable = templates::build( *bad->logData(), {}, cancel, {} );
+    const auto goodTable = templates::build( *good->logData(), {}, cancel, {} );
+    const auto compared = templates::compare( badTable, &goodTable, false );
+    for ( size_t i = 0; i < compared.size() && i < 12; ++i ) {
+        WARN( static_cast<int>( compared[ i ].status )
+              << " " << compared[ i ].firstCount << "/" << compared[ i ].secondCount << " "
+              << compared[ i ].text.toStdString() );
     }
 }

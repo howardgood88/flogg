@@ -1,0 +1,44 @@
+12-31 23:59:50.000  1234  1260 I ActivityTaskManager: START u0 {cmp=com.demo/.MainActivity} from uid 10123
+12-31 23:59:50.763  1234  1260 I ActivityTaskManager: Displayed com.demo/.MainActivity: +763ms
+12-31 23:59:51.051  4321  4330 D PayClient: sync ok items=29
+12-31 23:59:51.361  4321  4330 D PayClient: sync ok items=38
+12-31 23:59:51.508  4321  4330 D PayClient: sync ok items=12
+12-31 23:59:51.820  4321  4330 D PayClient: sync ok items=31
+12-31 23:59:52.192  4321  4330 D PayClient: sync ok items=40
+12-31 23:59:52.337  4321  4330 D PayClient: sync ok items=7
+12-31 23:59:52.615  4321  4330 D PayClient: sync ok items=20
+12-31 23:59:53.405  1234  1260 I ActivityTaskManager: START u0 {cmp=com.demo/.PayActivity} from uid 10123
+12-31 23:59:53.797  1234  1260 I ActivityTaskManager: Displayed com.demo/.PayActivity: +392ms
+12-31 23:59:54.171  4321  4330 D PayClient: sync ok items=3
+12-31 23:59:54.525  4321  4330 D PayClient: sync ok items=26
+12-31 23:59:54.806  4321  4330 D PayClient: sync ok items=40
+12-31 23:59:55.188  4321  4330 D PayClient: sync ok items=11
+12-31 23:59:55.557  4321  4330 D PayClient: sync ok items=1
+12-31 23:59:55.877  4321  4330 D PayClient: sync ok items=5
+12-31 23:59:55.957  4321  4330 D PayClient: sync ok items=3
+12-31 23:59:56.846  1234  1260 I ActivityTaskManager: START u0 {cmp=com.demo/.HistoryActivity} from uid 10123
+12-31 23:59:57.393  1234  1260 I ActivityTaskManager: Displayed com.demo/.HistoryActivity: +547ms
+12-31 23:59:57.458  4321  4330 D PayClient: sync ok items=30
+12-31 23:59:57.675  4321  4330 D PayClient: sync ok items=29
+12-31 23:59:58.027  4321  4330 D PayClient: sync ok items=13
+12-31 23:59:58.342  4321  4330 D PayClient: sync ok items=15
+12-31 23:59:58.719  4321  4330 D PayClient: sync ok items=19
+12-31 23:59:59.024  4321  4330 D PayClient: sync ok items=1
+12-31 23:59:59.413  4321  4330 D PayClient: sync ok items=6
+01-01 00:00:00.849  1234  1260 I ActivityTaskManager: START u0 {cmp=com.demo/.PayActivity} from uid 10123
+01-01 00:00:05.049  1234  1260 I ActivityTaskManager: Displayed com.demo/.PayActivity: +4200ms
+01-01 00:00:05.241  4321  4330 D PayClient: sync ok items=27
+01-01 00:00:05.573  4321  4330 D PayClient: sync ok items=6
+01-01 00:00:05.753  4321  4330 D PayClient: sync ok items=21
+01-01 00:00:05.920  4321  4330 D PayClient: sync ok items=33
+01-01 00:00:06.117  4321  4330 D PayClient: sync ok items=2
+01-01 00:00:06.202  4321  4330 D PayClient: sync ok items=37
+01-01 00:00:06.307  4321  4330 D PayClient: sync ok items=26
+01-01 00:00:06.412  4321  4330 D PayClient: sync ok items=19
+01-01 00:00:07.703  1234  1260 I ActivityTaskManager: START u0 {cmp=com.demo/.SettingsActivity} from uid 10123
+01-01 00:00:08.071  1234  1260 I ActivityTaskManager: Displayed com.demo/.SettingsActivity: +368ms
+01-01 00:00:08.471  4321  4330 D PayClient: sync ok items=1
+01-01 00:00:08.630  4321  4330 D PayClient: sync ok items=14
+01-01 00:00:08.706  4321  4330 D PayClient: sync ok items=31
+01-01 00:00:09.974  1000  1100 E ActivityManager: ANR in com.demo (com.demo/.PayActivity)
+01-01 00:00:09.974  1000  1100 E ActivityManager: Reason: Input dispatching timed out
