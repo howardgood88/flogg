@@ -51,11 +51,26 @@ Emoji：亮點功能
 - 🕹️ `Ctrl+左鍵`（macOS：`Cmd+左鍵`）可選取不連續的多行。
 - Filter Panel 與 klogg 原生 pattern 輸入框互斥，可透過過濾視窗上方搜尋列最左邊的 `Filters` 按鈕切換。新分頁與空白搜尋預設進入 Filter mode；在 `File > Preferences` 關閉 `Start in Filter mode` 後，filter panel 就只負責標色，使用方式接近 klogg。
 - 所有有橫向捲軸的畫面都支援 `Shift` + 滑鼠滾輪橫向捲動。
-- `[TAT]`主視窗與過濾視窗支援 `Ctrl+1-8` 標記書籤，`Alt+1-8` / `Shift+Alt+1-8` 可跳到下一個 / 上一個對應書籤行。
+- `[TAT]`主視窗與過濾視窗支援 `Ctrl+1-5` 標記書籤，`1-5` / `Shift+1-5` 可跳到下一個 / 上一個對應書籤行。
   在 Filters 面板上也能使用，作用於過濾視窗的選中行（與 `F8` 相同），焦點會留在面板上。
-  (建議至 `File > Preferences > Shortcuts` 修改按鍵設定，flogg 預設保留 klogg 原生 shortcuts)
 - 會記住主視窗與過濾視窗的比例：最後一次拖動分隔線的位置會套用到之後開啟的所有分頁，包括以前開過的檔案。
 - `[TAT]` `Ctrl+H`（macOS：`Control+H`）可隱藏主視窗，只顯示過濾視窗。
+
+### 🧪 分析：更快找到問題
+
+- ⏱️ **行與行的時間差**：選取兩行以上（`Ctrl+左鍵`、`Shift+左鍵`），工具列會顯示第一行到最後一行的時間差，例如 `Δ +1.234 s`。
+    - 每一行各自解析：ISO 8601（含時區）、Android logcat、syslog、web server log、時刻、Unix time、`[開機後秒數]`。行的順序亂掉或檔案其他地方換了格式都不影響。
+    - 兩行都有開機後秒數時優先使用它：系統校時也不會跳動。兩行格式不同時不計算，沒有時間戳的行會提示。
+    - 滑鼠停在上面會顯示兩行的時間與格式；中間最多 10 萬行會在背景檢查時鐘是否倒退（`⚠`）。
+- 📝 **備註**：在行的右鍵選單選 `Add note...`（`Shift+M`）。該行會被標記，書籤旁顯示備註圖示，滑鼠停在該行時 tooltip 最上方顯示備註。
+    - 存在 flogg 自己的一個檔案（預設 filter 檔旁的 `notes.json`），不會在 log 旁產生檔案；只存有備註的行與其書籤。檔案開頭變了（輪替、覆寫）或該行內容變了，備註會移除；檔案的最後一則備註刪除後整筆移除，且只保留最近使用的 200 個檔案。
+    - `Export bookmarks and notes...` 匯出成 Markdown，每行放在 code block 裡，可直接貼到 bug 單。
+- 🔬 **`Tools > Analyze Log...`**，在背景分析目前分頁的 log：
+    - **Durations（成對事件耗時）**：開始與結束的 pattern，例如 `begin request id=(\d+)` / `end request id=(\d+)`；括號群組用來配對。顯示平均、中位數、90 與 99 百分位、最慢的幾筆，以及沒有結束的開始；雙擊會選取兩行。
+    - **Rules（問題特徵規則庫）**：JSON 規則檔，可像 filter 檔一樣分享（`New from example...` 會寫出每種規則各一條的範例）：
+      `match`（某一行）、`sequence`（依序出現，可限時間）、`absence`（某行之後一段時間內沒出現另一行，例如連線一直沒建立）、`count`（一段時間內重複出現，例如重試風暴）。括號群組把同一件事的行綁在一起（例如同一個連線 id）。
+    - **Compare（比較）**：和另一個分頁比較（貼上的文字也可以：貼成一個分頁），範圍可選整個檔案、過濾視窗或選取的行。每行轉成模板（去掉時間戳，數字、ID、引號內文字與 `key=value` 的值換成佔位符）後計數：只在這邊、只在那邊、變多或變少。也可以逐行比較（每邊最多 10 萬行）。
+- 🧩 **合併檔案**：file panel 右鍵選單的 `Merge N Files...` 或 `File > Merge Files...`，把多個檔案依序接在一起寫成新檔並開啟。預設順序與 file panel 相同，可以再調整。
 
 ### ✏️ Edit mode：直接編輯檔案
 
@@ -136,6 +151,7 @@ Predefined filters、highlighter sets、常駐搜尋結果高亮(highlight match
 | 在 file panel 開啟資料夾 | 預設無 | `File > Open Folder...`、資料夾選單 |
 | Edit mode | `Ctrl+Shift+E` | View 選單、工具列的鉛筆 |
 | Render mode | `Ctrl+Shift+V` | View 選單、工具列的眼睛 |
+| 分析 log（耗時、規則、比較） | 預設無 | `Tools > Analyze Log...` |
 
 ### File panel
 
@@ -149,6 +165,7 @@ Predefined filters、highlighter sets、常駐搜尋結果高亮(highlight match
 | 顯示／隱藏隱藏檔 | `Ctrl+Shift+.`（macOS：`Cmd+Shift+.`） | 右鍵選單、資料夾選單 |
 | 排序 | | `⇅` 按鈕、右鍵選單 |
 | 複製路徑／相對路徑／檔名 | | 右鍵選單 |
+| 合併選取的檔案 | | 右鍵選單（選多個檔案）、`File > Merge Files...` |
 | 在資料夾中搜尋與取代 | 預設無 | 資料夾或空白處的右鍵選單、放大鏡按鈕、`File > Search in Folder...` |
 | 在檔案中搜尋（edit mode） | | 檔案的右鍵選單 |
 
@@ -161,7 +178,7 @@ Predefined filters、highlighter sets、常駐搜尋結果高亮(highlight match
 | 新增 filter | `Insert` | `+ Filter` 按鈕、右鍵選單 |
 | 新增群組 | | `+ Group` 按鈕、右鍵選單 |
 | 編輯 filter／重新命名群組 | `F2`、`Enter` | 雙擊 |
-| 刪除選取項目 | `Delete` | 右鍵選單 |
+| 刪除選取項目 | `Delete`、`Ctrl+D`（macOS：`Control+D`） | 右鍵選單 |
 | 上移／下移（也可移入、移出群組） | `Alt+Up`／`Alt+Down` | 箭頭按鈕、拖放 |
 | 啟用／停用單一 filter | | 勾選框 |
 | 啟用／停用（群組內）、全部啟用、全部停用 | | 右鍵選單 |
@@ -188,10 +205,13 @@ Predefined filters、highlighter sets、常駐搜尋結果高亮(highlight match
 | --- | --- | --- |
 | 跳到選取 filter 的下一個符合行（循環搜尋） | `F8` | Filter panel 右鍵選單 |
 | 跳到選取 filter 的上一個符合行（循環搜尋） | `Shift+F8` | Filter panel 右鍵選單 |
-| 在選取的行設定／移除書籤 N（1-8） | `Ctrl+1` … `Ctrl+8` | |
-| 跳到下一個有書籤 N 的行 | `Alt+1` … `Alt+8` | |
-| 跳到上一個有書籤 N 的行 | `Alt+Shift+1` … `Alt+Shift+8` | |
-| 將選取文字（未選取時為整行）加為 filter | 預設無 | Log 檢視右鍵選單的 `Add as filter...` |
+| 在選取的行設定／移除書籤 N（1-5） | `Ctrl+1` … `Ctrl+5` | |
+| 跳到下一個有書籤 N 的行 | `1` … `5` | |
+| 跳到上一個有書籤 N 的行 | `Shift+1` … `Shift+5`（`!` … `%`） | |
+| 以顏色 N（1-9）標示選取文字 | `Alt+1` … `Alt+9` | |
+| 新增或編輯該行的備註 | `Shift+M` | 右鍵選單的 `Add note...` |
+| 選取的第一行與最後一行的時間差 | | 用 `Ctrl+左鍵` 或 `Shift+左鍵` 選取，顯示在工具列 |
+| 將選取文字（未選取時為整行）加為 filter | `Shift+F` | Log 檢視右鍵選單的 `Add as filter...` |
 | 將搜尋文字加為 filter | | 搜尋框右鍵選單的 `Add as filter...` |
 
 ## 建置

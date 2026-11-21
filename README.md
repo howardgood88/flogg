@@ -53,9 +53,24 @@ a newly opened file loads the filter file opened or saved last by default (see [
 - `Shift` + mouse wheel scrolls sideways in every view with a horizontal scroll bar.
 - `[TAT]` In the main and filtered views, `Ctrl+1-5` sets bookmarks and `1-5` / `Shift+1-5` jump to the next / previous line with that bookmark.
   They also work in the filter panel, on the line selected in the filtered view (like `F8`), and the focus stays in the panel.
-  (Changing them in `File > Preferences > Shortcuts` is recommended; flogg keeps klogg's own shortcuts by default.)
 - The split between the main and filtered views is remembered: the last position you drag it to is used by every tab opened after, also for files opened before.
 - `[TAT]` `Ctrl+H` (macOS: `Control+H`) hides the main view and shows the filtered view only.
+
+### 🧪 Analysis: find the problem faster
+
+- ⏱️ **Time between lines**: select two or more lines (`Ctrl+click`, `Shift+click`) and the tool bar shows the time from the first to the last one, e.g. `Δ +1.234 s`.
+    - Each line is read on its own: ISO 8601 (with a zone), Android logcat, syslog, web server logs, time of day, Unix time, `[seconds since boot]`. Lines out of order or a change of format elsewhere in the file do not matter.
+    - The time since boot is used when both lines have one: it does not jump when the clock is set. Lines of different formats are not compared, a line without a time stamp is told.
+    - The tool tip shows both times and their format; up to 100 000 lines between are checked in the background for the clock going back (`⚠`).
+- 📝 **Notes**: `Add note...` (`Shift+M`) in the right click menu of a line. The line is marked, a note sign shows beside the bookmarks, the note leads its tool tip.
+    - Kept in one file of flogg (`notes.json` next to the default filter file), never next to the logs: only lines with a note, with their bookmarks. A file that no longer starts the same way, or a line that changed, loses its notes; the entry of a file goes with its last note, and only the 200 files used last are kept.
+    - `Export bookmarks and notes...` writes them as Markdown, each line in a code block, ready for a bug report.
+- 🔬 **`Tools > Analyze Log...`**, in the background on the log of the current tab:
+    - **Durations**: a start and an end pattern, e.g. `begin request id=(\d+)` / `end request id=(\d+)`; the groups in parentheses pair the lines. Mean, median, 90 and 99 percentiles, the slowest pairs and the starts never ended; a double click selects both lines.
+    - **Rules** of known problems, in a JSON file shared like the filter files (`New from example...` writes one rule of each kind):
+      `match` (a line), `sequence` (lines in this order, within a time), `absence` (a line not followed by another within a time, e.g. a connection never established), `count` (a line repeated within a time, e.g. a retry storm). The groups in parentheses tie the lines of one case together (same connection id).
+    - **Compare** with another tab (pasted text too: paste it as a tab), the whole file, the filtered view or the selected lines: the lines are turned into templates (time stamps out, numbers, ids, quoted text and `key=value` values replaced) and counted: what is only here, only there, more or less frequent. Or line by line (up to 100 000 lines a side).
+- 🧩 **Merge files**: `Merge N Files...` in the right click menu of the file panel, or `File > Merge Files...`, writes the files one after the other into a new one and opens it. The files come in the order of the file panel and can be ordered again.
 
 ### ✏️ Edit mode: edit the file in place
 
@@ -136,6 +151,7 @@ Shortcuts added by flogg. All of them can be changed in File > Preferences > Sho
 | Open a folder in the file panel | none by default | `File > Open Folder...`, folder menu |
 | Edit mode | `Ctrl+Shift+E` | View menu, pencil in the tool bar |
 | Render mode | `Ctrl+Shift+V` | View menu, eye in the tool bar |
+| Analyze the log (durations, rules, compare) | none by default | `Tools > Analyze Log...` |
 
 ### File panel
 
@@ -149,6 +165,7 @@ These work while the file panel has the focus.
 | Show/hide hidden files | `Ctrl+Shift+.` (macOS: `Cmd+Shift+.`) | Right click menu, folder menu |
 | Sort | | `⇅` button, right click menu |
 | Copy path / relative path / file name | | Right click menu |
+| Merge the selected files | | Right click menu (several files), `File > Merge Files...` |
 | Search and replace in the folder | none by default | Right click menu of a folder or the empty area, magnifier button, `File > Search in Folder...` |
 | Find in the file (edit mode) | | Right click menu of a file |
 
@@ -192,6 +209,8 @@ These work while the filter panel has the focus.
 | Next line with bookmark N | `1` ... `5` | |
 | Previous line with bookmark N | `Shift+1` ... `Shift+5` (`!` ... `%`) | |
 | Highlight the selection with color N (1-9) | `Alt+1` ... `Alt+9` | |
+| Add or edit the note of the line | `Shift+M` | `Add note...` in the right click menu |
+| Time between the first and last selected lines | | Select with `Ctrl+click` or `Shift+click`, shown in the tool bar |
 | Add selection (or the whole line) as filter | `Shift+F` | `Add as filter...` in the log view context menu |
 | Add search text as filter | | `Add as filter...` in the search box context menu |
 

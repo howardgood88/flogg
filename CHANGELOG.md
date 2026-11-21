@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- **New: time between lines**: with two or more lines selected (`Ctrl+click`,
+  `Shift+click`) the tool bar shows the time from the first to the last one; each line is
+  parsed on its own (ISO 8601, logcat, syslog, web server, time of day, Unix time, seconds
+  since boot), the time since boot preferred, lines of different formats not compared; up
+  to 100 000 lines between are checked for the clock going back
+- **New: notes on lines** (`Add note...`, `Shift+M`): shown beside the bookmarks and in
+  the tool tip, kept in `notes.json` of flogg with their bookmarks (never next to the
+  logs), dropped when the file or the line changed, 200 files at most; `Export bookmarks
+  and notes...` writes Markdown
+- **New: `Tools > Analyze Log...`**, in the background:
+  - Durations between a start and an end pattern, paired by their groups: percentiles,
+    the slowest pairs, the starts never ended
+  - Rules of known problems in a JSON file (match, sequence, absence, count, within a
+    time, tied by their groups); `New from example...`
+  - Compare with another tab (the whole file, the filtered view or the selection) by the
+    templates of the lines, or line by line
+- **New: merge files** (`Merge N Files...` in the file panel, `File > Merge Files...`):
+  the files one after the other in a new file, in the order of the file panel or another
 - Bookmarks go from 8 to 5 numbers: `Ctrl+1-5` sets them, `1-5` / `Shift+1-5` jump to the
   next / previous line with one
 - New default shortcuts (shortcuts changed in Preferences are kept):
