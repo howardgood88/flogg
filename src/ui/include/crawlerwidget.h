@@ -151,6 +151,12 @@ class CrawlerWidget : public QSplitter,
     // Next (or previous) line with the bookmark, wrapping around the file
     void jumpToBookmark( size_t slot, bool backward, bool fromFilterPanel = false );
 
+    // Notes on lines of the file, kept in the notes store (see NotesStore)
+    void setNote( LineNumber line, const QString& text );
+    QString note( LineNumber line ) const;
+    // The bookmarks and notes as Markdown
+    QString bookmarksAndNotesMarkdown() const;
+
     // Hides the main view to give all the room to the filtered view,
     // showing it again restores the previous ratio of the two views
     void setMainViewVisible( bool visible );
@@ -463,6 +469,13 @@ class CrawlerWidget : public QSplitter,
     void updateSelectionTime();
     void setSelectionTime( const QString& text, const QString& toolTip );
 
+    void editNote( LineNumber line );
+    void exportNotes();
+    // After a change of the marks, bookmarks or notes
+    void refreshMarks();
+    void restoreNotes();
+    void persistNotes();
+
     void changeFontSize( bool increase );
 
     // Palette for error notification (yellow background)
@@ -550,6 +563,9 @@ class CrawlerWidget : public QSplitter,
     bool selectingFromFiltered_ = false;
 
     klogg::vector<LineNumber> savedMarkedLines_;
+
+    // The store has notes of the file
+    bool notesStored_ = false;
 
     QPointer<AbstractLogView> selectionTimeView_;
     QString selectionTimeText_;

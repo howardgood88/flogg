@@ -159,12 +159,29 @@ class LogFilteredData : public AbstractLogData {
     // Next (or previous) line holding the bookmark after (or before) the passed line,
     // wrapping around the file
     OptionalLineNumber findBookmark( size_t slot, LineNumber from, bool backward ) const;
-    // Bookmarks set on the line, bit N for bookmark N + 1
+    // Bookmarks set on the line, bit N for bookmark N + 1, and NoteFlag when the line has
+    // a note
+    static constexpr uint32_t NoteFlag = 1u << 31;
     uint32_t getBookmarkSlots( LineNumber line ) const;
     bool hasBookmarks() const
     {
         return !bookmarks_.empty();
     }
+
+    // A note on a line, kept like a bookmark (the line is marked) and saved with the file.
+    // An empty text removes the note. Removing the mark of the line keeps the note.
+    void setNote( LineNumber line, const QString& text );
+    QString getNote( LineNumber line ) const;
+    struct LineNote {
+        LineNumber line;
+        uint32_t slots = 0;
+        QString text;
+    };
+    // The lines with a note, in order
+    klogg::vector<LineNote> getNotes() const;
+    // The lines with a bookmark or a note, in order
+    klogg::vector<LineNote> getBookmarksAndNotes() const;
+    void clearNotes();
     // Get all marked lines
     QList<LineNumber> getMarks() const;
 
@@ -305,7 +322,12 @@ class LogFilteredData : public AbstractLogData {
         uint32_t slots = 0;
         // The line was not marked before its first bookmark was set
         bool addedMark = false;
+        QString note;
     };
+    // Marks the line for its first bookmark or note
+    BookmarkedLine& bookmarkedLine( LineNumber line );
+    // Removed with its last bookmark and its note
+    void dropIfEmpty( std::map<LineNumber, BookmarkedLine>::iterator bookmarked );
     std::map<LineNumber, BookmarkedLine> bookmarks_;
 
     struct FilterResult {

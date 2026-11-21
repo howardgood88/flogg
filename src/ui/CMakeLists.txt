@@ -55,6 +55,7 @@ add_library(
   ${CMAKE_CURRENT_SOURCE_DIR}/include/renderview.h
   ${CMAKE_CURRENT_SOURCE_DIR}/include/editdocument.h
   ${CMAKE_CURRENT_SOURCE_DIR}/include/editview.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/include/notesstore.h
   ${CMAKE_CURRENT_SOURCE_DIR}/include/highlighteredit.ui
   ${CMAKE_CURRENT_SOURCE_DIR}/include/optionsdialog.ui
   ${CMAKE_CURRENT_SOURCE_DIR}/src/abstractlogview.cpp
@@ -78,6 +79,7 @@ add_library(
   ${CMAKE_CURRENT_SOURCE_DIR}/src/recentfiles.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/src/savedsearches.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/src/selection.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/notesstore.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/src/session.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/src/sessioninfo.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/src/signalmux.cpp

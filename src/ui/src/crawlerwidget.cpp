@@ -52,6 +52,12 @@
 #include <utility>
 
 #include <QAction>
+#include <QDateTime>
+#include <QDir>
+#include <QFileDialog>
+#include <QFileInfo>
+#include <QMessageBox>
+#include <QSaveFile>
 #include <QApplication>
 #include <QCompleter>
 #include <QInputDialog>
@@ -84,6 +90,7 @@
 #include "savedsearches.h"
 #include "shortcuts.h"
 #include "timestamp.h"
+#include "notesstore.h"
 
 static constexpr char AnsiColorSequenceRegex[] = "\\x1B\\[([0-9]{1,4}((;|:)[0-9]{1,3})*)?[mK]";
 
@@ -315,6 +322,8 @@ void CrawlerWidget::reload()
     constexpr auto DropCache = true;
     logFilteredData_->clearSearch( DropCache );
     logFilteredData_->clearMarks();
+    // Back from the store once loaded, if their lines are still the same
+    logFilteredData_->clearNotes();
     filteredView_->updateData();
     printSearchInfoMessage();
 
@@ -720,6 +729,8 @@ void CrawlerWidget::markLinesFromMain( const klogg::vector<LineNumber>& lines )
         for ( const auto& line : alreadyMarkedLines ) {
             logFilteredData_->toggleMark( line );
         }
+        // The bookmarks of the unmarked lines are gone, also from the notes saved
+        persistNotes();
     }
 
     // Recompute the content of both window.
@@ -862,6 +873,9 @@ void CrawlerWidget::loadingFinishedHandler( LoadingStatus status )
         for ( const auto& m : savedMarkedLines_ ) {
             logFilteredData_->addMark( m );
         }
+        if ( status == LoadingStatus::Successful ) {
+            restoreNotes();
+        }
         logMainView_->setFocus();
 
         if ( lineToSelect_ ) {
@@ -889,6 +903,8 @@ void CrawlerWidget::fileChangedHandler( MonitoredFileStatus status )
     if ( status == MonitoredFileStatus::Truncated ) {
         // Clear all marks (TODO offer the option to keep them)
         logFilteredData_->clearMarks();
+        // Their lines are gone, the store still has them for the file that was there
+        logFilteredData_->clearNotes();
         if ( !searchInfoLine_->text().isEmpty() ) {
             // Invalidate the search
             constexpr auto DropCache = true;
@@ -1360,6 +1376,10 @@ void CrawlerWidget::setup()
     } );
 
     connect( logMainView_, &LogMainView::markLines, this, &CrawlerWidget::markLinesFromMain );
+    connect( logMainView_, &LogMainView::editNoteRequested, this, &CrawlerWidget::editNote );
+    connect( logMainView_, &LogMainView::removeNoteRequested, this,
+             [ this ]( LineNumber line ) { setNote( line, {} ); } );
+    connect( logMainView_, &LogMainView::exportNotesRequested, this, &CrawlerWidget::exportNotes );
 
 
     connect( logMainView_, QOverload<const QString&>::of( &LogMainView::addToSearch ), this,
@@ -1546,6 +1566,10 @@ void CrawlerWidget::connectAllFilteredViewSlots( FilteredView* view )
              [ this, view ]( auto ) { selectionChangedIn( view ); } );
 
     connect( view, &FilteredView::markLines, this, &CrawlerWidget::markLinesFromFiltered );
+    connect( view, &FilteredView::editNoteRequested, this, &CrawlerWidget::editNote );
+    connect( view, &FilteredView::removeNoteRequested, this,
+             [ this ]( LineNumber line ) { setNote( line, {} ); } );
+    connect( view, &FilteredView::exportNotesRequested, this, &CrawlerWidget::exportNotes );
 
 
     connect( view, QOverload<const QString&>::of( &FilteredView::addToSearch ), this,
@@ -2695,8 +2719,15 @@ LineNumber CrawlerWidget::currentLogLine( bool fromFilterPanel ) const
 
 QString CrawlerWidget::filterToolTip( LineNumber line ) const
 {
+    // The note first: one lookup in the bookmarks of the file
+    QString noteText;
+    if ( const auto text = logFilteredData_->getNote( line ); !text.isEmpty() ) {
+        noteText = QString( "<p style=\"white-space:pre-wrap\"><b>%1</b><br>%2</p>" )
+                       .arg( tr( "Note" ).toHtmlEscaped(), text.toHtmlEscaped() );
+    }
+
     if ( !filters_ || filters_->filters.empty() ) {
-        return {};
+        return noteText;
     }
 
     // Only run when a tool tip is requested: the cached results of the filters are used
@@ -2751,16 +2782,25 @@ QString CrawlerWidget::filterToolTip( LineNumber line ) const
     }
 
     if ( rows.isEmpty() ) {
-        return {};
+        return noteText;
     }
 
-    return "<table cellspacing=2 cellpadding=1>" + rows.join( "" ) + "</table>";
+    return noteText + "<table cellspacing=2 cellpadding=1>" + rows.join( "" ) + "</table>";
 }
 
 void CrawlerWidget::toggleBookmark( size_t slot, bool fromFilterPanel )
 {
-    logFilteredData_->toggleBookmark( slot, currentLogLine( fromFilterPanel ) );
+    const auto line = currentLogLine( fromFilterPanel );
+    logFilteredData_->toggleBookmark( slot, line );
+    refreshMarks();
+    // The bookmarks of a line with a note are saved with it
+    if ( logFilteredData_->getBookmarkSlots( line ) & LogFilteredData::NoteFlag ) {
+        persistNotes();
+    }
+}
 
+void CrawlerWidget::refreshMarks()
+{
     // Bookmarks are marks: refresh both views and the overview
     filteredView_->updateData();
     logMainView_->updateData();
@@ -2944,4 +2984,152 @@ void CrawlerWidget::updateSelectionTime()
         logData->detachReader();
     } );
     watcher->setFuture( clockCheck_ );
+}
+
+//
+// Notes
+//
+
+QString CrawlerWidget::note( LineNumber line ) const
+{
+    return logFilteredData_->getNote( line );
+}
+
+void CrawlerWidget::setNote( LineNumber line, const QString& text )
+{
+    logFilteredData_->setNote( line, text.trimmed().isEmpty() ? QString{} : text );
+    refreshMarks();
+    persistNotes();
+}
+
+void CrawlerWidget::editNote( LineNumber line )
+{
+    if ( line >= logData_->getNbLine() ) {
+        return;
+    }
+    bool ok = false;
+    const auto text = QInputDialog::getMultiLineText(
+        this, tr( "Note" ), tr( "Note on line %1 (empty to remove it):" ).arg( line.get() + 1 ),
+        logFilteredData_->getNote( line ), &ok );
+    if ( ok ) {
+        setNote( line, text );
+    }
+}
+
+void CrawlerWidget::persistNotes()
+{
+    if ( !firstLoadDone_ || !logData_ ) {
+        return;
+    }
+    const auto notes = logFilteredData_->getNotes();
+    if ( notes.empty() && !notesStored_ ) {
+        return;
+    }
+
+    // Only the lines with a note are read, a few of them
+    std::vector<NotesStore::Note> stored;
+    stored.reserve( notes.size() );
+    for ( const auto& note : notes ) {
+        stored.push_back( { note.line.get(), note.slots, note.text,
+                            NotesStore::lineHash( logData_->getLineString( note.line ) ) } );
+    }
+    NotesStore::get().setNotes( logData_->attachedFileName(), stored );
+    notesStored_ = !stored.empty();
+}
+
+void CrawlerWidget::restoreNotes()
+{
+    const auto fileName = logData_->attachedFileName();
+    auto& store = NotesStore::get();
+    bool changed = false;
+    const auto stored = store.notes( fileName, &changed );
+    notesStored_ = !stored.empty();
+    if ( changed ) {
+        searchInfoLine_->setText(
+            tr( "The file no longer starts as when its notes were written: they were removed" ) );
+        searchInfoLine_->show();
+        return;
+    }
+    if ( stored.empty() ) {
+        return;
+    }
+
+    int dropped = 0;
+    for ( const auto& note : stored ) {
+        const auto line = LineNumber( note.line );
+        if ( line >= logData_->getNbLine()
+             || NotesStore::lineHash( logData_->getLineString( line ) ) != note.lineHash ) {
+            ++dropped;
+            continue;
+        }
+        logFilteredData_->setNote( line, note.text );
+        for ( size_t slot = 0; slot < LogFilteredData::NbBookmarks; ++slot ) {
+            if ( note.slots & ( 1u << slot ) ) {
+                logFilteredData_->toggleBookmark( slot, line );
+            }
+        }
+    }
+    refreshMarks();
+
+    if ( dropped > 0 ) {
+        searchInfoLine_->setText(
+            tr( "%n note(s) no longer match their line and were removed", "", dropped ) );
+        searchInfoLine_->show();
+        persistNotes();
+    }
+}
+
+QString CrawlerWidget::bookmarksAndNotesMarkdown() const
+{
+    const auto lines = logFilteredData_->getBookmarksAndNotes();
+    QStringList parts;
+    parts.append( tr( "# Bookmarks and notes" ) );
+    parts.append( tr( "%1, %2" )
+                      .arg( QDir::toNativeSeparators( logData_->attachedFileName() ),
+                            QDateTime::currentDateTime().toString( Qt::ISODate ) ) );
+    for ( const auto& line : lines ) {
+        QStringList numbers;
+        for ( size_t slot = 0; slot < LogFilteredData::NbBookmarks; ++slot ) {
+            if ( line.slots & ( 1u << slot ) ) {
+                numbers.append( QString::number( slot + 1 ) );
+            }
+        }
+        auto title = tr( "## Line %1" ).arg( line.line.get() + 1 );
+        if ( !numbers.isEmpty() ) {
+            title += tr( " (bookmark %1)" ).arg( numbers.join( ", " ) );
+        }
+        parts.append( title );
+        // A fence longer than any run of backticks in the line
+        const auto text = logData_->getLineString( line.line );
+        QString fence = "```";
+        while ( text.contains( fence ) ) {
+            fence += "`";
+        }
+        parts.append( fence + "\n" + text + "\n" + fence );
+        if ( !line.text.isEmpty() ) {
+            parts.append( line.text );
+        }
+    }
+    return parts.join( "\n\n" ) + "\n";
+}
+
+void CrawlerWidget::exportNotes()
+{
+    if ( !logFilteredData_->hasBookmarks() ) {
+        return;
+    }
+    const QFileInfo log( logData_->attachedFileName() );
+    const auto fileName = QFileDialog::getSaveFileName(
+        this, tr( "Export bookmarks and notes" ),
+        log.absolutePath() + "/" + log.completeBaseName() + "-notes.md",
+        tr( "Markdown (*.md);;All files (*)" ) );
+    if ( fileName.isEmpty() ) {
+        return;
+    }
+    QSaveFile file( fileName );
+    if ( !file.open( QIODevice::WriteOnly ) || file.write( bookmarksAndNotesMarkdown().toUtf8() ) < 0
+         || !file.commit() ) {
+        QMessageBox::warning( this, tr( "Export bookmarks and notes" ),
+                              tr( "Can not write %1" ).arg( fileName ) );
+    }
 }

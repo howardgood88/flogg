@@ -155,6 +155,7 @@ struct ShortcutAction {
     static constexpr auto LogViewExcludeFromSearch = "logview.exclude_from_search";
     static constexpr auto LogViewReplaceSearch = "logview.replace_search";
     static constexpr auto LogViewAddAsFilter = "logview.add_as_filter";
+    static constexpr auto LogViewEditNote = "logview.edit_note";
     static constexpr auto LogViewSelectLinesUp = "logview.select_lines_up";
     static constexpr auto LogViewSelectLinesDown = "logview.select_lines_down";
 

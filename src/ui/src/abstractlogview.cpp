@@ -572,6 +572,14 @@ void AbstractLogView::mousePressEvent( QMouseEvent* mouseEvent )
         }
         markAction_->setText( hasUnmarkedLines ? tr( "&Mark" ) : tr( "Unmark" ) );
 
+        const auto noteViewLine = line ? line : OptionalLineNumber{};
+        const auto hasNote = noteViewLine && *noteViewLine < logData_->getNbLine()
+                             && ( bookmarkSlots( *noteViewLine ) & LogFilteredData::NoteFlag );
+        editNoteAction_->setEnabled( noteViewLine.has_value() );
+        editNoteAction_->setText( hasNote ? tr( "Edit &note..." ) : tr( "Add &note..." ) );
+        removeNoteAction_->setVisible( hasNote );
+        exportNotesAction_->setEnabled( hasBookmarks() );
+
         if ( selection_.isPortion() ) {
             findNextAction_->setEnabled( true );
             findPreviousAction_->setEnabled( true );
@@ -869,6 +877,7 @@ void AbstractLogView::doRegisterShortcuts()
                       [ this ]() { findPreviousSelected(); } );
 
     registerShortcut( ShortcutAction::LogViewMark, [ this ]() { markSelected(); } );
+    registerShortcut( ShortcutAction::LogViewEditNote, [ this ]() { editNoteAction_->trigger(); } );
 
     registerShortcut( ShortcutAction::LogViewJumpToLineNumber, [ this ]() {
         const auto newLine = qMax( 0ull, digitsBuffer_.content() - 1ull );
@@ -918,6 +927,7 @@ void AbstractLogView::doRegisterShortcuts()
         ShortcutAction::showInMenu( action, name, configuredShortcuts );
     };
     showInMenu( markAction_, ShortcutAction::LogViewMark );
+    showInMenu( editNoteAction_, ShortcutAction::LogViewEditNote );
     showInMenu( copyAction_, ShortcutAction::MainWindowCopy );
     showInMenu( sendToScratchpadAction_, ShortcutAction::LogViewSendSelectionToScratchpad );
     showInMenu( replaceInScratchpadAction_,
@@ -1814,6 +1824,20 @@ QString AbstractLogView::getSelectedText() const
     return selection_.getSelectedText( logData_ );
 }
 
+OptionalLineNumber AbstractLogView::noteLine() const
+{
+    auto line = popupLine_;
+    if ( !line ) {
+        if ( const auto bounds = selection_.lineBounds() ) {
+            line = bounds->first;
+        }
+    }
+    if ( !line || *line >= logData_->getNbLine() ) {
+        return {};
+    }
+    return logData_->getLineNumber( *line ) - 1_lcount;
+}
+
 std::optional<std::pair<LineNumber, LineNumber>> AbstractLogView::selectedFileLineBounds() const
 {
     const auto bounds = selection_.lineBounds();
@@ -2279,11 +2303,30 @@ void AbstractLogView::createMenu()
     connect( replaceInScratchpadAction_, &QAction::triggered, this,
              [ this ]( auto ) { Q_EMIT replaceScratchpadWithSelection(); } );
 
+    editNoteAction_ = new QAction( tr( "Add &note..." ), this );
+    connect( editNoteAction_, &QAction::triggered, this, [ this ]( auto ) {
+        if ( const auto line = noteLine() ) {
+            Q_EMIT editNoteRequested( *line );
+        }
+    } );
+    removeNoteAction_ = new QAction( tr( "Remove note" ), this );
+    connect( removeNoteAction_, &QAction::triggered, this, [ this ]( auto ) {
+        if ( const auto line = noteLine() ) {
+            Q_EMIT removeNoteRequested( *line );
+        }
+    } );
+    exportNotesAction_ = new QAction( tr( "Export bookmarks and notes..." ), this );
+    connect( exportNotesAction_, &QAction::triggered, this,
+             [ this ]( auto ) { Q_EMIT exportNotesRequested(); } );
+
     popupMenu_ = new QMenu( this );
     colorLabelsMenu_ = popupMenu_->addMenu( tr( "Color labels" ) );
 
     popupMenu_->addSeparator();
     popupMenu_->addAction( markAction_ );
+    popupMenu_->addAction( editNoteAction_ );
+    popupMenu_->addAction( removeNoteAction_ );
+    popupMenu_->addAction( exportNotesAction_ );
     popupMenu_->addSeparator();
     popupMenu_->addAction( copyAction_ );
     popupMenu_->addAction( copyWithLineNumbersAction_ );
@@ -2424,8 +2467,10 @@ void AbstractLogView::drawTextArea( QPaintDevice* paintDevice )
     static constexpr int BulletAreaWidth = 11;
     static constexpr int ContentMarginWidth = 1;
     static constexpr int LineNumberPadding = 3;
-    // One fixed column per numbered bookmark, like TextAnalysisTool
+    // One fixed column per numbered bookmark, like TextAnalysisTool, and one for the notes
     static constexpr int NbBookmarkSlots = static_cast<int>( LogFilteredData::NbBookmarks );
+    static constexpr int NbBookmarkColumns = NbBookmarkSlots + 1;
+    static const QBrush noteBrush = QBrush( QColor( 0xf5, 0xc5, 0x18 ) );
 
     // First check the lines to be drawn are within range (might not be the case if
     // the file has just changed)
@@ -2460,7 +2505,7 @@ void AbstractLogView::drawTextArea( QPaintDevice* paintDevice )
     const int bookmarkSlotWidth = charWidth_;
     const int bookmarkAreaStartX = contentStartPosX;
     if ( bookmarksVisible ) {
-        const int bookmarkAreaWidth = NbBookmarkSlots * bookmarkSlotWidth;
+        const int bookmarkAreaWidth = NbBookmarkColumns * bookmarkSlotWidth;
         painter->fillRect( bookmarkAreaStartX, 0, bookmarkAreaWidth, paintDeviceHeight,
                            Qt::darkGray );
         painter->drawLine( bookmarkAreaStartX + bookmarkAreaWidth, 0,
@@ -2736,6 +2781,20 @@ void AbstractLogView::drawTextArea( QPaintDevice* paintDevice )
                     painter->fillRect( slotRect, markBrush );
                     painter->drawText( slotRect, Qt::AlignCenter, QString::number( slot + 1 ) );
                 }
+            }
+            if ( slots & LogFilteredData::NoteFlag ) {
+                // A sheet with a folded corner, drawn: no glyph that a font may lack
+                const QRect noteRect( bookmarkAreaStartX + NbBookmarkSlots * bookmarkSlotWidth,
+                                      yPos, bookmarkSlotWidth, fontHeight );
+                const auto sheet = noteRect.adjusted( 1, 2, -1, -2 );
+                const auto fold = qMax( 2, sheet.width() / 3 );
+                const QPointF points[ 5 ] = {
+                    sheet.topLeft(), QPointF( sheet.right() - fold, sheet.top() ),
+                    QPointF( sheet.right(), sheet.top() + fold ), sheet.bottomRight(),
+                    sheet.bottomLeft() };
+                painter->setPen( Qt::black );
+                painter->setBrush( noteBrush );
+                painter->drawPolygon( points, 5 );
             }
             painter->restore();
         }

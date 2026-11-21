@@ -386,7 +386,17 @@ void LogFilteredData::updateMaxLengthMarks( OptionalLineNumber added_line,
 void LogFilteredData::clearMarks()
 {
     marks_ = {};
-    bookmarks_.clear();
+    // Notes stay
+    for ( auto bookmarked = bookmarks_.begin(); bookmarked != bookmarks_.end(); ) {
+        if ( bookmarked->second.note.isEmpty() ) {
+            bookmarked = bookmarks_.erase( bookmarked );
+        }
+        else {
+            bookmarked->second.slots = 0;
+            bookmarked->second.addedMark = false;
+            ++bookmarked;
+        }
+    }
     maxLengthMarks_ = 0_length;
 }
 
@@ -919,33 +929,93 @@ LogFilteredData::findFilterMatch( const std::vector<RegularExpressionPattern>& p
 // Numbered bookmarks
 //
 
+LogFilteredData::BookmarkedLine& LogFilteredData::bookmarkedLine( LineNumber line )
+{
+    auto bookmarked = bookmarks_.find( line );
+    if ( bookmarked == bookmarks_.end() ) {
+        BookmarkedLine newLine;
+        newLine.addedMark = !isLineMarked( line );
+        if ( newLine.addedMark ) {
+            addMark( line );
+        }
+        bookmarked = bookmarks_.emplace( line, newLine ).first;
+    }
+    return bookmarked->second;
+}
+
+void LogFilteredData::dropIfEmpty( std::map<LineNumber, BookmarkedLine>::iterator bookmarked )
+{
+    if ( bookmarked->second.slots != 0 || !bookmarked->second.note.isEmpty() ) {
+        return;
+    }
+    // Remove the mark that the bookmarks added
+    if ( bookmarked->second.addedMark ) {
+        marks_.remove( bookmarked->first.get() );
+        updateMaxLengthMarks( {}, bookmarked->first );
+    }
+    bookmarks_.erase( bookmarked );
+}
+
 void LogFilteredData::toggleBookmark( size_t slot, LineNumber line )
 {
     if ( slot >= NbBookmarks || line >= sourceLogData_->getNbLine() ) {
         return;
     }
 
-    const auto slotBit = 1u << slot;
-    auto bookmarked = bookmarks_.find( line );
-    if ( bookmarked == bookmarks_.end() ) {
-        BookmarkedLine newLine;
-        newLine.slots = slotBit;
-        newLine.addedMark = !isLineMarked( line );
-        if ( newLine.addedMark ) {
-            addMark( line );
-        }
-        bookmarks_.emplace( line, newLine );
+    bookmarkedLine( line ).slots ^= 1u << slot;
+    dropIfEmpty( bookmarks_.find( line ) );
+}
+
+void LogFilteredData::setNote( LineNumber line, const QString& text )
+{
+    if ( line >= sourceLogData_->getNbLine() ) {
         return;
     }
-
-    bookmarked->second.slots ^= slotBit;
-    if ( bookmarked->second.slots == 0 ) {
-        // Remove the mark that the bookmarks added
-        if ( bookmarked->second.addedMark ) {
-            marks_.remove( line.get() );
-            updateMaxLengthMarks( {}, line );
+    if ( text.isEmpty() ) {
+        const auto bookmarked = bookmarks_.find( line );
+        if ( bookmarked != bookmarks_.end() ) {
+            bookmarked->second.note.clear();
+            dropIfEmpty( bookmarked );
         }
-        bookmarks_.erase( bookmarked );
+        return;
+    }
+    bookmarkedLine( line ).note = text;
+}
+
+QString LogFilteredData::getNote( LineNumber line ) const
+{
+    const auto bookmarked = bookmarks_.find( line );
+    return bookmarked != bookmarks_.end() ? bookmarked->second.note : QString{};
+}
+
+klogg::vector<LogFilteredData::LineNote> LogFilteredData::getNotes() const
+{
+    klogg::vector<LineNote> notes;
+    for ( const auto& [ line, bookmarked ] : bookmarks_ ) {
+        if ( !bookmarked.note.isEmpty() ) {
+            notes.push_back( { line, bookmarked.slots, bookmarked.note } );
+        }
+    }
+    return notes;
+}
+
+klogg::vector<LogFilteredData::LineNote> LogFilteredData::getBookmarksAndNotes() const
+{
+    klogg::vector<LineNote> lines;
+    lines.reserve( bookmarks_.size() );
+    for ( const auto& [ line, bookmarked ] : bookmarks_ ) {
+        lines.push_back( { line, bookmarked.slots, bookmarked.note } );
+    }
+    return lines;
+}
+
+void LogFilteredData::clearNotes()
+{
+    for ( auto bookmarked = bookmarks_.begin(); bookmarked != bookmarks_.end(); ) {
+        const auto next = std::next( bookmarked );
+        bookmarked->second.note.clear();
+        dropIfEmpty( bookmarked );
+        bookmarked = next;
     }
 }
 
@@ -979,10 +1049,23 @@ OptionalLineNumber LogFilteredData::findBookmark( size_t slot, LineNumber from,
 uint32_t LogFilteredData::getBookmarkSlots( LineNumber line ) const
 {
     const auto bookmarked = bookmarks_.find( line );
-    return bookmarked != bookmarks_.end() ? bookmarked->second.slots : 0;
+    if ( bookmarked == bookmarks_.end() ) {
+        return 0;
+    }
+    return bookmarked->second.slots | ( bookmarked->second.note.isEmpty() ? 0 : NoteFlag );
 }
 
 void LogFilteredData::removeBookmarksOnLine( LineNumber line )
 {
-    bookmarks_.erase( line );
+    // The mark is gone: the bookmarks go with it, a note stays
+    const auto bookmarked = bookmarks_.find( line );
+    if ( bookmarked == bookmarks_.end() ) {
+        return;
+    }
+    if ( bookmarked->second.note.isEmpty() ) {
+        bookmarks_.erase( bookmarked );
+        return;
+    }
+    bookmarked->second.slots = 0;
+    bookmarked->second.addedMark = false;
 }

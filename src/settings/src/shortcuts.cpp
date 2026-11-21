@@ -864,6 +864,13 @@ const ShortcutAction::ShortcutList& ShortcutAction::defaultShortcutList()
             },
         },
         {
+            LogViewEditNote,
+            {
+                QApplication::tr( "Add or edit the note of the line" ),
+                QStringList{ "Shift+M" },
+            },
+        },
+        {
             LogViewAddAsFilter,
             {
                 QApplication::tr( "Add selection as filter" ),

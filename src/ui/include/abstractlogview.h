@@ -251,6 +251,10 @@ class AbstractLogView : public QAbstractScrollArea, public SearchableWidgetInter
     void excludeFromSearch( const QString& selection );
     // Sent up when the user wants to create a filter from the selection
     void addToFilters( const QString& selection );
+    // Lines of the file
+    void editNoteRequested( LineNumber line );
+    void removeNoteRequested( LineNumber line );
+    void exportNotesRequested();
     // Sent up when the mouse is hovered over a line's margin
     void mouseHoveredOverLine( LineNumber line );
     // Sent up when the mouse leaves a line's margin
@@ -447,6 +451,11 @@ class AbstractLogView : public QAbstractScrollArea, public SearchableWidgetInter
     QAction* replaceSearchAction_;
     QAction* excludeFromSearchAction_;
     QAction* addToFiltersAction_;
+    QAction* editNoteAction_;
+    QAction* removeNoteAction_;
+    QAction* exportNotesAction_;
+    // Line of the file the menu was opened on, or the first selected one
+    OptionalLineNumber noteLine() const;
     QAction* setSearchStartAction_;
     QAction* setSearchEndAction_;
     QAction* clearSearchLimitAction_;

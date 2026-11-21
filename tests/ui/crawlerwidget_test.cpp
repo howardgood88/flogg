@@ -29,6 +29,7 @@
 #include <QStyleFactory>
 #include <QStyleOptionSlider>
 #include <QSignalSpy>
+#include <QTemporaryDir>
 #include <QTemporaryFile>
 #include <QTest>
 #include <QMouseEvent>
@@ -51,6 +52,7 @@
 #include "filterpanel.h"
 #include "horizontalwheelfilter.h"
 #include "infoline.h"
+#include "notesstore.h"
 #include "overviewwidget.h"
 #include "styles.h"
 
@@ -460,11 +462,16 @@ SCENARIO( "Crawler widget bookmarks rendering", "[.render]" )
     crawlerVisitor.toggleBookmark( 0, 1_lnum );
     crawlerVisitor.toggleBookmark( 0, 4_lnum );
     crawlerVisitor.toggleBookmark( 2, 4_lnum );
-    crawlerVisitor.toggleBookmark( 7, 4_lnum );
+    crawlerVisitor.toggleBookmark( 4, 4_lnum );
     crawlerVisitor.toggleBookmark( 1, 6_lnum );
     for ( size_t slot = 0; slot < LogFilteredData::NbBookmarks; ++slot ) {
         crawlerVisitor.toggleBookmark( slot, 8_lnum );
     }
+    // Notes, one with bookmarks and one alone, kept in a store of the test
+    QTemporaryDir notesDir;
+    NotesStore::useFile( notesDir.filePath( "notes.json" ) );
+    crawlerVisitor.crawler->setNote( 6_lnum, "a note" );
+    crawlerVisitor.crawler->setNote( 10_lnum, "only a note" );
 
     REQUIRE( crawlerVisitor.grabMainView().save( renderDir + "/bookmarks.png" ) );
 
