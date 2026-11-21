@@ -1087,7 +1087,11 @@ void OptionsDialog::buildShortcutsTable( bool useDefaultsOnly )
     auto shortcutList = ShortcutAction::defaultShortcutList();
     if ( !useDefaultsOnly ) {
         for ( const auto& [ action, keys ] : config.shortcuts() ) {
-            shortcutList[ action ].keySequence = keys;
+            // Actions removed since the settings were saved (bookmarks 6-8) have no row
+            const auto known = shortcutList.find( action );
+            if ( known != shortcutList.end() ) {
+                known->second.keySequence = keys;
+            }
         }
     }
 

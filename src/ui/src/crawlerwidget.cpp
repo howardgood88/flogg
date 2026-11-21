@@ -1701,14 +1701,12 @@ void CrawlerWidget::registerShortcuts()
     const std::array<std::string, LogFilteredData::NbBookmarks> setBookmarkActions = {
         ShortcutAction::LogViewSetBookmark1, ShortcutAction::LogViewSetBookmark2,
         ShortcutAction::LogViewSetBookmark3, ShortcutAction::LogViewSetBookmark4,
-        ShortcutAction::LogViewSetBookmark5, ShortcutAction::LogViewSetBookmark6,
-        ShortcutAction::LogViewSetBookmark7, ShortcutAction::LogViewSetBookmark8,
+        ShortcutAction::LogViewSetBookmark5,
     };
     const std::array<std::string, LogFilteredData::NbBookmarks> jumpToBookmarkActions = {
         ShortcutAction::LogViewJumpToBookmark1, ShortcutAction::LogViewJumpToBookmark2,
         ShortcutAction::LogViewJumpToBookmark3, ShortcutAction::LogViewJumpToBookmark4,
-        ShortcutAction::LogViewJumpToBookmark5, ShortcutAction::LogViewJumpToBookmark6,
-        ShortcutAction::LogViewJumpToBookmark7, ShortcutAction::LogViewJumpToBookmark8,
+        ShortcutAction::LogViewJumpToBookmark5,
     };
     const std::array<std::string, LogFilteredData::NbBookmarks> jumpToPreviousBookmarkActions = {
         ShortcutAction::LogViewJumpToPreviousBookmark1,
@@ -1716,9 +1714,6 @@ void CrawlerWidget::registerShortcuts()
         ShortcutAction::LogViewJumpToPreviousBookmark3,
         ShortcutAction::LogViewJumpToPreviousBookmark4,
         ShortcutAction::LogViewJumpToPreviousBookmark5,
-        ShortcutAction::LogViewJumpToPreviousBookmark6,
-        ShortcutAction::LogViewJumpToPreviousBookmark7,
-        ShortcutAction::LogViewJumpToPreviousBookmark8,
     };
 
     for ( auto slot = 0u; slot < LogFilteredData::NbBookmarks; ++slot ) {

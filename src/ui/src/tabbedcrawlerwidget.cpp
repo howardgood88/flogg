@@ -595,7 +595,7 @@ void TabbedCrawlerWidget::keyPressEvent( QKeyEvent* event )
                    && key == Qt::Key_Left ) ) {
         setCurrentIndex( ( currentIndex() - 1 >= 0 ) ? currentIndex() - 1 : count() - 1 );
     }
-    // Ctrl + 1..8 are used by numbered bookmarks
+    // Ctrl + 1..5 are used by numbered bookmarks
     // Ctrl + 9
     else if ( mod == Qt::ControlModifier && key == Qt::Key_9 ) {
         setCurrentIndex( count() - 1 );

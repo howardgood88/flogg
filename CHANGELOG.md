@@ -1,5 +1,22 @@
 # flogg changes
 
+## Unreleased
+
+- Bookmarks go from 8 to 5 numbers: `Ctrl+1-5` sets them, `1-5` / `Shift+1-5` jump to the
+  next / previous line with one
+- New default shortcuts (shortcuts changed in Preferences are kept):
+  - `Alt+1-9` highlights the selection with a color (was `Ctrl+Shift+1-9`)
+  - The visibility, case, regex, inverse, combining and auto refresh toggles have no key
+    any more (were `1-8`, now the bookmarks)
+  - `Shift+F` adds the selection as a filter
+  - `End` goes to the end of the line, `Shift+End` to the right of the text; `$`, `^`,
+    `*` and `/` are no longer bound
+  - `Ctrl+R` reloads (was `F5`), `Ctrl+.` also stops loading
+  - Find next / previous in the log views is `Ctrl+G`, `N` / `Ctrl+Shift+G`, `Shift+N`
+    (no `F3` / `Shift+F3`)
+  - Paste from the clipboard also on `Ctrl+Y` (macOS: `Control+Y`), delete in the filter
+    panel also on `Ctrl+D` (macOS: `Control+D`)
+
 ## 1.3.1 (2026-11-20)
 
 - **New: search and replace in a folder** (`Search in Folder...` in the right click menu of

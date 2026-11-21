@@ -59,6 +59,7 @@
 
 #include "configuration.h"
 #include "filtereditdialog.h"
+#include "logfiltereddata.h"
 #include "log.h"
 #include "persistentinfo.h"
 #include "shortcuts.h"
@@ -1169,29 +1170,24 @@ void FilterPanel::setupUi()
         addAction( action );
         bookmarkActions_.emplace_back( action, name );
     };
-    const std::array<std::string, 8> setBookmark = {
+    const std::array<std::string, LogFilteredData::NbBookmarks> setBookmark = {
         ShortcutAction::LogViewSetBookmark1, ShortcutAction::LogViewSetBookmark2,
         ShortcutAction::LogViewSetBookmark3, ShortcutAction::LogViewSetBookmark4,
-        ShortcutAction::LogViewSetBookmark5, ShortcutAction::LogViewSetBookmark6,
-        ShortcutAction::LogViewSetBookmark7, ShortcutAction::LogViewSetBookmark8,
+        ShortcutAction::LogViewSetBookmark5,
     };
-    const std::array<std::string, 8> nextBookmark = {
+    const std::array<std::string, LogFilteredData::NbBookmarks> nextBookmark = {
         ShortcutAction::LogViewJumpToBookmark1, ShortcutAction::LogViewJumpToBookmark2,
         ShortcutAction::LogViewJumpToBookmark3, ShortcutAction::LogViewJumpToBookmark4,
-        ShortcutAction::LogViewJumpToBookmark5, ShortcutAction::LogViewJumpToBookmark6,
-        ShortcutAction::LogViewJumpToBookmark7, ShortcutAction::LogViewJumpToBookmark8,
+        ShortcutAction::LogViewJumpToBookmark5,
     };
-    const std::array<std::string, 8> previousBookmark = {
+    const std::array<std::string, LogFilteredData::NbBookmarks> previousBookmark = {
         ShortcutAction::LogViewJumpToPreviousBookmark1,
         ShortcutAction::LogViewJumpToPreviousBookmark2,
         ShortcutAction::LogViewJumpToPreviousBookmark3,
         ShortcutAction::LogViewJumpToPreviousBookmark4,
         ShortcutAction::LogViewJumpToPreviousBookmark5,
-        ShortcutAction::LogViewJumpToPreviousBookmark6,
-        ShortcutAction::LogViewJumpToPreviousBookmark7,
-        ShortcutAction::LogViewJumpToPreviousBookmark8,
     };
-    for ( int slot = 0; slot < 8; ++slot ) {
+    for ( int slot = 0; slot < static_cast<int>( LogFilteredData::NbBookmarks ); ++slot ) {
         addBookmarkAction( setBookmark[ slot ],
                            [ this, slot ] { Q_EMIT toggleBookmarkRequested( slot ); } );
         addBookmarkAction( nextBookmark[ slot ],

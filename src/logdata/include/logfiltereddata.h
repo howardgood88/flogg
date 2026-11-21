@@ -153,7 +153,7 @@ class LogFilteredData : public AbstractLogData {
 
     // Numbered bookmarks: each number can be set on any number of lines and a line
     // can hold several numbers. A bookmarked line is also marked.
-    static constexpr size_t NbBookmarks = 8;
+    static constexpr size_t NbBookmarks = 5;
     // Sets the bookmark on the line, or removes it if it is already there
     void toggleBookmark( size_t slot, LineNumber line );
     // Next (or previous) line holding the bookmark after (or before) the passed line,

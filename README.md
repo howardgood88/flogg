@@ -51,7 +51,7 @@ a newly opened file loads the filter file opened or saved last by default (see [
 - 🕹️ `Ctrl+click` (macOS: `Cmd+click`) selects lines that do not follow each other.
 - The filter panel and klogg's own search box are used one at a time; switch with the `Filters` button at the left end of the search bar above the filtered view. A new tab and an empty search start in Filter mode; turn off `Start in Filter mode` in `File > Preferences` to use the panel only as a highlighter, as in klogg.
 - `Shift` + mouse wheel scrolls sideways in every view with a horizontal scroll bar.
-- `[TAT]` In the main and filtered views, `Ctrl+1-8` sets bookmarks and `Alt+1-8` / `Shift+Alt+1-8` jump to the next / previous line with that bookmark.
+- `[TAT]` In the main and filtered views, `Ctrl+1-5` sets bookmarks and `1-5` / `Shift+1-5` jump to the next / previous line with that bookmark.
   They also work in the filter panel, on the line selected in the filtered view (like `F8`), and the focus stays in the panel.
   (Changing them in `File > Preferences > Shortcuts` is recommended; flogg keeps klogg's own shortcuts by default.)
 - The split between the main and filtered views is remembered: the last position you drag it to is used by every tab opened after, also for files opened before.
@@ -161,7 +161,7 @@ These work while the filter panel has the focus.
 | Add filter | `Insert` | `+ Filter` button, context menu |
 | Add group | | `+ Group` button, context menu |
 | Edit filter or rename group | `F2`, `Enter` | Double click |
-| Delete selection | `Delete` | Context menu |
+| Delete selection | `Delete`, `Ctrl+D` (macOS: `Control+D`) | Context menu |
 | Move up / down (also in and out of groups) | `Alt+Up` / `Alt+Down` | Arrow buttons, drag and drop |
 | Enable / disable a filter | | Check box |
 | Enable / disable (in group), enable all, disable all | | Context menu |
@@ -188,10 +188,11 @@ These work while the filter panel has the focus.
 | --- | --- | --- |
 | Next match of the selected filters (wraps around) | `F8` | Filter panel context menu |
 | Previous match of the selected filters (wraps around) | `Shift+F8` | Filter panel context menu |
-| Set/remove bookmark N (1-8) on the selected lines | `Ctrl+1` ... `Ctrl+8` | |
-| Next line with bookmark N | `Alt+1` ... `Alt+8` | |
-| Previous line with bookmark N | `Alt+Shift+1` ... `Alt+Shift+8` | |
-| Add selection (or the whole line) as filter | none by default | `Add as filter...` in the log view context menu |
+| Set/remove bookmark N (1-5) on the selected lines | `Ctrl+1` ... `Ctrl+5` | |
+| Next line with bookmark N | `1` ... `5` | |
+| Previous line with bookmark N | `Shift+1` ... `Shift+5` (`!` ... `%`) | |
+| Highlight the selection with color N (1-9) | `Alt+1` ... `Alt+9` | |
+| Add selection (or the whole line) as filter | `Shift+F` | `Add as filter...` in the log view context menu |
 | Add search text as filter | | `Add as filter...` in the search box context menu |
 
 ## Building

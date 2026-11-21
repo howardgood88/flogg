@@ -124,7 +124,7 @@ const ShortcutAction::ShortcutList& ShortcutAction::defaultShortcutList()
             MainWindowCloseFile,
             {
                 QApplication::tr( "Close file" ),
-                getKeyBindings( QKeySequence::Close ),
+                QStringList{ "Ctrl+W", "Ctrl+F4" },
             },
         },
         {
@@ -145,7 +145,7 @@ const ShortcutAction::ShortcutList& ShortcutAction::defaultShortcutList()
             MainWindowCopy,
             {
                 QApplication::tr( "Copy selection to clipboard" ),
-                getKeyBindings( QKeySequence::Copy ),
+                QStringList{ "Ctrl+C", QKeySequence( Qt::Key_Copy ).toString() },
             },
         },
         {
@@ -236,7 +236,12 @@ const ShortcutAction::ShortcutList& ShortcutAction::defaultShortcutList()
             MainWindowOpenFromClipboard,
             {
                 QApplication::tr( "Paste text from clipboard" ),
-                getKeyBindings( QKeySequence::Paste ),
+#ifdef Q_OS_MAC
+                // The Control key itself next to Cmd+V
+                QStringList{ "Ctrl+V", "Meta+Y" },
+#else
+                QStringList{ "Ctrl+V", "Ctrl+Y" },
+#endif
             },
         },
         {
@@ -265,14 +270,14 @@ const ShortcutAction::ShortcutList& ShortcutAction::defaultShortcutList()
             MainWindowReload,
             {
                 QApplication::tr( "Reload file" ),
-                QStringList{ getKeyBindings( QKeySequence::Refresh ) },
+                QStringList{ "Ctrl+R", QKeySequence( Qt::Key_Refresh ).toString() },
             },
         },
         {
             MainWindowStop,
             {
                 QApplication::tr( "Stop file loading" ),
-                QStringList{ getKeyBindings( QKeySequence::Cancel ) },
+                QStringList{ QKeySequence( Qt::Key_Escape ).toString(), "Ctrl+." },
             },
         },
         {
@@ -377,7 +382,12 @@ const ShortcutAction::ShortcutList& ShortcutAction::defaultShortcutList()
             FilterPanelDelete,
             {
                 QApplication::tr( "Filter panel: delete selection" ),
-                getKeyBindings( QKeySequence::Delete ),
+#ifdef Q_OS_MAC
+                // The Control key itself: Cmd+D adds the next color label
+                QStringList{ QKeySequence( Qt::Key_Delete ).toString(), "Meta+D" },
+#else
+                QStringList{ QKeySequence( Qt::Key_Delete ).toString(), "Ctrl+D" },
+#endif
             },
         },
         {
@@ -419,21 +429,21 @@ const ShortcutAction::ShortcutList& ShortcutAction::defaultShortcutList()
             CrawlerChangeVisibilityToMarksAndMatches,
             {
                 QApplication::tr( "Change filtered lines visibility to marks and matches" ),
-                QStringList{ QKeySequence( Qt::Key_1 ).toString() },
+                QStringList{},
             },
         },
         {
             CrawlerChangeVisibilityToMarks,
             {
                 QApplication::tr( "Change filtered lines visibility to marks" ),
-                QStringList{ QKeySequence( Qt::Key_2 ).toString() },
+                QStringList{},
             },
         },
         {
             CrawlerChangeVisibilityToMatches,
             {
                 QApplication::tr( "Change filtered lines visibility to matches" ),
-                QStringList{ QKeySequence( Qt::Key_3 ).toString() },
+                QStringList{},
             },
         },
         {
@@ -454,35 +464,35 @@ const ShortcutAction::ShortcutList& ShortcutAction::defaultShortcutList()
             CrawlerEnableCaseMatching,
             {
                 QApplication::tr( "Enable case matching" ),
-                QStringList{ QKeySequence( Qt::Key_4 ).toString() },
+                QStringList{},
             },
         },
         {
             CrawlerEnableRegex,
             {
                 QApplication::tr( "Enable regex" ),
-                QStringList{ QKeySequence( Qt::Key_5 ).toString() },
+                QStringList{},
             },
         },
         {
             CrawlerEnableInverseMatching,
             {
                 QApplication::tr( "Enable inverse matching" ),
-                QStringList{ QKeySequence( Qt::Key_6 ).toString() },
+                QStringList{},
             },
         },
         {
             CrawlerEnableRegexCombining,
             {
                 QApplication::tr( "Enable regex combining" ),
-                QStringList{ QKeySequence( Qt::Key_7 ).toString() },
+                QStringList{},
             },
         },
         {
             CrawlerEnableAutoRefresh,
             {
                 QApplication::tr( "Enable auto refresh" ),
-                QStringList{ QKeySequence( Qt::Key_8 ).toString() },
+                QStringList{},
             },
         },
         {
@@ -567,22 +577,21 @@ const ShortcutAction::ShortcutList& ShortcutAction::defaultShortcutList()
             LogViewJumpToStartOfLine,
             {
                 QApplication::tr( "Jump to the beginning of the current line" ),
-                { QKeySequence( Qt::Key_Home ).toString(),
-                  QKeySequence( Qt::Key_AsciiCircum ).toString() },
+                QStringList{ QKeySequence( Qt::Key_Home ).toString() },
             },
         },
         {
             LogViewJumpToEndOfLine,
             {
                 QApplication::tr( "Jump to the end start of the current line" ),
-                QStringList{ QKeySequence( Qt::Key_Dollar ).toString() },
+                QStringList{ QKeySequence( Qt::Key_End ).toString() },
             },
         },
         {
             LogViewJumpToRightOfScreen,
             {
                 QApplication::tr( "Jump to the right of the text" ),
-                QStringList{ QKeySequence( Qt::Key_End ).toString() },
+                QStringList{ "Shift+End" },
             },
         },
         {
@@ -610,28 +619,24 @@ const ShortcutAction::ShortcutList& ShortcutAction::defaultShortcutList()
             LogViewQfForward,
             {
                 QApplication::tr( "Main view: find next" ),
-                getKeyBindings( QKeySequence::FindNext )
-                    << QKeySequence( Qt::Key_N ).toString() << "Ctrl+G",
+                QStringList{ "Ctrl+G", QKeySequence( Qt::Key_N ).toString() },
             },
         },
         {
             LogViewQfBackward,
             { QApplication::tr( "Main view: find previous" ),
-              getKeyBindings( QKeySequence::FindPrevious ) << "Shift+N"
-                                                           << "Ctrl+Shift+G" },
+              QStringList{ "Ctrl+Shift+G", "Shift+N" } },
         },
         {
             LogViewQfSelectedForward,
             { QApplication::tr( "Set selection to QuickFind and find next" ),
-              { QKeySequence( Qt::Key_Asterisk ).toString(),
-                QKeySequence( Qt::Key_Period ).toString() } },
+              QStringList{ QKeySequence( Qt::Key_Period ).toString() } },
         },
         {
             LogViewQfSelectedBackward,
             {
                 QApplication::tr( "Set selection to QuickFind and find previous" ),
-                QStringList{ QKeySequence( Qt::Key_Slash ).toString(),
-                             QKeySequence( Qt::Key_Comma ).toString() },
+                QStringList{ QKeySequence( Qt::Key_Comma ).toString() },
             },
         },
         {
@@ -645,63 +650,63 @@ const ShortcutAction::ShortcutList& ShortcutAction::defaultShortcutList()
             LogViewAddColorLabel1,
             {
                 QApplication::tr( "Highlight text with color 1" ),
-                QStringList{ "Ctrl+Shift+1" },
+                QStringList{ "Alt+1" },
             },
         },
         {
             LogViewAddColorLabel2,
             {
                 QApplication::tr( "Highlight text with color 2" ),
-                QStringList{ "Ctrl+Shift+2" },
+                QStringList{ "Alt+2" },
             },
         },
         {
             LogViewAddColorLabel3,
             {
                 QApplication::tr( "Highlight text with color 3" ),
-                QStringList{ "Ctrl+Shift+3" },
+                QStringList{ "Alt+3" },
             },
         },
         {
             LogViewAddColorLabel4,
             {
                 QApplication::tr( "Highlight text with color 4" ),
-                QStringList{ "Ctrl+Shift+4" },
+                QStringList{ "Alt+4" },
             },
         },
         {
             LogViewAddColorLabel5,
             {
                 QApplication::tr( "Highlight text with color 5" ),
-                QStringList{ "Ctrl+Shift+5" },
+                QStringList{ "Alt+5" },
             },
         },
         {
             LogViewAddColorLabel6,
             {
                 QApplication::tr( "Highlight text with color 6" ),
-                QStringList{ "Ctrl+Shift+6" },
+                QStringList{ "Alt+6" },
             },
         },
         {
             LogViewAddColorLabel7,
             {
                 QApplication::tr( "Highlight text with color 7" ),
-                QStringList{ "Ctrl+Shift+7" },
+                QStringList{ "Alt+7" },
             },
         },
         {
             LogViewAddColorLabel8,
             {
                 QApplication::tr( "Highlight text with color 8" ),
-                QStringList{ "Ctrl+Shift+8" },
+                QStringList{ "Alt+8" },
             },
         },
         {
             LogViewAddColorLabel9,
             {
                 QApplication::tr( "Highlight text with color 9" ),
-                QStringList{ "Ctrl+Shift+9" },
+                QStringList{ "Alt+9" },
             },
         },
         {
@@ -754,136 +759,73 @@ const ShortcutAction::ShortcutList& ShortcutAction::defaultShortcutList()
             },
         },
         {
-            LogViewSetBookmark6,
-            {
-                QApplication::tr( "Set/remove bookmark 6" ),
-                QStringList{ "Ctrl+6" },
-            },
-        },
-        {
-            LogViewSetBookmark7,
-            {
-                QApplication::tr( "Set/remove bookmark 7" ),
-                QStringList{ "Ctrl+7" },
-            },
-        },
-        {
-            LogViewSetBookmark8,
-            {
-                QApplication::tr( "Set/remove bookmark 8" ),
-                QStringList{ "Ctrl+8" },
-            },
-        },
-        {
             LogViewJumpToBookmark1,
             {
                 QApplication::tr( "Jump to next line with bookmark 1" ),
-                QStringList{ "Alt+1" },
+                QStringList{ "1" },
             },
         },
         {
             LogViewJumpToBookmark2,
             {
                 QApplication::tr( "Jump to next line with bookmark 2" ),
-                QStringList{ "Alt+2" },
+                QStringList{ "2" },
             },
         },
         {
             LogViewJumpToBookmark3,
             {
                 QApplication::tr( "Jump to next line with bookmark 3" ),
-                QStringList{ "Alt+3" },
+                QStringList{ "3" },
             },
         },
         {
             LogViewJumpToBookmark4,
             {
                 QApplication::tr( "Jump to next line with bookmark 4" ),
-                QStringList{ "Alt+4" },
+                QStringList{ "4" },
             },
         },
         {
             LogViewJumpToBookmark5,
             {
                 QApplication::tr( "Jump to next line with bookmark 5" ),
-                QStringList{ "Alt+5" },
-            },
-        },
-        {
-            LogViewJumpToBookmark6,
-            {
-                QApplication::tr( "Jump to next line with bookmark 6" ),
-                QStringList{ "Alt+6" },
-            },
-        },
-        {
-            LogViewJumpToBookmark7,
-            {
-                QApplication::tr( "Jump to next line with bookmark 7" ),
-                QStringList{ "Alt+7" },
-            },
-        },
-        {
-            LogViewJumpToBookmark8,
-            {
-                QApplication::tr( "Jump to next line with bookmark 8" ),
-                QStringList{ "Alt+8" },
+                QStringList{ "5" },
             },
         },
         {
             LogViewJumpToPreviousBookmark1,
             {
                 QApplication::tr( "Jump to previous line with bookmark 1" ),
-                QStringList{ "Alt+Shift+1" },
+                QStringList{ "!" },
             },
         },
         {
             LogViewJumpToPreviousBookmark2,
             {
                 QApplication::tr( "Jump to previous line with bookmark 2" ),
-                QStringList{ "Alt+Shift+2" },
+                QStringList{ "@" },
             },
         },
         {
             LogViewJumpToPreviousBookmark3,
             {
                 QApplication::tr( "Jump to previous line with bookmark 3" ),
-                QStringList{ "Alt+Shift+3" },
+                QStringList{ "#" },
             },
         },
         {
             LogViewJumpToPreviousBookmark4,
             {
                 QApplication::tr( "Jump to previous line with bookmark 4" ),
-                QStringList{ "Alt+Shift+4" },
+                QStringList{ "$" },
             },
         },
         {
             LogViewJumpToPreviousBookmark5,
             {
                 QApplication::tr( "Jump to previous line with bookmark 5" ),
-                QStringList{ "Alt+Shift+5" },
-            },
-        },
-        {
-            LogViewJumpToPreviousBookmark6,
-            {
-                QApplication::tr( "Jump to previous line with bookmark 6" ),
-                QStringList{ "Alt+Shift+6" },
-            },
-        },
-        {
-            LogViewJumpToPreviousBookmark7,
-            {
-                QApplication::tr( "Jump to previous line with bookmark 7" ),
-                QStringList{ "Alt+Shift+7" },
-            },
-        },
-        {
-            LogViewJumpToPreviousBookmark8,
-            {
-                QApplication::tr( "Jump to previous line with bookmark 8" ),
-                QStringList{ "Alt+Shift+8" },
+                QStringList{ "%" },
             },
         },
         {
@@ -925,7 +867,7 @@ const ShortcutAction::ShortcutList& ShortcutAction::defaultShortcutList()
             LogViewAddAsFilter,
             {
                 QApplication::tr( "Add selection as filter" ),
-                QStringList{},
+                QStringList{ "Shift+F" },
             },
         },
         {

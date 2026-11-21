@@ -81,6 +81,7 @@
 #include <tbb/flow_graph.h>
 
 #include "abstractlogview.h"
+#include "logfiltereddata.h"
 #include "styles.h"
 #include "containers.h"
 #include "highlightedmatch.h"
@@ -2413,7 +2414,7 @@ void AbstractLogView::drawTextArea( QPaintDevice* paintDevice )
     static constexpr int ContentMarginWidth = 1;
     static constexpr int LineNumberPadding = 3;
     // One fixed column per numbered bookmark, like TextAnalysisTool
-    static constexpr int NbBookmarkSlots = 8;
+    static constexpr int NbBookmarkSlots = static_cast<int>( LogFilteredData::NbBookmarks );
 
     // First check the lines to be drawn are within range (might not be the case if
     // the file has just changed)
