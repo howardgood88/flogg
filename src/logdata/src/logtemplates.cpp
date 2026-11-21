@@ -638,13 +638,21 @@ Diff diff( const LogData& first, const Scope& firstScope, const LogData& second,
 
     const auto n = static_cast<int>( a.size() - prefix - suffix );
     const auto m = static_cast<int>( b.size() - prefix - suffix );
-    const auto at = [ &, prefix ]( const std::vector<uint32_t>& v, int i ) { return v[ prefix + i ]; };
+    const auto at = [ prefix ]( const std::vector<uint32_t>& ids, int i ) {
+        return ids[ prefix + static_cast<size_t>( i ) ];
+    };
+    const auto lineOf = [ prefix ]( const std::vector<LineNumber>& lines, int i ) {
+        return lines[ prefix + static_cast<size_t>( i ) ];
+    };
 
     // Myers: the furthest x on each diagonal for each number of changes d, only the
     // diagonals reached kept (memory in d squared)
     const auto maxD = qMin( n + m, MaxDiffDistance );
     const auto offset = maxD + 1;
-    std::vector<int> v( static_cast<size_t>( 2 * maxD + 3 ), 0 );
+    std::vector<int> furthest( static_cast<size_t>( 2 * maxD + 3 ), 0 );
+    const auto v = [ &furthest, offset ]( int k ) -> int& {
+        return furthest[ static_cast<size_t>( offset + k ) ];
+    };
     std::vector<std::vector<int>> trace;
     int distance = -1;
     for ( int d = 0; d <= maxD && distance < 0; ++d ) {
@@ -653,20 +661,19 @@ Diff diff( const LogData& first, const Scope& firstScope, const LogData& second,
             return result;
         }
         for ( int k = -d; k <= d; k += 2 ) {
-            int x = ( k == -d || ( k != d && v[ offset + k - 1 ] < v[ offset + k + 1 ] ) )
-                        ? v[ offset + k + 1 ]
-                        : v[ offset + k - 1 ] + 1;
+            int x = ( k == -d || ( k != d && v( k - 1 ) < v( k + 1 ) ) ) ? v( k + 1 )
+                                                                          : v( k - 1 ) + 1;
             int y = x - k;
             while ( x < n && y < m && at( a, x ) == at( b, y ) ) {
                 ++x;
                 ++y;
             }
-            v[ offset + k ] = x;
+            v( k ) = x;
             if ( x >= n && y >= m ) {
                 distance = d;
             }
         }
-        trace.emplace_back( v.begin() + offset - d, v.begin() + offset + d + 1 );
+        trace.emplace_back( furthest.begin() + offset - d, furthest.begin() + offset + d + 1 );
     }
     if ( distance < 0 ) {
         result.error = translate( "The lines differ too much to be compared line by line "
@@ -681,7 +688,9 @@ Diff diff( const LogData& first, const Scope& firstScope, const LogData& second,
     int y = m;
     for ( int d = distance; d > 0; --d ) {
         const auto& previous = trace[ static_cast<size_t>( d - 1 ) ];
-        const auto value = [ &previous, d ]( int k ) { return previous[ k + d - 1 ]; };
+        const auto value = [ &previous, d ]( int k ) {
+            return previous[ static_cast<size_t>( k + d - 1 ) ];
+        };
         const int k = x - y;
         const int previousK
             = ( k == -d || ( k != d && value( k - 1 ) < value( k + 1 ) ) ) ? k + 1 : k - 1;
@@ -690,21 +699,21 @@ Diff diff( const LogData& first, const Scope& firstScope, const LogData& second,
         while ( x > previousX && y > previousY ) {
             --x;
             --y;
-            middle.push_back( { DiffLine::Op::Same, aLines[ prefix + x ], bLines[ prefix + y ] } );
+            middle.push_back( { DiffLine::Op::Same, lineOf( aLines, x ), lineOf( bLines, y ) } );
         }
         if ( x == previousX ) {
             --y;
-            middle.push_back( { DiffLine::Op::Added, {}, bLines[ prefix + y ] } );
+            middle.push_back( { DiffLine::Op::Added, {}, lineOf( bLines, y ) } );
         }
         else {
             --x;
-            middle.push_back( { DiffLine::Op::Removed, aLines[ prefix + x ], {} } );
+            middle.push_back( { DiffLine::Op::Removed, lineOf( aLines, x ), {} } );
         }
     }
     while ( x > 0 && y > 0 ) {
         --x;
         --y;
-        middle.push_back( { DiffLine::Op::Same, aLines[ prefix + x ], bLines[ prefix + y ] } );
+        middle.push_back( { DiffLine::Op::Same, lineOf( aLines, x ), lineOf( bLines, y ) } );
     }
     std::reverse( middle.begin(), middle.end() );
 

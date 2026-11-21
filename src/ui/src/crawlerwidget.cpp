@@ -2953,14 +2953,14 @@ void CrawlerWidget::updateSelectionTime()
                      setSelectionTime( text, rows.join( "\n" ) );
                  }
              } );
-    clockCheck_ = QtConcurrent::run( [ logData, firstLine = firstLine, lastLine = lastLine,
-                                       reference, cancelled, stepBack ] {
+    clockCheck_ = QtConcurrent::run( [ logData, from = firstLine, to = lastLine, reference,
+                                       cancelled, stepBack ] {
         logData->attachReader();
         std::optional<int64_t> previous;
         constexpr uint64_t Block = 4096;
-        for ( auto start = firstLine.get(); start <= lastLine.get() && !*cancelled;
+        for ( auto start = from.get(); start <= to.get() && !*cancelled;
               start += Block ) {
-            const auto count = qMin<uint64_t>( Block, lastLine.get() - start + 1 );
+            const auto count = qMin<uint64_t>( Block, to.get() - start + 1 );
             const auto lines = logData->getLines( LineNumber( start ), LinesCount( count ) );
             for ( size_t i = 0; i < lines.size(); ++i ) {
                 const auto timestamp
