@@ -65,6 +65,7 @@
 #include <QStandardItemModel>
 #include <QStringListModel>
 #include <QTimer>
+#include <QtConcurrent>
 #include <qglobal.h>
 #include <qobject.h>
 #include <string>
@@ -82,6 +83,7 @@
 #include "renderview.h"
 #include "savedsearches.h"
 #include "shortcuts.h"
+#include "timestamp.h"
 
 static constexpr char AnsiColorSequenceRegex[] = "\\x1B\\[([0-9]{1,4}((;|:)[0-9]{1,3})*)?[mK]";
 
@@ -198,6 +200,12 @@ CrawlerWidget::CrawlerWidget( QWidget* parent )
 
 CrawlerWidget::~CrawlerWidget()
 {
+    // The check of the clock reads the log data owned here
+    if ( clockCheckCancelled_ ) {
+        *clockCheckCancelled_ = true;
+    }
+    clockCheck_.waitForFinished();
+
     // The members (log data, filtered data...) are destroyed before the child widgets.
     // Deleting the children still sends signals, e.g. removing the filtered view tabs
     // emits currentChanged, and the handlers would use the destroyed members.
@@ -271,6 +279,7 @@ std::vector<QObject*> CrawlerWidget::doGetAllSearchables() const
 void CrawlerWidget::doSendAllStateSignals()
 {
     Q_EMIT newSelection( currentLineNumber_, 0_lcount, 0_lcol, 0_length );
+    Q_EMIT selectionTimeChanged( selectionTimeText_, selectionTimeToolTip_ );
     if ( !loadingInProgress_ )
         Q_EMIT loadingFinished( LoadingStatus::Successful );
 }
@@ -1343,6 +1352,12 @@ void CrawlerWidget::setup()
 
     connect( logMainView_, &LogMainView::newSelection, this,
              &CrawlerWidget::updateLineNumberHandler );
+    connect( logMainView_, &LogMainView::newSelection, this, [ this ]( auto ) {
+        // The main view follows a line selected in the filtered view: that one is shown
+        if ( !selectingFromFiltered_ ) {
+            selectionChangedIn( logMainView_ );
+        }
+    } );
 
     connect( logMainView_, &LogMainView::markLines, this, &CrawlerWidget::markLinesFromMain );
 
@@ -1527,6 +1542,8 @@ void CrawlerWidget::connectAllFilteredViewSlots( FilteredView* view )
     connect( view, &FilteredView::newSelection, view, [ view ]( auto ) { view->update(); } );
 
     connect( view, &FilteredView::newSelection, this, &CrawlerWidget::jumpToMatchingLine );
+    connect( view, &FilteredView::newSelection, this,
+             [ this, view ]( auto ) { selectionChangedIn( view ); } );
 
     connect( view, &FilteredView::markLines, this, &CrawlerWidget::markLinesFromFiltered );
 
@@ -2775,4 +2792,156 @@ void CrawlerWidget::jumpToBookmark( size_t slot, bool backward, bool fromFilterP
     if ( !fromFilterPanel ) {
         logMainView_->setFocus();
     }
+}
+
+//
+// Time between the selected lines
+//
+
+namespace {
+// The lines between the two selected ones are checked for a clock going back up to here
+constexpr uint64_t MaxClockCheckedLines = 100000;
+// Lines of several threads are often a little out of order: only a larger step back counts
+constexpr int64_t ClockStepBackUs = 1000000;
+
+struct ClockStepBack {
+    LineNumber line;
+    int64_t us = 0;
+};
+} // namespace
+
+void CrawlerWidget::selectionChangedIn( AbstractLogView* view )
+{
+    selectionTimeView_ = view;
+    // Once the selection is complete (a range selected with the mouse sends many)
+    dispatchToObject( [ this ] { updateSelectionTime(); }, this );
+}
+
+void CrawlerWidget::setSelectionTime( const QString& text, const QString& toolTip )
+{
+    if ( text == selectionTimeText_ && toolTip == selectionTimeToolTip_ ) {
+        return;
+    }
+    selectionTimeText_ = text;
+    selectionTimeToolTip_ = toolTip;
+    Q_EMIT selectionTimeChanged( text, toolTip );
+}
+
+void CrawlerWidget::updateSelectionTime()
+{
+    const auto generation = ++selectionTimeGeneration_;
+    if ( clockCheckCancelled_ ) {
+        *clockCheckCancelled_ = true;
+        clockCheckCancelled_.reset();
+    }
+
+    const auto bounds = selectionTimeView_ ? selectionTimeView_->selectedFileLineBounds()
+                                           : std::optional<std::pair<LineNumber, LineNumber>>{};
+    if ( !bounds || bounds->first == bounds->second || !logData_ ) {
+        setSelectionTime( {}, {} );
+        return;
+    }
+
+    // Two lines read and parsed, a few microseconds
+    const auto [ firstLine, lastLine ] = *bounds;
+    const auto result
+        = timestamps::difference( timestamps::parseLine( logData_->getLineString( firstLine ) ),
+                                  timestamps::parseLine( logData_->getLineString( lastLine ) ) );
+
+    if ( !result.us ) {
+        setSelectionTime( tr( "Δ: %1" ).arg( result.error ), {} );
+        return;
+    }
+
+    const auto digits = qMax( result.first->fractionDigits, result.second->fractionDigits );
+    const auto text = tr( "Δ %1" ).arg( timestamps::formatDuration( *result.us, digits ) );
+
+    QStringList rows;
+    rows.append( tr( "Line %1: %2" )
+                     .arg( firstLine.get() + 1 )
+                     .arg( timestamps::formatTimestamp( *result.first ) ) );
+    rows.append( tr( "Line %1: %2" )
+                     .arg( lastLine.get() + 1 )
+                     .arg( timestamps::formatTimestamp( *result.second ) ) );
+    rows.append( tr( "Format: %1" ).arg( timestamps::formatName( result.first->format ) ) );
+    if ( *result.us < 0 ) {
+        rows.append( tr( "The last line is earlier than the first one" ) );
+    }
+    rows.append( result.notes );
+
+    const auto linesBetween = lastLine.get() - firstLine.get() - 1;
+    if ( linesBetween == 0 ) {
+        setSelectionTime( text, rows.join( "\n" ) );
+        return;
+    }
+    if ( linesBetween > MaxClockCheckedLines ) {
+        rows.append( tr( "The lines between were not checked for the clock going back "
+                         "(more than %L1 lines)" )
+                         .arg( MaxClockCheckedLines ) );
+        setSelectionTime( text, rows.join( "\n" ) );
+        return;
+    }
+
+    rows.append( tr( "Checking the lines between for the clock going back..." ) );
+    setSelectionTime( text, rows.join( "\n" ) );
+    rows.removeLast();
+
+    // Up to 100 000 lines read and parsed in the background, a few tens of milliseconds
+    auto cancelled = std::make_shared<std::atomic_bool>( false );
+    clockCheckCancelled_ = cancelled;
+    const auto* logData = logData_.get();
+    const auto reference = *result.first;
+    auto stepBack = std::make_shared<std::optional<ClockStepBack>>();
+    auto* watcher = new QFutureWatcher<void>( this );
+    connect( watcher, &QFutureWatcher<void>::finished, this,
+             [ this, watcher, generation, text, rows, stepBack ]() mutable {
+                 watcher->deleteLater();
+                 if ( generation != selectionTimeGeneration_ ) {
+                     return;
+                 }
+                 clockCheckCancelled_.reset();
+                 if ( *stepBack ) {
+                     rows.append( tr( "The clock goes back %1 at line %2: the time between the "
+                                      "lines may be wrong" )
+                                      .arg( timestamps::formatDuration( ( *stepBack )->us, 3,
+                                                                        false ) )
+                                      .arg( ( *stepBack )->line.get() + 1 ) );
+                     setSelectionTime( text + " ⚠", rows.join( "\n" ) );
+                 }
+                 else {
+                     rows.append( tr( "The clock does not go back in the lines between" ) );
+                     setSelectionTime( text, rows.join( "\n" ) );
+                 }
+             } );
+    clockCheck_ = QtConcurrent::run( [ logData, firstLine = firstLine, lastLine = lastLine,
+                                       reference, cancelled, stepBack ] {
+        logData->attachReader();
+        std::optional<int64_t> previous;
+        constexpr uint64_t Block = 4096;
+        for ( auto start = firstLine.get(); start <= lastLine.get() && !*cancelled;
+              start += Block ) {
+            const auto count = qMin<uint64_t>( Block, lastLine.get() - start + 1 );
+            const auto lines = logData->getLines( LineNumber( start ), LinesCount( count ) );
+            for ( size_t i = 0; i < lines.size(); ++i ) {
+                const auto timestamp
+                    = timestamps::sameKind( timestamps::parseLine( lines[ i ] ), reference );
+                if ( !timestamp ) {
+                    continue;
+                }
+                const auto back = previous ? *previous - timestamp->us : 0;
+                // Without a date (or a year) a large step back is a new day (or year)
+                const auto newDay = reference.format == timestamps::Format::TimeOfDay
+                                    && back > 12 * 3600 * 1000000LL;
+                const auto newYear
+                    = !reference.hasYear() && back > 180 * 86400 * 1000000LL;
+                if ( back > ClockStepBackUs && !newDay && !newYear
+                     && ( !*stepBack || back > ( *stepBack )->us ) ) {
+                    *stepBack = ClockStepBack{ LineNumber( start + i ), back };
+                }
+                previous = timestamp->us;
+            }
+        }
+        logData->detachReader();
+    } );
+    watcher->setFuture( clockCheck_ );
 }

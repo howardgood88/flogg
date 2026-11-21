@@ -1293,3 +1293,70 @@ TEST_CASE( "Scroll bar groove is painted under the rounded handle", "[ui]" )
     StyleManager::applyStyle( previousStyle );
     QApplication::setPalette( previousPalette );
 }
+
+SCENARIO( "Crawler widget time between the selected lines", "[ui]" )
+{
+    QTemporaryFile file{ "crawler_time_XXXXXX" };
+    REQUIRE( file.open() );
+    // Line 4 has no time stamp, the clock goes back 30 s at line 6
+    file.write( "2026-11-22 14:00:00.000 start\n"
+                "2026-11-22 14:00:01.250 one\n"
+                "2026-11-22 14:00:02.000 two\n"
+                "    at com.example.Main.run(Main.java:12)\n"
+                "2026-11-22 14:00:03.000 three\n"
+                "2026-11-22 13:59:33.000 clock set back\n"
+                "2026-11-22 13:59:34.000 end\n" );
+    file.flush();
+
+    Session session;
+    CrawlerWidgetVisitor crawlerVisitor;
+    crawlerVisitor.crawler.reset( static_cast<CrawlerWidget*>(
+        session.open( file.fileName(), []() { return new CrawlerWidget(); } ) ) );
+    waitUiState( [ & ]() { return crawlerVisitor.isLoadingFinished(); } );
+
+    auto& crawler = *crawlerVisitor.crawler;
+    crawler.resize( 900, 600 );
+    crawler.show();
+    crawler.grab();
+    auto* viewport = crawlerVisitor.mainViewport();
+    const auto rowHeight = crawlerVisitor.rowHeight();
+    const auto click = [ & ]( int row, Qt::KeyboardModifiers modifiers ) {
+        QTest::mouseClick( viewport, Qt::LeftButton, modifiers,
+                           QPoint( 300, rowHeight * row + rowHeight / 2 ) );
+    };
+
+    QString toolTip;
+    QObject::connect( &crawler, &CrawlerWidget::selectionTimeChanged,
+                      [ & ]( const QString&, const QString& tip ) { toolTip = tip; } );
+
+    // One line: nothing shown
+    click( 0, Qt::NoModifier );
+    QTest::qWait( 50 );
+    CHECK( crawler.selectionTimeText().isEmpty() );
+
+    // Two lines with ctrl+click
+    click( 1, Qt::ControlModifier );
+    REQUIRE( waitUiState( [ & ]() { return !crawler.selectionTimeText().isEmpty(); } ) );
+    CHECK( crawler.selectionTimeText() == "Δ +1.250 s" );
+    CHECK( toolTip.contains( "Line 1: 2026-11-22 14:00:00.000" ) );
+
+    // A range from the line toggled last: first and last lines, the lines between checked in
+    // the background
+    click( 4, Qt::ShiftModifier );
+    REQUIRE( waitUiState( [ & ]() { return toolTip.contains( "does not go back" ); } ) );
+    CHECK( crawler.selectionTimeText() == "Δ +1.750 s" );
+
+    // A line without a time stamp
+    click( 0, Qt::NoModifier );
+    click( 3, Qt::ControlModifier );
+    REQUIRE( waitUiState(
+        [ & ]() { return crawler.selectionTimeText().contains( "No time stamp in the last" ); } ) );
+
+    // The clock going back between the lines is told
+    click( 0, Qt::NoModifier );
+    click( 6, Qt::ShiftModifier );
+    REQUIRE( waitUiState( [ & ]() { return crawler.selectionTimeText().endsWith( "⚠" ); } ) );
+    CHECK( crawler.selectionTimeText() == "Δ -26.000 s ⚠" );
+    CHECK( toolTip.contains( "goes back 30.000 s at line 6" ) );
+    CHECK( toolTip.contains( "earlier than the first" ) );
+}

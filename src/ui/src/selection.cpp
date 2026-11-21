@@ -201,6 +201,24 @@ klogg::vector<LineNumber> Selection::getLines() const
     return selection;
 }
 
+std::optional<std::pair<LineNumber, LineNumber>> Selection::lineBounds() const
+{
+    if ( selectedLine_.has_value() ) {
+        return std::make_pair( *selectedLine_, *selectedLine_ );
+    }
+    if ( selectedPartial_.line.has_value() ) {
+        return std::make_pair( *selectedPartial_.line, *selectedPartial_.line );
+    }
+    if ( selectedRange_.startLine.has_value() ) {
+        return std::make_pair( *selectedRange_.startLine, selectedRange_.endLine );
+    }
+    if ( !selectedLines_.isEmpty() ) {
+        return std::make_pair( LineNumber( selectedLines_.minimum() ),
+                               LineNumber( selectedLines_.maximum() ) );
+    }
+    return {};
+}
+
 LinesCount Selection::getSelectedLinesCount() const
 {
     if ( !selectedLines_.isEmpty() ) {

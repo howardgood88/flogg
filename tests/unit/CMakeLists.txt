@@ -6,6 +6,7 @@ add_executable(klogg_tests
     render_test.cpp
     edit_test.cpp
     dirsearch_test.cpp
+    timestamp_test.cpp
     tests_main.cpp
 )
 

@@ -188,6 +188,9 @@ MainWindow::MainWindow( WindowSession session )
         SIGNAL( newSelection( LineNumber, LinesCount, LineColumn, LineLength ) ), this,
         SLOT( lineNumberHandler( LineNumber, LinesCount, LineColumn, LineLength ) ) );
 
+    signalMux_.connect( SIGNAL( selectionTimeChanged( QString, QString ) ), this,
+                        SLOT( updateSelectionTime( QString, QString ) ) );
+
     signalMux_.connect( SIGNAL( sendToScratchpad( QString ) ), this,
                         SLOT( sendToScratchpad( QString ) ) );
     signalMux_.connect( SIGNAL( addToFilters( QString ) ), this, SLOT( addToFilters( QString ) ) );
@@ -1015,6 +1018,10 @@ void MainWindow::createToolBars()
     lineNbField->setAlignment( Qt::AlignRight | Qt::AlignVCenter );
     lineNbField->setContentsMargins( 2, 0, 2, 0 );
 
+    selectionTimeField = new QLabel();
+    selectionTimeField->setAlignment( Qt::AlignRight | Qt::AlignVCenter );
+    selectionTimeField->setContentsMargins( 2, 0, 2, 0 );
+
     toolBar = addToolBar( QApplication::translate( "klogg::mainwindow::toolbar",
                                                    klogg::mainwindow::toolbar::toolbarTitle ) );
     toolBar->setIconSize( QSize( 16, 16 ) );
@@ -1035,6 +1042,8 @@ void MainWindow::createToolBars()
     toolBar->addWidget( encodingField );
     infoToolbarSeparators.push_back( toolBar->addSeparator() );
     toolBar->addWidget( lineNbField );
+    selectionTimeAction = toolBar->addWidget( selectionTimeField );
+    selectionTimeAction->setVisible( false );
     infoToolbarSeparators.push_back( toolBar->addSeparator() );
     toolBar->addAction( showScratchPadAction );
 
@@ -1610,6 +1619,13 @@ void MainWindow::lineNumberHandler( LineNumber startLine, LinesCount nLines, Lin
     else {
         lineNbField->clear();
     }
+}
+
+void MainWindow::updateSelectionTime( const QString& text, const QString& toolTip )
+{
+    selectionTimeField->setText( text );
+    selectionTimeField->setToolTip( toolTip );
+    selectionTimeAction->setVisible( !text.isEmpty() );
 }
 
 void MainWindow::updateLoadingProgress( int progress )
@@ -2892,6 +2908,7 @@ void MainWindow::showInfoLabels( bool show )
         sizeField->setToolTip( {} );
         encodingField->clear();
         lineNbField->clear();
+        updateSelectionTime( {}, {} );
     }
 }
 

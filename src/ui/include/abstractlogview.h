@@ -137,6 +137,8 @@ class AbstractLogView : public QAbstractScrollArea, public SearchableWidgetInter
     QString getSelectedText() const;
     // True for partial selection
     bool isPartialSelection() const;
+    // Lines of the file of the first and last selected lines
+    std::optional<std::pair<LineNumber, LineNumber>> selectedFileLineBounds() const;
     // Instructs the widget to select the whole text.
     void selectAll();
 

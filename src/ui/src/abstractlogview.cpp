@@ -1814,6 +1814,17 @@ QString AbstractLogView::getSelectedText() const
     return selection_.getSelectedText( logData_ );
 }
 
+std::optional<std::pair<LineNumber, LineNumber>> AbstractLogView::selectedFileLineBounds() const
+{
+    const auto bounds = selection_.lineBounds();
+    if ( !bounds || !logData_ || bounds->second >= logData_->getNbLine() ) {
+        return {};
+    }
+    // getLineNumber() gives the number shown, from 1
+    return std::make_pair( logData_->getLineNumber( bounds->first ) - 1_lcount,
+                           logData_->getLineNumber( bounds->second ) - 1_lcount );
+}
+
 bool AbstractLogView::isPartialSelection() const
 {
     return selection_.isPortion();

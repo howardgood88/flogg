@@ -23,6 +23,8 @@
 #include <QList>
 #include <QString>
 #include <cstddef>
+#include <optional>
+#include <utility>
 
 // moc can't parse the roaring headers (on Windows)
 #ifndef Q_MOC_RUN
@@ -157,6 +159,9 @@ class Selection {
     klogg::vector<LineNumber> getLines() const;
 
     LinesCount getSelectedLinesCount() const;
+
+    // First and last selected lines, without listing the lines between
+    std::optional<std::pair<LineNumber, LineNumber>> lineBounds() const;
 
     // Returns wether the line passed is selected (entirely).
     bool isLineSelected( LineNumber line ) const;

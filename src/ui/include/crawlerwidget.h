@@ -40,14 +40,18 @@
 #ifndef CRAWLERWIDGET_H
 #define CRAWLERWIDGET_H
 
+#include <atomic>
 #include <cstddef>
+#include <memory>
 #include <optional>
 
 #include <QCheckBox>
 #include <QComboBox>
+#include <QFuture>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QMenu>
+#include <QPointer>
 #include <QPushButton>
 #include <QSplitter>
 #include <QTimer>
@@ -187,6 +191,12 @@ class CrawlerWidget : public QSplitter,
     // Asks to save them before the tab is closed, false to keep it
     bool confirmEditClose();
 
+    // Time between the first and the last selected lines, see selectionTimeChanged()
+    QString selectionTimeText() const
+    {
+        return selectionTimeText_;
+    }
+
     // True until the loading of the file has finished
     bool isLoading() const
     {
@@ -247,6 +257,9 @@ class CrawlerWidget : public QSplitter,
     // Sent up when the current line number is updated
     void newSelection( LineNumber startLine, LinesCount nLines, LineColumn startCol,
                        LineLength nSymbols );
+    // Time between the first and the last selected lines (empty with one line selected),
+    // the details and warnings in the tool tip
+    void selectionTimeChanged( QString text, QString toolTip );
     // Sent up when the user wants to create a filter from a text
     void addToFilters( QString );
     void filterHitsChanged( FilterHits hits );
@@ -444,6 +457,12 @@ class CrawlerWidget : public QSplitter,
 
     void saveSplitterSizes() const;
 
+    // Time between the selected lines of the view, the lines between checked for a clock
+    // going back in the background
+    void selectionChangedIn( AbstractLogView* view );
+    void updateSelectionTime();
+    void setSelectionTime( const QString& text, const QString& toolTip );
+
     void changeFontSize( bool increase );
 
     // Palette for error notification (yellow background)
@@ -531,6 +550,13 @@ class CrawlerWidget : public QSplitter,
     bool selectingFromFiltered_ = false;
 
     klogg::vector<LineNumber> savedMarkedLines_;
+
+    QPointer<AbstractLogView> selectionTimeView_;
+    QString selectionTimeText_;
+    QString selectionTimeToolTip_;
+    uint64_t selectionTimeGeneration_ = 0;
+    std::shared_ptr<std::atomic_bool> clockCheckCancelled_;
+    QFuture<void> clockCheck_;
 
     // Current encoding setting;
     std::optional<int> encodingMib_;
