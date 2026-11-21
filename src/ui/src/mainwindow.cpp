@@ -89,6 +89,7 @@
 
 #include "mainwindow.h"
 #include "analysisdialog.h"
+#include "filemerge.h"
 
 #include "clipboard.h"
 #include "crawlerwidget.h"
@@ -589,6 +590,12 @@ void MainWindow::createActions()
         tr( "Durations between events, rules of known problems, comparison with another tab" ) );
     connect( analyzeAction, &QAction::triggered, this, [ this ] { openAnalysis( -1 ); } );
 
+    mergeFilesAction = new QAction( tr( "&Merge Files..." ), this );
+    mergeFilesAction->setStatusTip( tr( "Writes several files one after the other into a new one" ) );
+    connect( mergeFilesAction, &QAction::triggered, this, [ this ] {
+        openMergeFiles( fileTreePanel_ ? fileTreePanel_->selectedFilesInViewOrder() : QStringList{} );
+    } );
+
     searchInFolderAction = new QAction( tr( "&Search in Folder..." ), this );
     searchInFolderAction->setStatusTip( tr( "Search and replace in the files of the folder of "
                                             "the file tree" ) );
@@ -929,6 +936,7 @@ void MainWindow::createMenus()
     fileMenu->addAction( openAction );
     fileMenu->addAction( openFolderAction );
     fileMenu->addAction( searchInFolderAction );
+    fileMenu->addAction( mergeFilesAction );
     fileMenu->addAction( openClipboardAction );
     fileMenu->addAction( openUrlAction );
     recentFilesMenu = fileMenu->addMenu( tr( "Open Recent" ) );
@@ -2154,6 +2162,15 @@ QString MainWindow::strippedName( const QString& fullFileName ) const
 }
 
 // Return the currently active CrawlerWidget, or NULL if none
+void MainWindow::openMergeFiles( const QStringList& files )
+{
+    auto* dialog = new MergeFilesDialog( files, this );
+    dialog->setAttribute( Qt::WA_DeleteOnClose );
+    connect( dialog, &MergeFilesDialog::merged, this,
+             [ this ]( const QString& output ) { loadFile( output ); } );
+    dialog->open();
+}
+
 void MainWindow::openAnalysis( int page )
 {
     if ( !analysisDialog_ ) {
@@ -2989,6 +3006,8 @@ void MainWindow::setupFileTree()
                  }
              } );
     connect( fileTreePanel_, &FileTreePanel::openFolderRequested, this, &MainWindow::openFolder );
+    connect( fileTreePanel_, &FileTreePanel::mergeFilesRequested, this,
+             &MainWindow::openMergeFiles );
     fileTreePanel_->setOpenFilesProvider( [ this ] { return session_.allOpenFiles(); } );
     connect( fileTreePanel_, &FileTreePanel::openSearchResult, this,
              [ this ]( const QString& path, qint64 line, bool editMode,

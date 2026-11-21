@@ -388,6 +388,9 @@ class MainWindow : public QMainWindow {
     QAction* openFolderAction;
     QAction* searchInFolderAction;
     QAction* analyzeAction;
+    QAction* mergeFilesAction;
+    // The files in this order, then the merged one opened
+    void openMergeFiles( const QStringList& files );
     QPointer<AnalysisDialog> analysisDialog_;
     void openAnalysis( int page );
     QAction* closeAction;

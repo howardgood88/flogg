@@ -1363,6 +1363,35 @@ QStringList FileTreePanel::selectedFiles() const
     return files;
 }
 
+QStringList FileTreePanel::selectedFilesInViewOrder() const
+{
+    if ( !model_ ) {
+        return {};
+    }
+    // Rows from the top of the tree, compared level by level
+    const auto position = []( QModelIndex index ) {
+        std::vector<int> rows;
+        while ( index.isValid() ) {
+            rows.push_back( index.row() );
+            index = index.parent();
+        }
+        std::reverse( rows.begin(), rows.end() );
+        return rows;
+    };
+    std::vector<std::pair<std::vector<int>, QString>> files;
+    for ( const auto& index : tree_->selectionModel()->selectedRows( 0 ) ) {
+        if ( !isDirAt( index ) ) {
+            files.emplace_back( position( index ), pathAt( index ) );
+        }
+    }
+    std::sort( files.begin(), files.end() );
+    QStringList paths;
+    for ( const auto& file : files ) {
+        paths.append( file.second );
+    }
+    return paths;
+}
+
 void FileTreePanel::openSelected()
 {
     const auto files = selectedFiles();
@@ -1426,6 +1455,11 @@ void FileTreePanel::showContextMenu( QPoint pos )
         auto* open = menu.addAction( files.size() > 1 ? tr( "Open %1 Files" ).arg( files.size() )
                                                       : tr( "Open" ) );
         connect( open, &QAction::triggered, this, &FileTreePanel::openSelected );
+        if ( files.size() > 1 ) {
+            connect( menu.addAction( tr( "Merge %1 Files..." ).arg( files.size() ) ),
+                     &QAction::triggered, this,
+                     [ this ] { Q_EMIT mergeFilesRequested( selectedFilesInViewOrder() ); } );
+        }
     }
     else if ( index.isValid() ) {
         connect( menu.addAction( tr( "Set as Root Folder" ) ), &QAction::triggered, this,

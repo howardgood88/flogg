@@ -151,9 +151,13 @@ class FileTreePanel : public QWidget {
     // Path of an index of the tree view, index of a path
     QString pathAt( const QModelIndex& index ) const;
     QModelIndex indexOf( const QString& path ) const;
+    // The selected files in the order they are shown (the sort of the panel)
+    QStringList selectedFilesInViewOrder() const;
 
   Q_SIGNALS:
     void openFilesRequested( const QStringList& files );
+    // The selected files, in the order of the tree
+    void mergeFilesRequested( const QStringList& files );
     void openFolderRequested();
     void rootFolderChanged( const QString& folder );
     void renameFailed( const QString& message );

@@ -413,6 +413,25 @@ SCENARIO( "File tree panel sort", "[ui]" )
     CHECK( orderedNames( &panel, folder ).mid( 2 )
            == QStringList{ "app.log.2", "app.log.10", "b.txt" } );
 
+    // Selected files come in the order of the tree (for a merge)
+    const auto select = [ & ]( const QStringList& names ) {
+        auto* selection = panel.treeView()->selectionModel();
+        selection->clearSelection();
+        for ( const auto& name : names ) {
+            selection->select( panel.indexOf( folder + "/" + name ),
+                               QItemSelectionModel::Select | QItemSelectionModel::Rows );
+        }
+    };
+    select( { "b.txt", "app.log.10", "alpha", "app.log.2" } );
+    CHECK( panel.selectedFilesInViewOrder()
+           == QStringList{ folder + "/app.log.2", folder + "/app.log.10", folder + "/b.txt" } );
+    panel.setSortOrder( FileTreeSort::LargestFirst );
+    orderedNames( &panel, folder );
+    CHECK( panel.selectedFilesInViewOrder()
+           == QStringList{ folder + "/app.log.10", folder + "/b.txt", folder + "/app.log.2" } );
+    panel.setSortOrder( FileTreeSort::Type );
+    orderedNames( &panel, folder );
+
     // Kept in the settings
     CHECK( FileTreePanel().sortOrder() == FileTreeSort::Type );
     panel.setSortOrder( FileTreeSort::NameAscending );
