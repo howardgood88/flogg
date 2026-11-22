@@ -140,6 +140,24 @@ QIcon search( const QColor& lines )
     } );
 }
 
+QIcon analyze( const QColor& lines )
+{
+    return drawIcon( [ &lines ]( QPainter& painter ) {
+        painter.setRenderHint( QPainter::Antialiasing, true );
+        painter.setPen( linePen( lines ) );
+        // The axes
+        painter.drawLine( QPointF( 1.5, 1.5 ), QPointF( 1.5, 14.5 ) );
+        painter.drawLine( QPointF( 1.5, 14.5 ), QPointF( 14.5, 14.5 ) );
+        // The values, in the colour of the highlights
+        QPen pen( QColor( 0x2f, 0x6f, 0xdb ), 1.5 );
+        pen.setCapStyle( Qt::RoundCap );
+        pen.setJoinStyle( Qt::RoundJoin );
+        painter.setPen( pen );
+        const QPointF points[] = { { 3.5, 11.5 }, { 6.5, 7.0 }, { 9.0, 9.5 }, { 13.5, 3.5 } };
+        painter.drawPolyline( points, 4 );
+    } );
+}
+
 } // namespace panelicons
 
 DockTitleBar::DockTitleBar( QDockWidget* dock )

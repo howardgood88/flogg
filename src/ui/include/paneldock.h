@@ -39,6 +39,8 @@ QIcon render( const QColor& lines );
 QIcon edit( const QColor& lines );
 // Search in the files of a folder: a magnifying glass
 QIcon search( const QColor& lines );
+// Analysis of the log: a chart going up and down
+QIcon analyze( const QColor& lines );
 
 } // namespace panelicons
 

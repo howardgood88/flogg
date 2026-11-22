@@ -595,6 +595,7 @@ void MainWindow::createActions()
     analyzeAction = new QAction( tr( "&Analyze Log..." ), this );
     analyzeAction->setStatusTip(
         tr( "Durations between events, rules of known problems, comparison with another tab" ) );
+    analyzeAction->setToolTip( tr( "Analyze the log: durations, rules, compare" ) );
     connect( analyzeAction, &QAction::triggered, this, [ this ] { openAnalysis( -1 ); } );
 
     timeFormatsAction = new QAction( tr( "&Time Formats..." ), this );
@@ -933,6 +934,7 @@ void MainWindow::loadIcons()
     filterDock_->toggleViewAction()->setIcon( filtersIcon );
     filterTitle_->setIcon( filtersIcon );
     renderModeAction->setIcon( panelicons::render( lines ) );
+    analyzeAction->setIcon( panelicons::analyze( lines ) );
     renderModeAction->setIconVisibleInMenu( true );
     editModeAction->setIcon( panelicons::edit( lines ) );
     editModeAction->setIconVisibleInMenu( true );
@@ -1072,6 +1074,7 @@ void MainWindow::createToolBars()
     selectionTimeAction->setVisible( false );
     infoToolbarSeparators.push_back( toolBar->addSeparator() );
     toolBar->addAction( showScratchPadAction );
+    toolBar->addAction( analyzeAction );
 
     showInfoLabels( false );
 }

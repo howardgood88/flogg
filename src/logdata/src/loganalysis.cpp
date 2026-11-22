@@ -24,6 +24,7 @@
 #include <map>
 #include <queue>
 #include <random>
+#include <set>
 #include <unordered_map>
 
 #include <QCoreApplication>
@@ -633,10 +634,121 @@ struct Instance {
     size_t step = 1;
 };
 
-bool compatible( const QString& a, const QString& b )
-{
-    return a.isEmpty() || b.isEmpty() || a == b;
-}
+// The instances of an absence or a sequence still open, the oldest first, also found by the
+// step they wait for and their key: an instance without a key goes with any key, a line
+// without a key with any instance. Each operation is O(log n), whatever the number open.
+class OpenInstances {
+  public:
+    using Id = uint64_t;
+
+    size_t size() const
+    {
+        return byAge_.size();
+    }
+    bool empty() const
+    {
+        return byAge_.empty();
+    }
+    // The oldest open
+    Id oldest() const
+    {
+        return byAge_.begin()->first;
+    }
+    Instance& operator[]( Id id )
+    {
+        return byAge_.at( id );
+    }
+
+    void add( Instance instance )
+    {
+        const auto id = next_++;
+        index( instance.step, instance.key ).insert( id );
+        steps_[ instance.step ].insert( id );
+        byAge_.emplace( id, std::move( instance ) );
+    }
+
+    void remove( Id id )
+    {
+        const auto found = byAge_.find( id );
+        unindex( id, found->second );
+        byAge_.erase( found );
+    }
+
+    // The oldest instance waiting for `step` that goes with `key`
+    std::optional<Id> find( size_t step, const QString& key ) const
+    {
+        if ( key.isEmpty() ) {
+            return first( steps_, step );
+        }
+        const auto withKey = first( byKey_, keyOf( step, key ) );
+        const auto withoutKey = first( byKey_, keyOf( step, {} ) );
+        if ( withKey && withoutKey ) {
+            return qMin( *withKey, *withoutKey );
+        }
+        return withKey ? withKey : withoutKey;
+    }
+
+    // The instance goes on to the next step, taking the key when it had none
+    void advance( Id id, LineNumber line, const QString& key )
+    {
+        auto& instance = byAge_.at( id );
+        unindex( id, instance );
+        instance.lines.push_back( line );
+        if ( instance.key.isEmpty() ) {
+            instance.key = key;
+        }
+        ++instance.step;
+        index( instance.step, instance.key ).insert( id );
+        steps_[ instance.step ].insert( id );
+    }
+
+  private:
+    static QString keyOf( size_t step, const QString& key )
+    {
+        return QString::number( step ) + QChar( 0x1e ) + key;
+    }
+
+    template <typename Map, typename Key>
+    static std::optional<Id> first( const Map& map, const Key& key )
+    {
+        const auto found = map.find( key );
+        if ( found == map.end() || found->second.empty() ) {
+            return {};
+        }
+        return *found->second.begin();
+    }
+
+    std::set<Id>& index( size_t step, const QString& key )
+    {
+        return byKey_[ keyOf( step, key ) ];
+    }
+
+    void unindex( Id id, const Instance& instance )
+    {
+        // The sets of no instance go, so that the keys do not pile up
+        const auto keyed = byKey_.find( keyOf( instance.step, instance.key ) );
+        keyed->second.erase( id );
+        if ( keyed->second.empty() ) {
+            byKey_.erase( keyed );
+        }
+        const auto step = steps_.find( instance.step );
+        step->second.erase( id );
+        if ( step->second.empty() ) {
+            steps_.erase( step );
+        }
+    }
+
+    Id next_ = 0;
+    std::map<Id, Instance> byAge_;
+    std::unordered_map<QString, std::set<Id>> byKey_;
+    std::unordered_map<size_t, std::set<Id>> steps_;
+};
+
+// The lines of a count within its time for one key
+struct CountEvent {
+    LineNumber line;
+    timestamps::LineTimes times;
+};
 
 // Time from `from` to `to` when both lines have a comparable time
 std::optional<int64_t> elapsed( const timestamps::LineTimes& from, const timestamps::LineTimes& to,
@@ -686,10 +798,16 @@ RuleResult runRules( const LogData& logData, const std::vector<Rule>& rules, Ato
         }
     }
 
-    std::vector<std::deque<Instance>> instances( rules.size() );
-    std::vector<std::unordered_map<QString, std::deque<Instance>>> windows( rules.size() );
+    std::vector<OpenInstances> instances( rules.size() );
+    // Count: the lines of each key within the time, a key gone with its last line
+    std::vector<std::unordered_map<QString, std::deque<CountEvent>>> windows( rules.size() );
+    // Count within a time: the keys are looked over when they double, the ones whose lines
+    // are all past the time go
+    std::vector<size_t> sweepAt( rules.size(), 1024 );
+    // The oldest last line of the keys kept by the last look: once it is past the time, a key
+    // can go, also when MaxOpenInstances keys are kept
+    std::vector<std::optional<timestamps::LineTimes>> oldestKept( rules.size() );
     std::vector<bool> countReached( rules.size(), false );
-    std::vector<uint64_t> totals( rules.size(), 0 );
 
     const auto addFinding = [ & ]( size_t rule, std::vector<LineNumber> lines,
                                    const QString& detail ) {
@@ -708,9 +826,7 @@ RuleResult runRules( const LogData& logData, const std::vector<Rule>& rules, Ato
 
     const auto visit = [ & ]( const Candidate& candidate ) {
         const auto line = candidate.line;
-        const auto lineTimes = [ &candidate ]() -> const timestamps::LineTimes& {
-            return candidate.times;
-        };
+        const auto& lineTimes = candidate.times;
         const auto has = [ &candidate ]( uint32_t pattern ) { return candidate.has( pattern ); };
         const auto keyOf = [ &candidate ]( uint32_t pattern ) { return candidate.key( pattern ); };
 
@@ -724,17 +840,18 @@ RuleResult runRules( const LogData& logData, const std::vector<Rule>& rules, Ato
             auto& open = instances[ r ];
 
             // Instances past their time: absences found, sequences given up
-            if ( withinUs && !open.empty() && !lineTimes().isEmpty() ) {
+            if ( withinUs && !open.empty() && !lineTimes.isEmpty() ) {
                 while ( !open.empty() ) {
-                    const auto time = elapsed( open.front().times, lineTimes(), timeFormat );
+                    const auto oldest = open.oldest();
+                    const auto time = elapsed( open[ oldest ].times, lineTimes, timeFormat );
                     if ( !time || *time <= *withinUs ) {
                         break;
                     }
                     if ( rule.type == Rule::Type::Absence ) {
-                        addFinding( r, open.front().lines,
+                        addFinding( r, open[ oldest ].lines,
                                     translate( "Not followed within %1" ).arg( withinText( rule ) ) );
                     }
-                    open.pop_front();
+                    open.remove( oldest );
                 }
             }
 
@@ -747,19 +864,12 @@ RuleResult runRules( const LogData& logData, const std::vector<Rule>& rules, Ato
 
             case Rule::Type::Absence:
                 if ( has( ruleSteps[ 1 ] ) ) {
-                    const auto key = keyOf( ruleSteps[ 1 ] );
-                    const auto found
-                        = std::find_if( open.begin(), open.end(), [ &key ]( const auto& i ) {
-                              return compatible( i.key, key );
-                          } );
-                    if ( found != open.end() ) {
-                        open.erase( found );
+                    if ( const auto found = open.find( 1, keyOf( ruleSteps[ 1 ] ) ) ) {
+                        open.remove( *found );
                     }
                 }
                 if ( has( ruleSteps[ 0 ] ) && open.size() < MaxOpenInstances ) {
-                    open.push_back( { { line },
-                                      keyOf( ruleSteps[ 0 ] ),
-                                      lineTimes() } );
+                    open.add( { { line }, keyOf( ruleSteps[ 0 ] ), lineTimes } );
                 }
                 break;
 
@@ -770,31 +880,24 @@ RuleResult runRules( const LogData& logData, const std::vector<Rule>& rules, Ato
                         continue;
                     }
                     const auto key = keyOf( ruleSteps[ step ] );
-                    const auto found = std::find_if(
-                        open.begin(), open.end(), [ &key, step ]( const auto& i ) {
-                            return i.step == step && compatible( i.key, key );
-                        } );
-                    if ( found == open.end() ) {
+                    const auto found = open.find( step, key );
+                    if ( !found ) {
                         continue;
                     }
-                    found->lines.push_back( line );
-                    if ( found->key.isEmpty() ) {
-                        found->key = key;
-                    }
-                    if ( ++found->step == ruleSteps.size() ) {
+                    open.advance( *found, line, key );
+                    auto& instance = open[ *found ];
+                    if ( instance.step == ruleSteps.size() ) {
                         QString detail;
-                        if ( const auto time = elapsed( found->times, lineTimes(), timeFormat ) ) {
+                        if ( const auto time = elapsed( instance.times, lineTimes, timeFormat ) ) {
                             detail = translate( "In %1" ).arg(
                                 timestamps::formatDuration( *time, 3, false ) );
                         }
-                        addFinding( r, found->lines, detail );
-                        open.erase( found );
+                        addFinding( r, instance.lines, detail );
+                        open.remove( *found );
                     }
                 }
                 if ( has( ruleSteps[ 0 ] ) && open.size() < MaxOpenInstances ) {
-                    open.push_back( { { line },
-                                      keyOf( ruleSteps[ 0 ] ),
-                                      lineTimes() } );
+                    open.add( { { line }, keyOf( ruleSteps[ 0 ] ), lineTimes } );
                 }
                 break;
             }
@@ -804,11 +907,46 @@ RuleResult runRules( const LogData& logData, const std::vector<Rule>& rules, Ato
                     break;
                 }
                 const auto key = keyOf( ruleSteps[ 0 ] );
-                auto& window = windows[ r ][ key ];
-                window.push_back( { { line }, key, lineTimes() } );
+                auto& keys = windows[ r ];
+                auto found = keys.find( key );
+                if ( found == keys.end() ) {
+                    const auto past = [ & ]( const timestamps::LineTimes& times ) {
+                        const auto time = elapsed( times, lineTimes, timeFormat );
+                        return time && *time > *withinUs;
+                    };
+                    const auto due = withinUs && !lineTimes.isEmpty()
+                                     && ( keys.size() >= sweepAt[ r ]
+                                          || ( keys.size() >= MaxOpenInstances && oldestKept[ r ]
+                                               && past( *oldestKept[ r ] ) ) );
+                    if ( due ) {
+                        oldestKept[ r ].reset();
+                        int64_t oldestAge = -1;
+                        for ( auto k = keys.begin(); k != keys.end(); ) {
+                            const auto& last = k->second.back().times;
+                            const auto time = elapsed( last, lineTimes, timeFormat );
+                            if ( time && *time > *withinUs ) {
+                                k = keys.erase( k );
+                                continue;
+                            }
+                            if ( time && *time > oldestAge ) {
+                                oldestAge = *time;
+                                oldestKept[ r ] = last;
+                            }
+                            ++k;
+                        }
+                        // Past the limit only when the oldest key kept is past the time
+                        sweepAt[ r ] = qMax<size_t>( 1024, keys.size() * 2 );
+                    }
+                    if ( keys.size() >= MaxOpenInstances ) {
+                        break;
+                    }
+                    found = keys.emplace( key, std::deque<CountEvent>{} ).first;
+                }
+                auto& window = found->second;
+                window.push_back( { line, lineTimes } );
                 if ( withinUs ) {
                     while ( window.size() > 1 ) {
-                        const auto time = elapsed( window.front().times, lineTimes(), timeFormat );
+                        const auto time = elapsed( window.front().times, lineTimes, timeFormat );
                         if ( !time || *time <= *withinUs ) {
                             break;
                         }
@@ -819,7 +957,7 @@ RuleResult runRules( const LogData& logData, const std::vector<Rule>& rules, Ato
                     std::vector<LineNumber> lines;
                     for ( const auto& event : window ) {
                         if ( lines.size() < 50 ) {
-                            lines.push_back( event.lines.front() );
+                            lines.push_back( event.line );
                         }
                     }
                     // The window starts again: a burst is told once
@@ -828,7 +966,7 @@ RuleResult runRules( const LogData& logData, const std::vector<Rule>& rules, Ato
                                          .arg( window.size() )
                                          .arg( withinText( rule ) )
                                    : translate( "%1 times" ).arg( window.size() );
-                    window.clear();
+                    keys.erase( found );
                     if ( withinUs || !countReached[ r ] ) {
                         countReached[ r ] = true;
                         addFinding( r, std::move( lines ), detail );
@@ -858,17 +996,22 @@ RuleResult runRules( const LogData& logData, const std::vector<Rule>& rules, Ato
         if ( rule.type != Rule::Type::Absence ) {
             continue;
         }
-        for ( const auto& open : instances[ r ] ) {
+        auto& open = instances[ r ];
+        while ( !open.empty() ) {
+            const auto oldest = open.oldest();
+            const auto openLines = open[ oldest ].lines;
+            const auto openTimes = open[ oldest ].times;
+            open.remove( oldest );
             if ( !rule.withinSeconds ) {
-                addFinding( r, open.lines, translate( "Never followed" ) );
+                addFinding( r, openLines, translate( "Never followed" ) );
                 continue;
             }
             if ( !endTimes ) {
                 endTimes = endOfFileTimes( logData );
             }
-            const auto time = elapsed( open.times, *endTimes, timeFormat );
+            const auto time = elapsed( openTimes, *endTimes, timeFormat );
             const auto withinUs = static_cast<int64_t>( *rule.withinSeconds * 1e6 );
-            addFinding( r, open.lines,
+            addFinding( r, openLines,
                         time && *time > withinUs
                             ? translate( "Not followed within %1" ).arg( withinText( rule ) )
                             : translate( "Not followed before the end of the file (less than "

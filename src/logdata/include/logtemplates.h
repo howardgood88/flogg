@@ -51,11 +51,16 @@ struct Scope {
     uint64_t size( const LogData& logData ) const;
 };
 
+// Lines kept of each template, the first ones, to list under it
+constexpr size_t MaxTemplateLines = 50;
+
 struct Template {
     QString text;
     uint64_t count = 0;
     LineNumber first;
     LineNumber last;
+    // The first lines, up to MaxTemplateLines, in order
+    std::vector<LineNumber> lines;
 };
 
 struct Table {
@@ -86,6 +91,9 @@ struct Compared {
     uint64_t secondCount = 0;
     std::optional<LineNumber> firstLine;
     std::optional<LineNumber> secondLine;
+    // The first lines of each side, up to MaxTemplateLines, in order
+    std::vector<LineNumber> firstLines;
+    std::vector<LineNumber> secondLines;
     Status status = Status::Same;
 };
 

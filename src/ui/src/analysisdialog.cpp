@@ -26,6 +26,7 @@
 #include <QDesktopServices>
 #include <QFile>
 #include <QFileDialog>
+#include <QFontDatabase>
 #include <QFormLayout>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -36,8 +37,11 @@
 #include <QPushButton>
 #include <QSaveFile>
 #include <QSettings>
+#include <QSignalBlocker>
 #include <QStackedWidget>
 #include <QTabWidget>
+#include <QTextBrowser>
+#include <QToolButton>
 #include <QTreeView>
 #include <QTreeWidget>
 #include <QUrl>
@@ -58,6 +62,14 @@ constexpr auto CaseKey = "analysis/durationCase";
 constexpr auto RulesKey = "analysis/rulesFile";
 constexpr auto GeometryKey = "analysis/geometry";
 constexpr auto RulesHiddenColumnsKey = "analysis/rulesHiddenColumns";
+// Set on a list of tabs once the user chose one
+constexpr auto ChosenProperty = "floggTabChosen";
+
+void rememberChoice( QComboBox* list )
+{
+    QObject::connect( list, QOverload<int>::of( &QComboBox::activated ), list,
+                      [ list ]( int ) { list->setProperty( ChosenProperty, true ); } );
+}
 
 enum RuleColumn {
     RuleNameColumn,
@@ -154,6 +166,7 @@ void CompareModel::setResults( std::vector<templates::Compared> rows, bool hasSe
     all_ = std::move( rows );
     hasSecond_ = hasSecond;
     shown_.clear();
+    texts_.clear();
     endResetModel();
     setFilter( filter_ );
 }
@@ -186,14 +199,87 @@ void CompareModel::setFilter( Filter filter )
     endResetModel();
 }
 
-int CompareModel::rowCount( const QModelIndex& parent ) const
+int CompareModel::childCount( int row ) const
 {
-    return parent.isValid() ? 0 : static_cast<int>( shown_.size() );
+    const auto& compared = this->compared( row );
+    const auto side = []( const std::vector<LineNumber>& lines, uint64_t count ) {
+        return static_cast<int>( lines.size() ) + ( count > lines.size() ? 1 : 0 );
+    };
+    return side( compared.firstLines, compared.firstCount )
+           + ( hasSecond_ ? side( compared.secondLines, compared.secondCount ) : 0 );
 }
 
-int CompareModel::columnCount( const QModelIndex& parent ) const
+CompareModel::Child CompareModel::childAt( int row, int child ) const
 {
-    return parent.isValid() ? 0 : ( hasSecond_ ? NbColumns : FirstLine + 1 );
+    const auto& compared = this->compared( row );
+    auto k = static_cast<size_t>( child );
+    for ( int side = 0; side < 2; ++side ) {
+        const auto& lines = side == 0 ? compared.firstLines : compared.secondLines;
+        const auto count = side == 0 ? compared.firstCount : compared.secondCount;
+        if ( k < lines.size() ) {
+            return { side, lines[ k ], 0 };
+        }
+        k -= lines.size();
+        if ( count > lines.size() ) {
+            if ( k == 0 ) {
+                return { side, {}, count - lines.size() };
+            }
+            --k;
+        }
+    }
+    return {};
+}
+
+std::optional<std::pair<int, LineNumber>> CompareModel::lineAt( const QModelIndex& index ) const
+{
+    if ( !index.isValid() || !index.parent().isValid() ) {
+        return {};
+    }
+    const auto child = childAt( index.parent().row(), index.row() );
+    if ( !child.line ) {
+        return {};
+    }
+    return std::make_pair( child.side, *child.line );
+}
+
+QModelIndex CompareModel::index( int row, int column, const QModelIndex& parent ) const
+{
+    if ( row < 0 || column < 0 || column >= columnCount( parent ) ) {
+        return {};
+    }
+    if ( !parent.isValid() ) {
+        return row < static_cast<int>( shown_.size() ) ? createIndex( row, column, quintptr{ 0 } )
+                                                       : QModelIndex{};
+    }
+    if ( parent.parent().isValid() || row >= childCount( parent.row() ) ) {
+        return {};
+    }
+    // The rows of the lines keep the row of their template, from 1
+    return createIndex( row, column, static_cast<quintptr>( parent.row() ) + 1 );
+}
+
+QModelIndex CompareModel::parent( const QModelIndex& child ) const
+{
+    if ( !child.isValid() || child.internalId() == 0 ) {
+        return {};
+    }
+    return createIndex( static_cast<int>( child.internalId() - 1 ), 0, quintptr{ 0 } );
+}
+
+int CompareModel::rowCount( const QModelIndex& parent ) const
+{
+    if ( !parent.isValid() ) {
+        return static_cast<int>( shown_.size() );
+    }
+    if ( parent.parent().isValid() || parent.column() != 0 ) {
+        return 0;
+    }
+    return childCount( parent.row() );
+}
+
+int CompareModel::columnCount( const QModelIndex& ) const
+{
+    return hasSecond_ ? NbColumns : FirstLine + 1;
 }
 
 QVariant CompareModel::data( const QModelIndex& index, int role ) const
@@ -202,9 +288,56 @@ QVariant CompareModel::data( const QModelIndex& index, int role ) const
     if ( !index.isValid() ) {
         return {};
     }
-    const auto& row = compared( index.row() );
     const auto column = index.column();
 
+    if ( index.parent().isValid() ) {
+        // A line of the template, or the count of the others
+        const auto templateRow = index.parent().row();
+        const auto child = childAt( templateRow, index.row() );
+        const auto name = child.side == 0 ? firstName_ : secondName_;
+        if ( role == Qt::DisplayRole ) {
+            switch ( column ) {
+            case Status:
+                return name;
+            case Template: {
+                if ( !child.line ) {
+                    return QApplication::translate( "AnalysisDialog", "%L1 more lines in %2" )
+                        .arg( child.more )
+                        .arg( name );
+                }
+                const auto key = static_cast<quint64>( shown_[ static_cast<size_t>( templateRow ) ] )
+                                     * 256
+                                 + static_cast<quint64>( index.row() );
+                auto text = texts_.find( key );
+                if ( text == texts_.end() ) {
+                    text = texts_.insert( key, reader_ ? reader_( child.side, *child.line )
+                                                       : QString{} );
+                }
+                return *text;
+            }
+            case FirstLine:
+                return child.side == 0 && child.line ? QVariant( child.line->get() + 1 )
+                                                     : QVariant();
+            case SecondLine:
+                return child.side == 1 && child.line ? QVariant( child.line->get() + 1 )
+                                                     : QVariant();
+            default:
+                return {};
+            }
+        }
+        if ( role == Qt::ForegroundRole && ( column == Status || !child.line ) ) {
+            return QApplication::palette().color( QPalette::PlaceholderText );
+        }
+        if ( role == Qt::TextAlignmentRole && ( column == FirstLine || column == SecondLine ) ) {
+            return static_cast<int>( Qt::AlignRight | Qt::AlignVCenter );
+        }
+        if ( role == Qt::ToolTipRole && column == Template && child.line ) {
+            return data( index, Qt::DisplayRole );
+        }
+        return {};
+    }
+
+    const auto& row = compared( index.row() );
     if ( role == Qt::DisplayRole ) {
         switch ( column ) {
         case Status:
@@ -292,6 +425,8 @@ AnalysisDialog::AnalysisDialog( Context context, QWidget* parent )
 {
     setWindowTitle( tr( "Analyze log" ) );
     setSizeGripEnabled( true );
+    // The lists open under them (not around their current item, as on macOS)
+    setStyleSheet( "QComboBox { combobox-popup: 0; }" );
 
     pages_ = new QTabWidget( this );
     pages_->addTab( createDurationsPage(), tr( "Durations" ) );
@@ -303,6 +438,18 @@ AnalysisDialog::AnalysisDialog( Context context, QWidget* parent )
     progress_->setVisible( false );
     stop_ = new QPushButton( tr( "Stop" ), this );
     stop_->setEnabled( false );
+    stop_->setToolTip( tr( "Ends the analysis running; its results so far are dropped" ) );
+    // How to use the page shown, with examples
+    helpButton_ = new QToolButton( this );
+    helpButton_->setText( "?" );
+    helpButton_->setToolTip( tr( "How to use this page, with examples" ) );
+    auto helpFont = helpButton_->font();
+    helpFont.setBold( true );
+    helpButton_->setFont( helpFont );
+    helpButton_->setStyleSheet( "QToolButton { border: 1px solid palette(mid); border-radius: 10px; "
+                                 "min-width: 18px; max-width: 18px; min-height: 18px; "
+                                 "max-height: 18px; padding: 0px; }" );
+    connect( helpButton_, &QToolButton::clicked, this, &AnalysisDialog::showHelp );
     connect( stop_, &QPushButton::clicked, this, &AnalysisDialog::stop );
     message_ = new QLabel( this );
     message_->setWordWrap( true );
@@ -310,6 +457,7 @@ AnalysisDialog::AnalysisDialog( Context context, QWidget* parent )
     auto* bottom = new QHBoxLayout();
     bottom->addWidget( message_, 1 );
     bottom->addWidget( progress_ );
+    bottom->addWidget( helpButton_ );
     bottom->addWidget( stop_ );
 
     auto* layout = new QVBoxLayout( this );
@@ -344,6 +492,16 @@ void AnalysisDialog::showEvent( QShowEvent* event )
 {
     refreshTabs();
     QDialog::showEvent( event );
+}
+
+void AnalysisDialog::changeEvent( QEvent* event )
+{
+    // Back in the window: the tabs may have changed meanwhile (not while a list is open)
+    if ( event->type() == QEvent::ActivationChange && isActiveWindow()
+         && !QApplication::activePopupWidget() && !isRunning() ) {
+        refreshTabs();
+    }
+    QDialog::changeEvent( event );
 }
 
 void AnalysisDialog::closeEvent( QCloseEvent* event )
@@ -434,19 +592,54 @@ void AnalysisDialog::start( std::function<Result( AtomicFlag&, const analysis::P
         [ work, cancel = cancel_, progress ] { return work( *cancel, progress ); } ) );
 }
 
-CrawlerWidget* AnalysisDialog::currentCrawler( bool tellWhenNone )
+CrawlerWidget* AnalysisDialog::chosenCrawler( QComboBox* tabs, const QString& side )
 {
-    auto* crawler = context_.current ? context_.current() : nullptr;
-    if ( crawler && crawler->isLoading() ) {
-        if ( tellWhenNone ) {
-            setMessage( tr( "The file is still loading" ), true );
-        }
+    auto* crawler = qobject_cast<CrawlerWidget*>( tabs->currentData().value<QObject*>() );
+    if ( !crawler ) {
+        setMessage( tr( "Open a file first" ), true );
         return nullptr;
     }
-    if ( !crawler && tellWhenNone ) {
-        setMessage( tr( "Open a file first" ), true );
+    if ( crawler->isLoading() ) {
+        setMessage( side.isEmpty() ? tr( "The file is still loading" )
+                                   : tr( "%1 is still loading" ).arg( side ),
+                    true );
+        return nullptr;
     }
     return crawler;
+}
+
+void AnalysisDialog::setHelp( Page page, const QString& title, const QString& html )
+{
+    helps_[ static_cast<size_t>( page ) ] = { title, html };
+}
+
+void AnalysisDialog::showHelp()
+{
+    const auto& [ title, html ] = helps_[ static_cast<size_t>( pages_->currentIndex() ) ];
+    // One window, showing the help of the page it was opened for
+    if ( !help_ ) {
+        help_ = new QDialog( this );
+        help_->setAttribute( Qt::WA_DeleteOnClose );
+        helpText_ = new QTextBrowser( help_ );
+        helpText_->setOpenExternalLinks( true );
+        // The patterns and the lines in the font of the log views
+        helpText_->document()->setDefaultStyleSheet(
+            QString( "code, pre { font-family: '%1'; }" )
+                .arg( QFontDatabase::systemFont( QFontDatabase::FixedFont ).family() ) );
+        auto* layout = new QVBoxLayout( help_ );
+        layout->addWidget( helpText_ );
+        help_->resize( 620, 560 );
+    }
+    help_->setWindowTitle( tr( "%1 - how to use" ).arg( title ) );
+    helpText_->setHtml(
+        html
+        + tr( "<p><b>Stop</b> (at the bottom right) ends the analysis running: the results found so "
+              "far are dropped and the message tells <i>Stopped</i>. One analysis runs at a time; "
+              "the buttons that start one wait until it is done or stopped. Closing the window "
+              "stops it too.</p>" ) );
+    help_->show();
+    help_->raise();
+    help_->activateWindow();
 }
 
 void AnalysisDialog::showLinesOf( const QPointer<CrawlerWidget>& crawler, LineNumber first,
@@ -469,6 +662,10 @@ void AnalysisDialog::showLinesOf( const QPointer<CrawlerWidget>& crawler, LineNu
 QWidget* AnalysisDialog::createDurationsPage()
 {
     auto* page = new QWidget( this );
+    durationTab_ = new QComboBox( page );
+    durationTab_->setSizeAdjustPolicy( QComboBox::AdjustToMinimumContentsLengthWithIcon );
+    durationTab_->setMinimumContentsLength( 20 );
+    rememberChoice( durationTab_ );
     startEdit_ = new QLineEdit( settings().value( StartKey ).toString(), page );
     startEdit_->setPlaceholderText( tr( "begin request id=(\\d+)" ) );
     endEdit_ = new QLineEdit( settings().value( EndKey ).toString(), page );
@@ -483,13 +680,34 @@ QWidget* AnalysisDialog::createDurationsPage()
     connect( startEdit_, &QLineEdit::returnPressed, run, &QPushButton::click );
     connect( endEdit_, &QLineEdit::returnPressed, run, &QPushButton::click );
 
-    auto* hint = new QLabel(
-        tr( "Regular expressions. The groups in parentheses pair the lines: an end goes with "
-            "the latest start that has the same groups (or the latest start without groups)." ),
-        page );
-    hint->setWordWrap( true );
+    auto* tabRow = new QHBoxLayout();
+    tabRow->addWidget( durationTab_, 1 );
+    setHelp( Durations, tr( "Durations" ),
+        tr( "<p>The time between a start line and an end line, for every pair in the log of "
+            "the tab: how long the requests, the connections or the scans take, and which "
+            "ones never end.</p>"
+            "<p><b>Start</b> and <b>End</b> are regular expressions. The groups in "
+            "parentheses pair the lines: an end goes with the latest start that has the same "
+            "groups. Without groups an end goes with the latest start; a start never ended is "
+            "listed as <i>no end</i> and does not shift the pairs after it.</p>"
+            "<p><b>Example</b>: with the lines</p>"
+            "<pre>10:00:01.000 request begin id=7\n"
+            "10:00:01.100 request begin id=8\n"
+            "10:00:01.250 request end id=8\n"
+            "10:00:02.000 request end id=7</pre>"
+            "<p>Start <code>request begin id=(\\d+)</code> and End "
+            "<code>request end id=(\\d+)</code> give two pairs: id 8 in 150 ms and id 7 in "
+            "1 s. Without the groups (<code>request begin</code>, <code>request end</code>) the "
+            "first end would close the start of id 8, the latest one, too.</p>"
+            "<p>The results: the number of pairs, the mean, the median, the 90 and 99 "
+            "percentiles, the 1000 slowest pairs and the starts without an end. Double click "
+            "the start or the end line to show it, another column to select both lines: the "
+            "tool bar then shows the time between them.</p>"
+            "<p>The time stamps compared are the ones chosen for the tab in the right click "
+            "of the time between lines (the first of the line by default).</p>" ) );
 
     auto* form = new QFormLayout();
+    form->addRow( tr( "Tab:" ), tabRow );
     form->addRow( tr( "Start:" ), startEdit_ );
     form->addRow( tr( "End:" ), endEdit_ );
     auto* options = new QHBoxLayout();
@@ -526,7 +744,6 @@ QWidget* AnalysisDialog::createDurationsPage()
 
     auto* layout = new QVBoxLayout( page );
     layout->addLayout( form );
-    layout->addWidget( hint );
     layout->addWidget( durationSummary_ );
     layout->addWidget( durationTable_, 1 );
     return page;
@@ -537,7 +754,8 @@ void AnalysisDialog::runDurations( const QString& startPattern, const QString& e
     if ( !startsOn( Durations ) ) {
         return;
     }
-    auto* crawler = currentCrawler();
+    refreshTabs();
+    auto* crawler = chosenCrawler( durationTab_ );
     if ( !crawler ) {
         return;
     }
@@ -698,6 +916,44 @@ QWidget* AnalysisDialog::createRulesPage()
     runButtons_.push_back( run );
     connect( run, &QPushButton::clicked, this, [ this ] { runRules( rulesPath_->text() ); } );
 
+    rulesTab_ = new QComboBox( page );
+    rulesTab_->setSizeAdjustPolicy( QComboBox::AdjustToMinimumContentsLengthWithIcon );
+    rulesTab_->setMinimumContentsLength( 20 );
+    rememberChoice( rulesTab_ );
+    auto* tabRow = new QHBoxLayout();
+    tabRow->addWidget( new QLabel( tr( "Tab:" ), page ) );
+    tabRow->addWidget( rulesTab_, 1 );
+    setHelp( Rules, tr( "Rules" ),
+        tr( "<p>Known problems, written once in a rule file (JSON, shared like the filter "
+            "files) and looked for in the log of the tab with <b>Check</b>. A rule is one of "
+            "four kinds:</p>"
+            "<ul>"
+            "<li><b>match</b>: a line, e.g. <code>FATAL EXCEPTION|Segmentation fault</code>.</li>"
+            "<li><b>sequence</b>: lines in this order, within a time when one is given, e.g. "
+            "<code>login user=(\\w+)</code> then <code>logout user=(\\w+)</code> within 2 s: "
+            "a user logged out right away.</li>"
+            "<li><b>absence</b>: a line not followed by another within the time, e.g. "
+            "<code>connect start id=(\\d+)</code> without <code>connected id=(\\d+)</code> "
+            "within 5 s: a connection never established.</li>"
+            "<li><b>count</b>: a line at least <i>count</i> times within the time, e.g. "
+            "<code>retry request=(\\w+)</code> 3 times within 60 s: a retry storm.</li>"
+            "</ul>"
+            "<p>The groups in parentheses tie the lines of one thing: the same connection id, "
+            "the same user. Without groups any lines go together.</p>"
+            "<p>A rule of the file:</p>"
+            "<pre>{ \"name\": \"Retry storm\", \"type\": \"count\",\n"
+            "  \"severity\": \"warning\",\n"
+            "  \"patterns\": [ \"retry request=(\\\\w+)\" ],\n"
+            "  \"count\": 3, \"withinSeconds\": 60,\n"
+            "  \"note\": \"See https://wiki/retries\" }</pre>"
+            "<p><b>Edit...</b> changes the rules of the file in a form, <b>New...</b> starts a "
+            "new file, <b>Example...</b> writes one rule of each kind. In the log views, "
+            "<b>Add as rule...</b> of the right click menu starts a rule from the selected "
+            "text.</p>"
+            "<p>In the results, double click a line to show it in the log; select a rule to "
+            "read its note, its web addresses as links. The right click on the column titles "
+            "chooses the columns.</p>" ) );
+
     auto* top = new QHBoxLayout();
     top->addWidget( new QLabel( tr( "Rules:" ), page ) );
     top->addWidget( rulesPath_, 1 );
@@ -706,12 +962,6 @@ QWidget* AnalysisDialog::createRulesPage()
     top->addWidget( newFile );
     top->addWidget( example );
     top->addWidget( run );
-
-    auto* hint = new QLabel(
-        tr( "A rule tells a known problem: a line (match), lines in an order (sequence), a line "
-            "not followed by another in time (absence), a line repeated in time (count)." ),
-        page );
-    hint->setWordWrap( true );
 
     rulesTree_ = new QTreeWidget( page );
     rulesTree_->setUniformRowHeights( true );
@@ -789,8 +1039,8 @@ QWidget* AnalysisDialog::createRulesPage()
              } );
 
     auto* layout = new QVBoxLayout( page );
+    layout->addLayout( tabRow );
     layout->addLayout( top );
-    layout->addWidget( hint );
     layout->addWidget( rulesTree_, 1 );
     layout->addWidget( ruleDetails_ );
     return page;
@@ -820,7 +1070,8 @@ void AnalysisDialog::runRules( const QString& rulesFile )
     if ( !startsOn( Rules ) ) {
         return;
     }
-    auto* crawler = currentCrawler();
+    refreshTabs();
+    auto* crawler = chosenCrawler( rulesTab_ );
     if ( !crawler ) {
         return;
     }
@@ -979,6 +1230,7 @@ QWidget* AnalysisDialog::createComparePage()
     firstTab_ = new QComboBox( page );
     firstTab_->setSizeAdjustPolicy( QComboBox::AdjustToMinimumContentsLengthWithIcon );
     firstTab_->setMinimumContentsLength( 20 );
+    rememberChoice( firstTab_ );
     connect( firstTab_, QOverload<int>::of( &QComboBox::activated ), this,
              [ this ]( int ) { refreshTabs(); } );
     firstScope_ = new QComboBox( page );
@@ -1022,6 +1274,32 @@ QWidget* AnalysisDialog::createComparePage()
     auto* firstRow = new QHBoxLayout();
     firstRow->addWidget( firstTab_, 1 );
     firstRow->addWidget( firstScope_ );
+    setHelp( Compare, tr( "Compare" ),
+        tr( "<p>What differs between two logs, such as a good day and a bad day, or before and "
+            "after a change. Choose the tab of each side and its lines: the whole file, the "
+            "lines of the filtered view or the selected lines. Pasted text can be compared too: "
+            "paste it as a tab (<i>File &gt; Paste from clipboard</i>).</p>"
+            "<p><b>Templates</b> turns each line into its kind: the time stamp left out, the "
+            "numbers, ids, quoted text and the values of <code>key=value</code> replaced. The "
+            "lines</p>"
+            "<pre>2026-11-22 09:00:58.261 WARN [http-3] retry request=r77 attempt=2\n"
+            "2026-11-22 09:01:01.711 WARN [http-3] retry request=r77 attempt=3</pre>"
+            "<p>are both <code>WARN [http-&lt;NUM&gt;] retry request=&lt;*&gt; "
+            "attempt=&lt;*&gt;</code>. The kinds of both sides are counted: the ones only in "
+            "one file and the ones much more or less frequent (by their share of the lines) "
+            "come first; <b>Show:</b> keeps some of them. Open a template to list its first "
+            "%L1 lines in each file. Double click a line to show it in its tab, a template to "
+            "show its first line (in the tab of the column clicked).</p>"
+            "<p><b>Group lines that differ by one word</b> also counts as one the templates of 4 "
+            "words or more that differ by one word, e.g. <code>login user alice ok</code> and "
+            "<code>login user bob ok</code>.</p>"
+            "<p>With <b>(nothing)</b> as the other side, the templates of the first one, the "
+            "rarest first: the unusual lines of a log.</p>"
+            "<p><b>Line by line</b> puts both sides in two columns like a code review, up to "
+            "%L2 lines a side, the times and numbers left out: the lines of one side only in "
+            "red and green, the lines alike folded.</p>" )
+            .arg( templates::MaxTemplateLines )
+            .arg( templates::MaxDiffLines ) );
     form->addRow( tr( "Compare:" ), firstRow );
     auto* other = new QHBoxLayout();
     other->addWidget( otherTab_, 1 );
@@ -1034,23 +1312,32 @@ QWidget* AnalysisDialog::createComparePage()
     buttons->addWidget( compareButton );
     form->addRow( buttons );
 
-    auto* hint = new QLabel( tr( "Pasted text can be compared too: paste it as a tab "
-                                 "(File > Paste from clipboard) and choose that tab." ),
-                             page );
-    hint->setWordWrap( true );
-
     compareModel_ = new CompareModel( this );
     compareView_ = new QTreeView( page );
-    compareView_->setRootIsDecorated( false );
     compareView_->setUniformRowHeights( true );
+    // A double click shows a line, the arrow opens a template
+    compareView_->setExpandsOnDoubleClick( false );
     compareView_->setModel( compareModel_ );
-    compareView_->setToolTip( tr( "Double click to show the first line of the template, in the "
-                                  "tab of the column clicked" ) );
+    compareView_->setToolTip( tr( "Open a template to list its lines. Double click a line to show "
+                                  "it, a template to show its first line in the tab of the "
+                                  "column clicked" ) );
+    compareModel_->setLineReader( [ this ]( int side, LineNumber line ) {
+        const auto& crawler = side == 0 ? firstCrawler_ : secondCrawler_;
+        const auto data = crawler ? crawler->logData() : std::shared_ptr<LogData>{};
+        return data && line < data->getNbLine() ? lineText( *data, line ) : QString{};
+    } );
     connect( statusFilter_, QOverload<int>::of( &QComboBox::currentIndexChanged ), this,
              [ this ]( int index ) {
                  compareModel_->setFilter( static_cast<CompareModel::Filter>( index ) );
              } );
     connect( compareView_, &QTreeView::activated, this, [ this ]( const QModelIndex& index ) {
+        if ( index.parent().isValid() ) {
+            if ( const auto line = compareModel_->lineAt( index ) ) {
+                showLinesOf( line->first == 0 ? firstCrawler_ : secondCrawler_, line->second,
+                             line->second );
+            }
+            return;
+        }
         const auto& compared = compareModel_->compared( index.row() );
         const auto inSecond = index.column() == CompareModel::SecondLine
                               || index.column() == CompareModel::SecondCount
@@ -1099,10 +1386,39 @@ QWidget* AnalysisDialog::createComparePage()
 
     auto* layout = new QVBoxLayout( page );
     layout->addLayout( form );
-    layout->addWidget( hint );
     layout->addWidget( filterRow_ );
     layout->addWidget( compareResults_, 1 );
     return page;
+}
+
+void AnalysisDialog::fillTabs( QComboBox* list, const std::vector<Tab>& tabs,
+                               CrawlerWidget* current )
+{
+    // The tab chosen in the list stays while it is open; until one is chosen, the list
+    // follows the current tab
+    const auto previous = list->property( ChosenProperty ).toBool()
+                              ? list->currentData().value<QObject*>()
+                              : nullptr;
+    QSignalBlocker blocker( list );
+    list->clear();
+    int selected = -1;
+    int currentIndex = -1;
+    for ( const auto& tab : tabs ) {
+        if ( !tab.crawler ) {
+            continue;
+        }
+        list->addItem( tab.name, QVariant::fromValue<QObject*>( tab.crawler.data() ) );
+        if ( tab.crawler == previous ) {
+            selected = list->count() - 1;
+        }
+        if ( tab.crawler == current ) {
+            currentIndex = list->count() - 1;
+        }
+    }
+    if ( selected < 0 ) {
+        selected = currentIndex >= 0 ? currentIndex : ( list->count() > 0 ? 0 : -1 );
+    }
+    list->setCurrentIndex( selected );
 }
 
 void AnalysisDialog::refreshTabs()
@@ -1111,32 +1427,16 @@ void AnalysisDialog::refreshTabs()
         return;
     }
     const auto tabs = context_.tabs ? context_.tabs() : std::vector<Tab>{};
-
-    // The first side: the tab chosen before while it is open, the current one otherwise
-    const auto previousFirst = firstTab_->currentData().value<QObject*>();
     auto* current = context_.current ? context_.current() : nullptr;
-    firstTab_->clear();
-    int selectedFirst = -1;
-    for ( const auto& tab : tabs ) {
-        if ( !tab.crawler ) {
-            continue;
-        }
-        firstTab_->addItem( tab.name, QVariant::fromValue<QObject*>( tab.crawler.data() ) );
-        if ( tab.crawler == previousFirst ) {
-            selectedFirst = firstTab_->count() - 1;
-        }
-        else if ( selectedFirst < 0 && tab.crawler == current ) {
-            selectedFirst = firstTab_->count() - 1;
-        }
-    }
-    if ( selectedFirst < 0 && firstTab_->count() > 0 ) {
-        selectedFirst = 0;
-    }
-    firstTab_->setCurrentIndex( selectedFirst );
+    fillTabs( durationTab_, tabs, current );
+    fillTabs( rulesTab_, tabs, current );
+    // The first side: the tab chosen before while it is open, the current one otherwise
+    fillTabs( firstTab_, tabs, current );
     auto* first = firstTab_->currentData().value<QObject*>();
 
     // The other side: any other tab
     const auto previous = otherTab_->currentData().value<QObject*>();
+    QSignalBlocker blocker( otherTab_ );
     otherTab_->clear();
     otherTab_->addItem( tr( "(nothing: the templates of the first tab)" ),
                         QVariant::fromValue<QObject*>( nullptr ) );

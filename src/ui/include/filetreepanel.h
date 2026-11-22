@@ -100,6 +100,8 @@ class FileTreePanel : public QWidget {
     bool isInUse( const QString& path ) const;
     // Edits the name of the current file or folder
     void renameCurrent();
+    // An empty folder or file in the folder, its name edited next; the path or empty
+    QString addEntry( const QString& folder, bool isFolder );
 
     // Kept in the settings
     FileTreeSort sortOrder() const

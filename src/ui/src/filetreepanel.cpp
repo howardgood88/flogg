@@ -873,6 +873,75 @@ void FileTreePanel::renameCurrent()
     tree_->edit( index );
 }
 
+QString FileTreePanel::addEntry( const QString& folder, bool isFolder )
+{
+    if ( !model_ || folder.isEmpty() ) {
+        return {};
+    }
+    // The first free name, as file managers do
+    const auto base = isFolder ? tr( "New Folder" ) : tr( "New File" );
+    const auto suffix = isFolder ? QString{} : QStringLiteral( ".txt" );
+    QString path;
+    for ( int number = 1; number < 1000; ++number ) {
+        const auto name
+            = number == 1 ? base + suffix : QStringLiteral( "%1 %2%3" ).arg( base ).arg( number ).arg( suffix );
+        const auto candidate = folder + '/' + name;
+        if ( !QFileInfo::exists( candidate ) ) {
+            path = candidate;
+            break;
+        }
+    }
+
+    const auto title = isFolder ? tr( "Add Folder" ) : tr( "Add File" );
+    auto created = false;
+    if ( !path.isEmpty() ) {
+        if ( isFolder ) {
+            created = QDir( folder ).mkdir( QFileInfo( path ).fileName() );
+        }
+        else {
+            QFile file( path );
+            // NewOnly: never truncates a file made meanwhile
+            created = file.open( QIODevice::WriteOnly | QIODevice::NewOnly );
+        }
+    }
+    if ( !created ) {
+        showWarning( title, tr( "Can't create a new item in \"%1\"." )
+                                .arg( QDir::toNativeSeparators( folder ) ) );
+        return {};
+    }
+    LOG_INFO << "File tree created " << path.toStdString();
+    if ( index_ ) {
+        index_->refresh( normalized( folder ) );
+    }
+
+    // Shown once the model reads the folder again (a while for a file); its name is
+    // edited then. Not shown out of the name filter: only created.
+    if ( folder != rootFolder_ ) {
+        tree_->expand( indexOf( folder ) );
+    }
+    auto tries = std::make_shared<int>( 0 );
+    auto edit = std::make_shared<std::function<void()>>();
+    *edit = [ this, path, tries, weak = std::weak_ptr<std::function<void()>>( edit ) ] {
+        // Not once the root changed
+        const auto index = model_ && path.startsWith( rootPrefix( rootFolder_ ) )
+                               ? indexOf( path )
+                               : QModelIndex{};
+        if ( index.isValid() ) {
+            tree_->setCurrentIndex( index );
+            tree_->scrollTo( index );
+            tree_->edit( index );
+            return;
+        }
+        if ( ++*tries < 40 ) {
+            if ( auto next = weak.lock() ) {
+                QTimer::singleShot( 50, this, [ next ] { ( *next )(); } );
+            }
+        }
+    };
+    QTimer::singleShot( 0, this, [ edit ] { ( *edit )(); } );
+    return path;
+}
+
 void FileTreePanel::showWarning( const QString& title, const QString& message )
 {
     auto* box = new QMessageBox( QMessageBox::Warning, title, message, QMessageBox::Ok, this );
@@ -968,8 +1037,8 @@ QString FileTreePanel::trashText()
 QKeySequence FileTreePanel::trashShortcut()
 {
 #ifdef Q_OS_MAC
-    // Cmd+Backspace as in the Finder
-    return QKeySequence( Qt::CTRL | Qt::Key_Backspace );
+    // The key named delete on a Mac (Fn+delete, the forward delete, works too)
+    return QKeySequence( Qt::Key_Backspace );
 #else
     return QKeySequence( Qt::Key_Delete );
 #endif
@@ -1412,7 +1481,8 @@ bool FileTreePanel::eventFilter( QObject* watched, QEvent* event )
             renameCurrent();
             return true;
         }
-        if ( QKeySequence( keyEvent->keyCombination() ) == trashShortcut() ) {
+        const QKeySequence keys( keyEvent->keyCombination() );
+        if ( keys == trashShortcut() || keys == QKeySequence( Qt::Key_Delete ) ) {
             moveToTrash( targetsAt( tree_->currentIndex() ) );
             return true;
         }
@@ -1468,6 +1538,15 @@ void FileTreePanel::showContextMenu( QPoint pos )
     connect( menu.addAction( tr( "Reveal in File Manager" ) ), &QAction::triggered, this,
              [ path ] { showPathInFileExplorer( path ); } );
     menu.addSeparator();
+
+    if ( isDir ) {
+        // Created empty, then named in the tree
+        connect( menu.addAction( tr( "Add Folder" ) ), &QAction::triggered, this,
+                 [ this, path ] { addEntry( path, true ); } );
+        connect( menu.addAction( tr( "Add File" ) ), &QAction::triggered, this,
+                 [ this, path ] { addEntry( path, false ); } );
+        menu.addSeparator();
+    }
 
     if ( !isDir ) {
         connect( menu.addAction( tr( "Search in File" ) ), &QAction::triggered, this,

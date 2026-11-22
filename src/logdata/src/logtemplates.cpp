@@ -23,6 +23,7 @@
 #include <array>
 #include <atomic>
 #include <cmath>
+#include <iterator>
 #include <numeric>
 #include <unordered_map>
 
@@ -145,7 +146,39 @@ struct Info {
     uint64_t count = 0;
     uint64_t first = 0;
     uint64_t last = 0;
+    // The first lines, sorted, up to MaxTemplateLines
+    std::vector<uint64_t> lines;
 };
+
+// Keeps the first MaxTemplateLines lines, sorted; the lines of a block come in order, the
+// blocks in any order
+void keepLine( std::vector<uint64_t>& lines, uint64_t line )
+{
+    if ( lines.size() == MaxTemplateLines && line > lines.back() ) {
+        return;
+    }
+    if ( lines.empty() || line > lines.back() ) {
+        lines.push_back( line );
+        return;
+    }
+    lines.insert( std::lower_bound( lines.begin(), lines.end(), line ), line );
+    if ( lines.size() > MaxTemplateLines ) {
+        lines.pop_back();
+    }
+}
+
+// The first MaxTemplateLines lines of both, sorted
+template <typename Line>
+void mergeLines( std::vector<Line>& into, const std::vector<Line>& from )
+{
+    std::vector<Line> merged;
+    merged.reserve( qMin( MaxTemplateLines, into.size() + from.size() ) );
+    std::merge( into.begin(), into.end(), from.begin(), from.end(), std::back_inserter( merged ) );
+    if ( merged.size() > MaxTemplateLines ) {
+        merged.resize( MaxTemplateLines );
+    }
+    into = std::move( merged );
+}
 
 using Map = std::unordered_map<QString, Info>;
 
@@ -361,12 +394,13 @@ Table build( const LogData& logData, const Scope& scope, AtomicFlag& cancel,
                                                continue;
                                            }
                                            local.map.emplace( std::move( text ),
-                                                              Info{ 1, line, line } );
+                                                              Info{ 1, line, line, { line } } );
                                            continue;
                                        }
                                        ++found->second.count;
                                        found->second.first = qMin( found->second.first, line );
                                        found->second.last = qMax( found->second.last, line );
+                                       keepLine( found->second.lines, line );
                                    }
                                } );
 
@@ -394,20 +428,26 @@ Table build( const LogData& logData, const Scope& scope, AtomicFlag& cancel,
         for ( auto& [ text, info ] : local.map ) {
             auto& merged = all[ text ];
             if ( merged.count == 0 ) {
-                merged = info;
+                merged = std::move( info );
             }
             else {
                 merged.count += info.count;
                 merged.first = qMin( merged.first, info.first );
                 merged.last = qMax( merged.last, info.last );
+                mergeLines( merged.lines, info.lines );
             }
         }
     }
 
     table.templates.reserve( all.size() );
     for ( auto& [ text, info ] : all ) {
-        table.templates.push_back(
-            { text, info.count, LineNumber( info.first ), LineNumber( info.last ) } );
+        std::vector<LineNumber> lines;
+        lines.reserve( info.lines.size() );
+        for ( const auto line : info.lines ) {
+            lines.emplace_back( line );
+        }
+        table.templates.push_back( { text, info.count, LineNumber( info.first ),
+                                     LineNumber( info.last ), std::move( lines ) } );
     }
     std::sort( table.templates.begin(), table.templates.end(),
                []( const Template& a, const Template& b ) {
@@ -525,6 +565,7 @@ std::vector<Compared> compare( const Table& first, const Table* second, bool mer
         if ( !line || t.first < *line ) {
             line = t.first;
         }
+        mergeLines( inFirst ? compared.firstLines : compared.secondLines, t.lines );
     }
 
     // Shares of the lines, the files may have different sizes

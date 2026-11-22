@@ -1,6 +1,6 @@
 # flogg changes
 
-## Unreleased
+## 1.4.0 (2026-11-22)
 
 - **New: time between lines**: with two or more lines selected (`Ctrl+click`,
   `Shift+click`) the tool bar shows the time from the first to the last one; each line is
@@ -22,7 +22,10 @@
     time, tied by their groups), edited in a form (`Edit...`, `New...`, `Add as rule...`
     in the log views), with a note whose web addresses are links; `Example...`
   - Compare two tabs (the whole file, the filtered view or the selection) by the
-    templates of the lines, or line by line in two columns
+    templates of the lines, each opening on its first 50 lines in each file, or line by
+    line in two columns
+  - A button right of the scratchpad in the tool bar; each page runs on the tab chosen at
+    its top; the `?` next to `Stop` tells how to use the page shown, with examples
 - **New: merge files** (`Merge N Files...` in the file panel, `File > Merge Files...`):
   the files one after the other in a new file, in the order of the file panel or another
 - The encoding moved to the tool tip of the file size, leaving room in the tool bar

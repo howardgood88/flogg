@@ -23,14 +23,17 @@
 #include <array>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <vector>
 
-#include <QAbstractTableModel>
+#include <QAbstractItemModel>
+#include <QHash>
 #include <QDialog>
 #include <QFutureWatcher>
 #include <QPointer>
 
 #include "atomicflag.h"
+#include "linetypes.h"
 #include "loganalysis.h"
 #include "logtemplates.h"
 
@@ -44,39 +47,65 @@ class QProgressBar;
 class QPushButton;
 class QStackedWidget;
 class QTabWidget;
+class QTextBrowser;
+class QToolButton;
 class QTreeView;
 class QTreeWidget;
 class QTreeWidgetItem;
 
-// The templates compared, filtered by their status
-class CompareModel : public QAbstractTableModel {
+// The templates compared, filtered by their status; under each template its first lines
+// in each file
+class CompareModel : public QAbstractItemModel {
   public:
     enum Column { Status, Template, FirstCount, SecondCount, FirstLine, SecondLine, NbColumns };
     enum Filter { All, Changed, OnlyFirst, OnlySecond, More, Fewer };
+    // Reads a line of a side (0 the first file, 1 the other) for the rows of the lines
+    using LineReader = std::function<QString( int side, LineNumber line )>;
 
-    using QAbstractTableModel::QAbstractTableModel;
+    using QAbstractItemModel::QAbstractItemModel;
 
     void setResults( std::vector<templates::Compared> rows, bool hasSecond );
     void setFilter( Filter filter );
     // The names of the files compared, for the titles and the changes
     void setNames( const QString& first, const QString& second );
+    void setLineReader( LineReader reader )
+    {
+        reader_ = std::move( reader );
+    }
+    // The template of a top row
     const templates::Compared& compared( int row ) const
     {
         return all_[ shown_[ static_cast<size_t>( row ) ] ];
     }
+    // The side and the line of a row under a template, nothing for the others
+    std::optional<std::pair<int, LineNumber>> lineAt( const QModelIndex& index ) const;
 
+    QModelIndex index( int row, int column, const QModelIndex& parent = {} ) const override;
+    QModelIndex parent( const QModelIndex& child ) const override;
     int rowCount( const QModelIndex& parent = {} ) const override;
     int columnCount( const QModelIndex& parent = {} ) const override;
     QVariant data( const QModelIndex& index, int role ) const override;
     QVariant headerData( int section, Qt::Orientation orientation, int role ) const override;
 
   private:
+    // A row under a template: a line of a side, or the count of the lines not listed
+    struct Child {
+        int side = 0;
+        std::optional<LineNumber> line;
+        uint64_t more = 0;
+    };
+    Child childAt( int row, int child ) const;
+    int childCount( int row ) const;
+
     std::vector<templates::Compared> all_;
     std::vector<size_t> shown_;
     bool hasSecond_ = false;
     QString firstName_;
     QString secondName_;
     Filter filter_ = All;
+    LineReader reader_;
+    // The texts of the lines shown, read once
+    mutable QHash<quint64, QString> texts_;
 };
 
 // Analyses of the log of the current tab, in the background: the time between pairs of
@@ -142,6 +171,26 @@ class AnalysisDialog : public QDialog {
     {
         return firstTab_;
     }
+    QComboBox* durationTab() const
+    {
+        return durationTab_;
+    }
+    QComboBox* rulesTab() const
+    {
+        return rulesTab_;
+    }
+    QToolButton* helpButton() const
+    {
+        return helpButton_;
+    }
+    QDialog* helpWindow() const
+    {
+        return help_;
+    }
+    QTreeView* compareView() const
+    {
+        return compareView_;
+    }
     QLabel* ruleDetails() const
     {
         return ruleDetails_;
@@ -152,6 +201,7 @@ class AnalysisDialog : public QDialog {
   protected:
     void showEvent( QShowEvent* event ) override;
     void closeEvent( QCloseEvent* event ) override;
+    void changeEvent( QEvent* event ) override;
 
   private:
     QWidget* createDurationsPage();
@@ -171,8 +221,14 @@ class AnalysisDialog : public QDialog {
     // Whether `page` can start an analysis now; its messages go to it
     bool startsOn( Page page );
 
-    CrawlerWidget* currentCrawler( bool tellWhenNone = true );
+    // The tab chosen in the list, told when there is none or it is loading
+    CrawlerWidget* chosenCrawler( QComboBox* tabs, const QString& side = {} );
     void refreshTabs();
+    // The tabs in the list: the one chosen before while it is open, the current one otherwise
+    void fillTabs( QComboBox* list, const std::vector<Tab>& tabs, CrawlerWidget* current );
+    // How to use a page, with examples, shown by the "?" next to Stop for the page shown
+    void setHelp( Page page, const QString& title, const QString& html );
+    void showHelp();
     std::optional<templates::Scope> scopeOf( CrawlerWidget* crawler, int kind,
                                              QString* error ) const;
     void showLinesOf( const QPointer<CrawlerWidget>& crawler, LineNumber first, LineNumber last );
@@ -181,9 +237,14 @@ class AnalysisDialog : public QDialog {
     QTabWidget* pages_ = nullptr;
     QProgressBar* progress_ = nullptr;
     QPushButton* stop_ = nullptr;
+    QToolButton* helpButton_ = nullptr;
+    std::array<std::pair<QString, QString>, 3> helps_;
+    QPointer<QDialog> help_;
+    QTextBrowser* helpText_ = nullptr;
     QLabel* message_ = nullptr;
     std::vector<QPushButton*> runButtons_;
 
+    QComboBox* durationTab_ = nullptr;
     QLineEdit* startEdit_ = nullptr;
     QLineEdit* endEdit_ = nullptr;
     QCheckBox* durationCase_ = nullptr;
@@ -191,6 +252,7 @@ class AnalysisDialog : public QDialog {
     QTreeWidget* durationTable_ = nullptr;
     QPointer<CrawlerWidget> durationCrawler_;
 
+    QComboBox* rulesTab_ = nullptr;
     QLineEdit* rulesPath_ = nullptr;
     QTreeWidget* rulesTree_ = nullptr;
     QLabel* ruleDetails_ = nullptr;

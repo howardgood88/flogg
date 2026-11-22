@@ -187,6 +187,88 @@ SCENARIO( "Rules", "[analysis]" )
     CHECK( parseRules( R"({"rules":[{"name":"x","pattern":"a"}]})" ).rules.size() == 1 );
 }
 
+SCENARIO( "Rules pair the open instances by their key", "[analysis]" )
+{
+    AtomicFlag cancel;
+
+    // An end with a key goes with the oldest start of its key or without one; an end
+    // without a key with the oldest start
+    {
+        const LoadedLog log( "2026-11-22 10:00:00 open id=1\n"   // 0
+                             "2026-11-22 10:00:00 open id=2\n"   // 1
+                             "2026-11-22 10:00:00 open\n"        // 2
+                             "2026-11-22 10:00:01 done id=2\n"   // 3: closes 1
+                             "2026-11-22 10:00:01 done\n" );     // 4: closes 0
+        const auto set = parseRules(
+            R"json({"rules":[{"name":"a","type":"absence",)json"
+            R"json("patterns":["open(?: id=(\\d+))?","done(?: id=(\\d+))?"]}]})json" );
+        REQUIRE( set.error.isEmpty() );
+        const auto result = runRules( log.data(), set.rules, cancel, {} );
+        REQUIRE( result.findings.size() == 1 );
+        CHECK( result.findings[ 0 ].line == 2_lnum );
+        CHECK( result.findings[ 0 ].detail.contains( "Never followed" ) );
+    }
+
+    // Sequences of two keys going on side by side
+    {
+        const LoadedLog log( "2026-11-22 10:00:00 step a x\n"   // 0
+                             "2026-11-22 10:00:00 step a y\n"   // 1
+                             "2026-11-22 10:00:01 step b y\n"   // 2
+                             "2026-11-22 10:00:02 step c y\n"   // 3
+                             "2026-11-22 10:00:03 step b x\n"   // 4
+                             "2026-11-22 10:00:04 step c x\n" ); // 5
+        const auto set = parseRules(
+            R"json({"rules":[{"name":"s","type":"sequence",)json"
+            R"json("patterns":["step a (\\w+)","step b (\\w+)","step c (\\w+)"]}]})json" );
+        REQUIRE( set.error.isEmpty() );
+        const auto result = runRules( log.data(), set.rules, cancel, {} );
+        REQUIRE( result.findings.size() == 2 );
+        CHECK( lines( result.findings[ 0 ] ) == std::vector<uint64_t>{ 0, 4, 5 } );
+        CHECK( lines( result.findings[ 1 ] ) == std::vector<uint64_t>{ 1, 2, 3 } );
+    }
+
+    // Many open at once, closed newest first: each end finds its start right away
+    {
+        QByteArray content;
+        constexpr int Open = 60000;
+        for ( int i = 0; i < Open; ++i ) {
+            content += "2026-11-22 10:00:00 open id=" + QByteArray::number( i ) + "\n";
+        }
+        for ( int i = Open - 1; i >= 1; --i ) {
+            content += "2026-11-22 10:00:01 done id=" + QByteArray::number( i ) + "\n";
+        }
+        const LoadedLog log( content );
+        const auto set = parseRules( R"json({"rules":[{"name":"a","type":"absence",)json"
+                                     R"json("patterns":["open id=(\\d+)","done id=(\\d+)"]}]})json" );
+        REQUIRE( set.error.isEmpty() );
+        QElapsedTimer timer;
+        timer.start();
+        const auto result = runRules( log.data(), set.rules, cancel, {} );
+        WARN( "60 000 open instances: " << timer.elapsed() << " ms" );
+        REQUIRE( result.findings.size() == 1 );
+        CHECK( result.findings[ 0 ].line == 0_lnum );
+    }
+
+    // Count: the keys past the time go, so a key coming after many others is still counted
+    {
+        QByteArray content;
+        for ( int i = 0; i < 100500; ++i ) {
+            content += "2026-11-22 10:00:00 retry request=k" + QByteArray::number( i ) + "\n";
+        }
+        for ( int i = 0; i < 3; ++i ) {
+            content += "2026-11-22 10:02:0" + QByteArray::number( i ) + " retry request=z\n";
+        }
+        const LoadedLog log( content );
+        const auto set = parseRules( R"json({"rules":[{"name":"c","type":"count",)json"
+                                     R"json("patterns":["retry request=(\\w+)"],)json"
+                                     R"json("count":3,"withinSeconds":60}]})json" );
+        REQUIRE( set.error.isEmpty() );
+        const auto result = runRules( log.data(), set.rules, cancel, {} );
+        REQUIRE( result.findings.size() == 1 );
+        CHECK( lines( result.findings[ 0 ] ) == std::vector<uint64_t>{ 100500, 100501, 100502 } );
+    }
+}
+
 SCENARIO( "Analysis cancelled", "[analysis]" )
 {
     QByteArray content;
@@ -354,9 +436,33 @@ TEST_CASE( "Templates of a large file in the background", "[templates][.benchmar
     const auto end = qEnvironmentVariable( "FLOGG_BENCH_END", "INFO" );
     const auto durations = measureDurations( logData, { start, end, false, {} }, cancel, {} );
     WARN( "durations: " << durations.pairs << " pairs in " << timer.elapsed() << " ms" );
+
+    timer.restart();
+    {
+        std::vector<Rule> rules( 3 );
+        rules[ 0 ].name = "absence";
+        rules[ 0 ].type = Rule::Type::Absence;
+        rules[ 0 ].patterns = { "scan started", "connected to AP" };
+        rules[ 0 ].withinSeconds = 5;
+        rules[ 1 ].name = "sequence";
+        rules[ 1 ].type = Rule::Type::Sequence;
+        rules[ 1 ].patterns = { "\\[(wlan0)\\] .*scan started", "\\[(wlan0)\\] .*connected to AP" };
+        rules[ 1 ].withinSeconds = 2;
+        rules[ 2 ].name = "count";
+        rules[ 2 ].type = Rule::Type::Count;
+        rules[ 2 ].patterns = { "user login id=(\\d+)" };
+        rules[ 2 ].count = 3;
+        rules[ 2 ].withinSeconds = 1;
+        const auto found = runRules( logData, rules, cancel, {} );
+        WARN( "rules: " << found.findings.size() << " findings kept, "
+                        << found.totalFindings[ 0 ] << "/" << found.totalFindings[ 1 ] << "/"
+                        << found.totalFindings[ 2 ] << " in " << timer.elapsed() << " ms" );
+    }
 }
 
+#include <QAbstractItemView>
 #include <QComboBox>
+#include <QToolButton>
 #include <QTreeWidget>
 
 #include "analysisdialog.h"
@@ -411,6 +517,22 @@ SCENARIO( "Analysis window", "[ui][analysis]" )
     AnalysisDialog dialog( context );
     dialog.resize( 900, 600 );
     dialog.show();
+
+    // The "?" next to Stop tells how to use the page shown
+    dialog.showPage( AnalysisDialog::Rules );
+    dialog.helpButton()->click();
+    REQUIRE( dialog.helpWindow() );
+    CHECK( dialog.helpWindow()->windowTitle() == "Rules - how to use" );
+    dialog.showPage( AnalysisDialog::Durations );
+    dialog.helpButton()->click();
+    CHECK( dialog.helpWindow()->windowTitle() == "Durations - how to use" );
+    dialog.helpWindow()->close();
+    QCoreApplication::sendPostedEvents( nullptr, QEvent::DeferredDelete );
+
+    // The tab of the durations and the rules: the current one until another is chosen
+    REQUIRE( dialog.durationTab()->count() == 2 );
+    CHECK( dialog.durationTab()->currentText() == "bad.log" );
+    CHECK( dialog.rulesTab()->currentText() == "bad.log" );
 
     // Durations of the bad log: 49 pairs of 1 s, one start never ended
     dialog.runDurations( "begin request id=(\\d+)", "end request id=(\\d+)" );
@@ -469,6 +591,27 @@ SCENARIO( "Analysis window", "[ui][analysis]" )
     CHECK( pair->child( 1 )->text( 0 ) == "Line 2" );
     CHECK( pair->child( 1 )->text( 4 ).contains( "end request id=0" ) );
 
+    // The list opens under it, also when its current item is not the first one
+    {
+        auto* list = dialog.durationTab();
+        list->setCurrentIndex( 1 );
+        list->showPopup();
+        auto* popup = list->view()->window();
+        REQUIRE( waitUiState( [ & ] { return popup->isVisible(); } ) );
+        const auto under = list->mapToGlobal( QPoint( 0, list->height() ) ).y();
+        CHECK( popup->geometry().top() >= under - 2 );
+        list->hidePopup();
+    }
+
+    // Durations of another tab, chosen in the list
+    dialog.durationTab()->setCurrentIndex( 0 );
+    Q_EMIT dialog.durationTab()->activated( 0 );
+    dialog.runDurations( "begin request id=(\\d+)", "end request id=(\\d+)" );
+    REQUIRE( waitUiState( [ & ]() { return !dialog.isRunning(); } ) );
+    REQUIRE( table->topLevelItemCount() == 50 );
+    CHECK( table->topLevelItem( 0 )->text( 0 ) == "250 ms" );
+    CHECK( dialog.durationTab()->currentText() == "good.log" );
+
     // A rule file with a mistake
     {
         QFile file( rulesFile );
@@ -493,6 +636,43 @@ SCENARIO( "Analysis window", "[ui][analysis]" )
     CHECK( model->compared( 0 ).firstCount == 1 );
     CHECK( model->headerData( CompareModel::FirstCount, Qt::Horizontal, Qt::DisplayRole ) == "bad.log" );
     CHECK( model->data( model->index( 0, CompareModel::Status ), Qt::DisplayRole ) == "only in bad.log" );
+
+    // A template opens on its lines in each file, a double click shows one
+    {
+        const auto fatal = model->index( 0, 0 );
+        REQUIRE( model->rowCount( fatal ) == 1 );
+        const auto fatalLine = model->index( 0, CompareModel::Template, fatal );
+        CHECK( model->data( fatalLine, Qt::DisplayRole ).toString().contains( "FATAL EXCEPTION" ) );
+        CHECK( model->data( model->index( 0, CompareModel::Status, fatal ), Qt::DisplayRole )
+               == "bad.log" );
+        CHECK( model->data( model->index( 0, CompareModel::FirstLine, fatal ), Qt::DisplayRole )
+               == 100 );
+        REQUIRE( model->lineAt( fatalLine ) );
+        CHECK( model->lineAt( fatalLine )->first == 0 );
+        CHECK( model->lineAt( fatalLine )->second == 99_lnum );
+
+        // 50 begin lines on each side: the first ones of the bad log, then of the good one
+        int beginRow = -1;
+        for ( int row = 0; row < model->rowCount(); ++row ) {
+            if ( model->compared( row ).text.startsWith( "begin request" ) ) {
+                beginRow = row;
+            }
+        }
+        REQUIRE( beginRow >= 0 );
+        const auto begin = model->index( beginRow, 0 );
+        REQUIRE( model->rowCount( begin ) == 2 * static_cast<int>( templates::MaxTemplateLines ) );
+        CHECK( model->lineAt( model->index( 0, 0, begin ) )->second == 0_lnum );
+        const auto other = model->lineAt(
+            model->index( static_cast<int>( templates::MaxTemplateLines ), 0, begin ) );
+        REQUIRE( other );
+        CHECK( other->first == 1 );
+        CHECK( other->second == 0_lnum );
+        CHECK( model->rowCount( model->index( 0, 0, begin ) ) == 0 );
+
+        Q_EMIT dialog.compareView()->activated( fatalLine );
+        CHECK( current == second.get() );
+        CHECK( second->selectedLineBounds() == std::make_pair( 99_lnum, 99_lnum ) );
+    }
 
     // Line by line
     dialog.runCompare( true );
@@ -531,6 +711,7 @@ SCENARIO( "Analysis window", "[ui][analysis]" )
         dialog.grab().save( renderDir + "/analysis_diff.png" );
         dialog.runCompare( false );
         waitUiState( [ & ]() { return !dialog.isRunning(); } );
+        dialog.compareView()->expand( dialog.compareModel()->index( 0, 0 ) );
         dialog.grab().save( renderDir + "/analysis_compare.png" );
         dialog.showPage( AnalysisDialog::Rules );
         {
@@ -555,6 +736,16 @@ SCENARIO( "Analysis window", "[ui][analysis]" )
         dialog.grab().save( renderDir + "/analysis_rules.png" );
         dialog.showPage( AnalysisDialog::Durations );
         dialog.grab().save( renderDir + "/analysis_durations.png" );
+        // The help of each page, from the "?" next to Stop
+        for ( int page = 0; page < 3; ++page ) {
+            dialog.showPage( static_cast<AnalysisDialog::Page>( page ) );
+            dialog.helpButton()->click();
+            REQUIRE( dialog.helpWindow() );
+            dialog.helpWindow()->grab().save( renderDir
+                                              + QString( "/analysis_help_%1.png" ).arg( page ) );
+        }
+        dialog.showPage( AnalysisDialog::Rules );
+        dialog.grab().save( renderDir + "/analysis_bottom.png" );
     }
 }
 

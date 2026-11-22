@@ -282,6 +282,41 @@ SCENARIO( "File tree panel hidden files", "[ui]" )
     panel.setShowHidden( false );
 }
 
+SCENARIO( "File tree panel adds a folder and a file", "[ui]" )
+{
+    QTemporaryDir dir;
+    const auto folder = makeFolder( dir );
+
+    FileTreePanel panel;
+    panel.setShowHidden( false );
+    panel.resize( 300, 400 );
+    panel.show();
+    panel.setRootFolder( folder );
+    childNames( &panel, folder );
+
+    // In the root, its name edited next
+    const auto newFolder = panel.addEntry( folder, true );
+    CHECK( newFolder == folder + "/New Folder" );
+    CHECK( QFileInfo( newFolder ).isDir() );
+    REQUIRE( waitUiState( [ & ] { return panel.treeView()->findChild<QLineEdit*>() != nullptr; } ) );
+    CHECK( panel.pathAt( panel.treeView()->currentIndex() ) == newFolder );
+    QTest::keyClick( panel.treeView()->findChild<QLineEdit*>(), Qt::Key_Escape );
+
+    // The next one takes the first free name
+    CHECK( panel.addEntry( folder, true ) == folder + "/New Folder 2" );
+
+    // An empty file in a subfolder, never over an existing one
+    const auto newFile = panel.addEntry( folder + "/app", false );
+    CHECK( newFile == folder + "/app/New File.txt" );
+    CHECK( QFileInfo( newFile ).isFile() );
+    CHECK( QFileInfo( newFile ).size() == 0 );
+    REQUIRE( waitUiState( [ & ] {
+        return panel.pathAt( panel.treeView()->currentIndex() ) == newFile
+               && panel.treeView()->findChild<QLineEdit*>() != nullptr;
+    } ) );
+    CHECK( panel.addEntry( folder + "/app", false ) == folder + "/app/New File 2.txt" );
+}
+
 SCENARIO( "File tree panel rename", "[ui]" )
 {
     QTemporaryDir dir;
@@ -513,12 +548,16 @@ SCENARIO( "File tree panel move to trash", "[ui]" )
                             []( const QString& path ) { return QFile::remove( path ); } );
     childNames( &panel, folder + "/app" );
     panel.treeView()->setCurrentIndex( panel.indexOf( folder + "/app/worker.log" ) );
-#ifdef Q_OS_MAC
-    QTest::keyClick( panel.treeView(), Qt::Key_Backspace, Qt::ControlModifier );
-#else
     QTest::keyClick( panel.treeView(), Qt::Key_Delete );
-#endif
     CHECK_FALSE( QFile::exists( folder + "/app/worker.log" ) );
+#ifdef Q_OS_MAC
+    // The delete key of a Mac
+    writeFile( folder + "/app/other.log" );
+    REQUIRE( waitUiState( [ & ] { return childNames( &panel, folder + "/app" ).contains( "other.log" ); } ) );
+    panel.treeView()->setCurrentIndex( panel.indexOf( folder + "/app/other.log" ) );
+    QTest::keyClick( panel.treeView(), Qt::Key_Backspace );
+    CHECK_FALSE( QFile::exists( folder + "/app/other.log" ) );
+#endif
 }
 
 SCENARIO( "File tree folder menu", "[ui]" )
@@ -592,6 +631,30 @@ SCENARIO( "Main window opens a folder in the file tree", "[ui]" )
         CHECK( mainWindow.dockWidgetArea( mainWindow.findChild<QDockWidget*>( "filterDock" ) )
                == Qt::LeftDockWidgetArea );
         CHECK( dock->isHidden() );
+
+        // The analysis is next to the scratchpad in the tool bar
+        {
+            auto* toolBar = mainWindow.findChild<QToolBar*>();
+            REQUIRE( toolBar );
+            const auto actions = toolBar->actions();
+            int scratchpad = -1;
+            for ( int i = 0; i < actions.size(); ++i ) {
+                if ( actions[ i ]->text().contains( "scratchpad", Qt::CaseInsensitive ) ) {
+                    scratchpad = i;
+                }
+            }
+            REQUIRE( scratchpad >= 0 );
+            REQUIRE( scratchpad + 1 < actions.size() );
+            CHECK( actions[ scratchpad + 1 ]->text().contains( "Analyze" ) );
+            CHECK_FALSE( actions[ scratchpad + 1 ]->icon().isNull() );
+            const auto renderDir = qEnvironmentVariable( "FLOGG_RENDER_DIR" );
+            if ( !renderDir.isEmpty() ) {
+                mainWindow.resize( 1100, 300 );
+                mainWindow.show();
+                QTest::qWait( 50 );
+                toolBar->grab().save( renderDir + "/toolbar.png" );
+            }
+        }
 
         // A folder from the command line (or dropped) goes to the tree, not to a tab
         WindowCommand command;
