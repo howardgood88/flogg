@@ -20,8 +20,11 @@
 #include "selectiontimelabel.h"
 
 #include <QContextMenuEvent>
+#include <QImage>
 #include <QPainter>
 #include <QPainterPath>
+#include <QStyle>
+#include <QStyleOptionToolButton>
 #include <QVariantAnimation>
 
 namespace {
@@ -37,6 +40,30 @@ QColor mix( const QColor& a, const QColor& b, double t )
                              static_cast<float>( a.alphaF() + ( b.alphaF() - a.alphaF() ) * t ) );
 }
 } // namespace
+
+void SelectionTimeLabel::updateCheckedColors()
+{
+    // Let the style draw a checked tool button once and read its colours back: the middle
+    // is the fill, the middle of the top edge the border. Styles that draw no panel (or a
+    // gradient we cannot read) leave the pixels transparent, the badge then falls back on
+    // a tint of the highlight colour.
+    constexpr int Size = 24;
+    QImage image( Size, Size, QImage::Format_ARGB32_Premultiplied );
+    image.fill( Qt::transparent );
+    {
+        QPainter painter( &image );
+        QStyleOptionToolButton option;
+        option.initFrom( this );
+        option.rect = QRect( 0, 0, Size, Size );
+        option.state = QStyle::State_Enabled | QStyle::State_On | QStyle::State_AutoRaise;
+        style()->drawPrimitive( QStyle::PE_PanelButtonTool, &option, &painter, this );
+    }
+    const auto fill = image.pixelColor( Size / 2, Size / 2 );
+    const auto border = image.pixelColor( Size / 2, 0 );
+    checkedFill_ = fill.alpha() == 255 ? fill : QColor();
+    checkedBorder_ = border.alpha() == 255 ? border : QColor();
+    checkedColorsValid_ = true;
+}
 
 SelectionTimeLabel::SelectionTimeLabel( QWidget* parent )
     : QWidget( parent )
@@ -131,9 +158,18 @@ void SelectionTimeLabel::paintEvent( QPaintEvent* )
         accent = colors.color( QPalette::PlaceholderText );
     }
 
-    // At rest a light tint of the accent, right after a change the accent itself
+    if ( !checkedColorsValid_ ) {
+        updateCheckedColors();
+    }
+    // A time at rest looks like the checked tool buttons next to it, the other kinds (and
+    // styles without such buttons) a light tint of their accent. Right after a change the
+    // badge is the accent itself.
+    const auto likeChecked = kind() == Kind::Time && checkedFill_.isValid();
     auto rest = accent;
     rest.setAlphaF( 0.18f );
+    if ( likeChecked ) {
+        rest = checkedFill_;
+    }
     const auto background = mix( rest, accent, flashLevel_ );
     const auto foreground = mix( colors.color( QPalette::WindowText ),
                                  colors.color( QPalette::HighlightedText ), flashLevel_ );
@@ -144,6 +180,9 @@ void SelectionTimeLabel::paintEvent( QPaintEvent* )
     painter.fillPath( path, background );
     auto border = accent;
     border.setAlphaF( 0.55f );
+    if ( likeChecked && checkedBorder_.isValid() ) {
+        border = mix( checkedBorder_, accent, flashLevel_ );
+    }
     painter.setPen( QPen( border, 1 ) );
     painter.drawPath( path );
 
@@ -164,7 +203,11 @@ void SelectionTimeLabel::contextMenuEvent( QContextMenuEvent* event )
 
 void SelectionTimeLabel::changeEvent( QEvent* event )
 {
-    if ( event->type() == QEvent::PaletteChange || event->type() == QEvent::FontChange ) {
+    if ( event->type() == QEvent::PaletteChange || event->type() == QEvent::StyleChange ) {
+        checkedColorsValid_ = false;
+    }
+    if ( event->type() == QEvent::PaletteChange || event->type() == QEvent::FontChange
+         || event->type() == QEvent::StyleChange ) {
         updateGeometry();
         update();
     }

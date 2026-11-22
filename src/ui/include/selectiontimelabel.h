@@ -20,6 +20,7 @@
 #ifndef FLOGG_SELECTIONTIMELABEL_H
 #define FLOGG_SELECTIONTIMELABEL_H
 
+#include <QColor>
 #include <QWidget>
 
 class QVariantAnimation;
@@ -63,6 +64,13 @@ class SelectionTimeLabel : public QWidget {
   private:
     enum class Kind { Time, Warning, NoTime };
     Kind kind() const;
+    // Fill and border of a checked tool button in the current style, so the badge at rest
+    // looks like the checked buttons next to it. Worked out again when the style changes.
+    void updateCheckedColors();
+
+    QColor checkedFill_;
+    QColor checkedBorder_;
+    bool checkedColorsValid_ = false;
 
     QString text_;
     QString details_;

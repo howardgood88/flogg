@@ -97,8 +97,12 @@ struct Compared {
     Status status = Status::Same;
 };
 
+// A template is more or less frequent when its share of the lines changes by 2 or more
+// and the chance of such a split with the same share in both is below this
+constexpr double SignificantChance = 0.001;
+
 // The templates of both, the most telling first: only in one, then the largest changes
-// of their share of the lines. Without a second table, the templates of the first, the
+// of their share of the lines (the ones marked more or fewer first). Without a second table, the templates of the first, the
 // rarest first.
 std::vector<Compared> compare( const Table& first, const Table* second, bool merge );
 

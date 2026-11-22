@@ -231,6 +231,10 @@ TEST_CASE( "Rules editor", "[rules]" )
     CHECK( reopened.rules()[ 0 ].patterns == rule.patterns );
 }
 
+#include <QHBoxLayout>
+#include <QToolButton>
+#include "styles.h"
+
 TEST_CASE( "Time between lines label", "[timestamp]" )
 {
     const auto renderDir = qEnvironmentVariable( "FLOGG_RENDER_DIR" );
@@ -252,6 +256,26 @@ TEST_CASE( "Time between lines label", "[timestamp]" )
         shown.setTime( "Δ: No time stamp in the last line", {} );
         QTest::qWait( 2000 );
         save( "time_none" );
+
+        // Next to a checked tool button in the flogg styles: the badge at rest uses its colours
+        for ( const auto& styleName : { StyleManager::LightStyleKey, StyleManager::DarkStyleKey } ) {
+            StyleManager::applyStyle( styleName );
+            QWidget bar;
+            auto* layout = new QHBoxLayout( &bar );
+            auto* badge = new SelectionTimeLabel;
+            badge->setTime( "Δ +32 µs", {} );
+            auto* button = new QToolButton;
+            button->setAutoRaise( true );
+            button->setCheckable( true );
+            button->setChecked( true );
+            button->setText( "Tool" );
+            layout->addWidget( badge );
+            layout->addWidget( button );
+            bar.show();
+            QTest::qWait( 2000 );
+            bar.grab().save( renderDir + "/time_beside_checked_" + QString( styleName ) + ".png" );
+        }
+        StyleManager::applyStyle( StyleManager::FusionKey );
     }
 
     SelectionTimeLabel label;

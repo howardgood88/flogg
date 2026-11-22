@@ -64,7 +64,9 @@ class CompareModel : public QAbstractItemModel {
 
     using QAbstractItemModel::QAbstractItemModel;
 
-    void setResults( std::vector<templates::Compared> rows, bool hasSecond );
+    // The lines of each side give the share shown next to the counts
+    void setResults( std::vector<templates::Compared> rows, bool hasSecond,
+                     uint64_t firstLines = 0, uint64_t secondLines = 0 );
     void setFilter( Filter filter );
     // The names of the files compared, for the titles and the changes
     void setNames( const QString& first, const QString& second );
@@ -100,6 +102,8 @@ class CompareModel : public QAbstractItemModel {
     std::vector<templates::Compared> all_;
     std::vector<size_t> shown_;
     bool hasSecond_ = false;
+    uint64_t firstLines_ = 0;
+    uint64_t secondLines_ = 0;
     QString firstName_;
     QString secondName_;
     Filter filter_ = All;

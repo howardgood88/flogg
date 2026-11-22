@@ -538,6 +538,44 @@ std::vector<QString> mergeSimilar( const std::vector<QString>& templates )
     return merged;
 }
 
+namespace {
+
+// Chance that X >= k (upper) or X <= k (lower) for X ~ Binomial(n, p): how likely it is
+// that the lines of a template fall on the sides as they did if its share were the same in
+// both. Exact on small counts, the normal approximation on large ones: bounded work per
+// template whatever its count.
+double binomialTail( uint64_t n, uint64_t k, double p, bool upper )
+{
+    const auto nd = static_cast<double>( n );
+    const auto kd = static_cast<double>( k );
+    const auto mean = nd * p;
+    // On the side of the mean: not unusual, and the exact sum would be long
+    if ( upper ? kd <= mean : kd >= mean ) {
+        return 1.0;
+    }
+    const auto variance = mean * ( 1 - p );
+    if ( variance > 100 ) {
+        const auto z = upper ? ( kd - 0.5 - mean ) : ( mean - kd - 0.5 );
+        return 0.5 * std::erfc( z / std::sqrt( 2.0 * variance ) );
+    }
+    // Sum away from the mean from k, the terms only get smaller
+    auto term = std::exp( std::lgamma( nd + 1 ) - std::lgamma( kd + 1 ) - std::lgamma( nd - kd + 1 )
+                          + kd * std::log( p ) + ( nd - kd ) * std::log1p( -p ) );
+    auto sum = term;
+    const auto odds = p / ( 1 - p );
+    for ( auto i = k; upper ? i < n : i > 0; upper ? ++i : --i ) {
+        const auto id = static_cast<double>( i );
+        term *= upper ? ( nd - id ) / ( id + 1 ) * odds : id / ( nd - id + 1 ) / odds;
+        sum += term;
+        if ( term <= sum * 1e-12 ) {
+            break;
+        }
+    }
+    return std::min( sum, 1.0 );
+}
+
+} // namespace
+
 std::vector<Compared> compare( const Table& first, const Table* second, bool merge )
 {
     std::vector<QString> texts;
@@ -592,13 +630,24 @@ std::vector<Compared> compare( const Table& first, const Table* second, bool mer
             const auto firstShare = static_cast<double>( compared.firstCount ) / firstLines;
             const auto secondShare = static_cast<double>( compared.secondCount ) / secondLines;
             const auto ratio = secondShare / firstShare;
-            if ( ratio >= 2.0 ) {
+            // A large change of the share, and too unlikely to be chance: 1 line in each of
+            // two files of very different sizes is not "fewer"
+            const auto n = compared.firstCount + compared.secondCount;
+            const auto pFirst = firstLines / ( firstLines + secondLines );
+            if ( ratio >= 2.0
+                 && binomialTail( n, compared.firstCount, pFirst, false ) < SignificantChance ) {
                 compared.status = Compared::Status::More;
             }
-            else if ( ratio <= 0.5 ) {
+            else if ( ratio <= 0.5
+                      && binomialTail( n, compared.firstCount, pFirst, true )
+                             < SignificantChance ) {
                 compared.status = Compared::Status::Fewer;
             }
             score = std::abs( std::log( ratio ) );
+            // The changes first, then the others by the change of their share
+            if ( compared.status != Compared::Status::Same ) {
+                score += 1e6;
+            }
         }
         ranked.emplace_back( score, std::move( compared ) );
     }

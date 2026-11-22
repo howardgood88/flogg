@@ -365,6 +365,47 @@ SCENARIO( "Templates of logs compared", "[templates]" )
     CHECK( ofSet.templates.size() == 2 );
     CHECK( set.size( first.data() ) == 2 );
 
+    // More or fewer: by the share of the lines, and only when it can not be chance
+    {
+        const auto table = []( uint64_t lines, std::vector<std::pair<QString, uint64_t>> counts ) {
+            templates::Table t;
+            t.lines = lines;
+            for ( auto& [ text, count ] : counts ) {
+                templates::Template one;
+                one.text = text;
+                one.count = count;
+                t.templates.push_back( one );
+            }
+            return t;
+        };
+        const auto status = []( const std::vector<templates::Compared>& rows, const QString& text ) {
+            for ( const auto& row : rows ) {
+                if ( row.text == text ) {
+                    return row.status;
+                }
+            }
+            return Status::OnlyFirst;
+        };
+        // 1 line in each, files 15 times apart: the share differs but it is chance
+        const auto small = table( 7680, { { "once", 1 } } );
+        const auto large = table( 117823, { { "once", 1 } } );
+        CHECK( status( templates::compare( small, &large, false ), "once" ) == Status::Same );
+        // 3 against 1 in files of the same size: twice the share, still chance
+        const auto three = table( 100, { { "few", 3 } } );
+        const auto one = table( 100, { { "few", 1 } } );
+        CHECK( status( templates::compare( three, &one, false ), "few" ) == Status::Same );
+        // Clear changes, small and large counts (exact and approximated chance)
+        const auto before = table( 10000, { { "a", 40 }, { "b", 2 }, { "c", 1000 }, { "d", 9 } } );
+        const auto after = table( 10000, { { "a", 2 }, { "b", 40 }, { "c", 400 }, { "d", 3 } } );
+        const auto rows = templates::compare( before, &after, false );
+        CHECK( status( rows, "a" ) == Status::Fewer );
+        CHECK( status( rows, "b" ) == Status::More );
+        CHECK( status( rows, "c" ) == Status::Fewer );
+        CHECK( status( rows, "d" ) == Status::Same );
+        // The changes before the others, even with a larger ratio
+        CHECK( rows.back().text == "d" );
+    }
+
     // Alone: the rarest first
     const auto alone = templates::compare( a, nullptr, false );
     CHECK( alone.front().text == "shutdown clean" );
@@ -636,6 +677,18 @@ SCENARIO( "Analysis window", "[ui][analysis]" )
     CHECK( model->compared( 0 ).firstCount == 1 );
     CHECK( model->headerData( CompareModel::FirstCount, Qt::Horizontal, Qt::DisplayRole ) == "bad.log" );
     CHECK( model->data( model->index( 0, CompareModel::Status ), Qt::DisplayRole ) == "only in bad.log" );
+    // The counts with their share of the lines
+    {
+        const auto count
+            = model->data( model->index( 0, CompareModel::FirstCount ), Qt::DisplayRole ).toString();
+        CHECK( count.startsWith( "1 (" ) );
+        CHECK( count.endsWith( "%)" ) );
+        CHECK( model->data( model->index( 0, CompareModel::SecondCount ), Qt::DisplayRole )
+               == "0 (0.0%)" );
+        CHECK( model->data( model->index( 0, CompareModel::FirstCount ), Qt::ToolTipRole )
+                   .toString()
+                   .contains( "lines of bad.log" ) );
+    }
 
     // A template opens on its lines in each file, a double click shows one
     {

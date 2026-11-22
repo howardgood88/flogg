@@ -19,6 +19,8 @@
 
 #include "analysisdialog.h"
 
+#include <cmath>
+
 #include <QApplication>
 #include <QCheckBox>
 #include <QCloseEvent>
@@ -32,6 +34,7 @@
 #include <QHeaderView>
 #include <QLabel>
 #include <QLineEdit>
+#include <QLocale>
 #include <QMenu>
 #include <QProgressBar>
 #include <QPushButton>
@@ -64,6 +67,20 @@ constexpr auto GeometryKey = "analysis/geometry";
 constexpr auto RulesHiddenColumnsKey = "analysis/rulesHiddenColumns";
 // Set on a list of tabs once the user chose one
 constexpr auto ChosenProperty = "floggTabChosen";
+
+// A count with its share of the lines: "12 (0.16%)", two significant digits for small shares
+QString countText( uint64_t count, uint64_t lines )
+{
+    if ( lines == 0 ) {
+        return QString( "%L1" ).arg( count );
+    }
+    const auto percent = 100.0 * static_cast<double>( count ) / static_cast<double>( lines );
+    auto digits = 1;
+    if ( percent > 0 && percent < 1 ) {
+        digits = std::min( 8, 1 - static_cast<int>( std::floor( std::log10( percent ) ) ) );
+    }
+    return QString( "%L1 (%2%)" ).arg( count ).arg( QLocale().toString( percent, 'f', digits ) );
+}
 
 void rememberChoice( QComboBox* list )
 {
@@ -160,11 +177,14 @@ struct DiffRows {
 // CompareModel
 //
 
-void CompareModel::setResults( std::vector<templates::Compared> rows, bool hasSecond )
+void CompareModel::setResults( std::vector<templates::Compared> rows, bool hasSecond,
+                               uint64_t firstLines, uint64_t secondLines )
 {
     beginResetModel();
     all_ = std::move( rows );
     hasSecond_ = hasSecond;
+    firstLines_ = firstLines;
+    secondLines_ = secondLines;
     shown_.clear();
     texts_.clear();
     endResetModel();
@@ -359,9 +379,9 @@ QVariant CompareModel::data( const QModelIndex& index, int role ) const
         case Template:
             return row.text;
         case FirstCount:
-            return QString( "%L1" ).arg( row.firstCount );
+            return countText( row.firstCount, firstLines_ );
         case SecondCount:
-            return QString( "%L1" ).arg( row.secondCount );
+            return countText( row.secondCount, secondLines_ );
         case FirstLine:
             return row.firstLine ? QVariant::fromValue<qulonglong>( row.firstLine->get() + 1 )
                                  : QVariant();
@@ -389,6 +409,16 @@ QVariant CompareModel::data( const QModelIndex& index, int role ) const
     }
     if ( role == Qt::ToolTipRole && column == Template ) {
         return row.text;
+    }
+    if ( role == Qt::ToolTipRole && ( column == FirstCount || column == SecondCount ) ) {
+        const auto first = column == FirstCount;
+        const auto lines = first ? firstLines_ : secondLines_;
+        if ( lines > 0 ) {
+            return QApplication::translate( "AnalysisDialog", "%L1 of the %L2 lines of %3" )
+                .arg( first ? row.firstCount : row.secondCount )
+                .arg( lines )
+                .arg( first ? firstName_ : secondName_ );
+        }
     }
     return {};
 }
@@ -1252,22 +1282,28 @@ QWidget* AnalysisDialog::createComparePage()
                             "ok\". Off, they are counted apart." ) );
 
     compareMode_ = new QComboBox( page );
-    compareMode_->addItem( tr( "Templates" ) );
+    // Line by line first: the usual question is what changed between two short runs
+    constexpr int LineByLineMode = 0;
+    constexpr int TemplatesMode = 1;
     compareMode_->addItem( tr( "Line by line" ) );
-    compareMode_->setItemData( 0, tr( "Counts the lines of each kind in both: what is new, gone, "
-                                      "more or less frequent" ),
-                               Qt::ToolTipRole );
+    compareMode_->addItem( tr( "Templates" ) );
     compareMode_->setItemData(
-        1, tr( "Up to %L1 lines on each side, times and numbers left out, in two columns" )
-               .arg( templates::MaxDiffLines ),
+        LineByLineMode,
+        tr( "Up to %L1 lines on each side, times and numbers left out, in two columns" )
+            .arg( templates::MaxDiffLines ),
         Qt::ToolTipRole );
+    compareMode_->setItemData( TemplatesMode,
+                               tr( "Counts the lines of each kind in both: what is new, gone, "
+                                   "more or less frequent" ),
+                               Qt::ToolTipRole );
     auto* compareButton = new QPushButton( tr( "Compare" ), page );
     runButtons_.push_back( compareButton );
     connect( compareButton, &QPushButton::clicked, this,
-             [ this ] { runCompare( compareMode_->currentIndex() == 1 ); } );
+             [ this ] { runCompare( compareMode_->currentIndex() == LineByLineMode ); } );
     // Grouping by one word is about templates only
     connect( compareMode_, QOverload<int>::of( &QComboBox::currentIndexChanged ), this,
-             [ this ]( int mode ) { merge_->setEnabled( mode == 0 ); } );
+             [ this ]( int mode ) { merge_->setEnabled( mode == TemplatesMode ); } );
+    merge_->setEnabled( compareMode_->currentIndex() == TemplatesMode );
 
     statusFilter_ = new QComboBox( page );
     statusFilter_->addItems( { tr( "All templates" ), tr( "Changed" ), tr( "Only in the first" ),
@@ -1290,8 +1326,11 @@ QWidget* AnalysisDialog::createComparePage()
             "2026-11-22 09:01:01.711 WARN [http-3] retry request=r77 attempt=3</pre>"
             "<p>are both <code>WARN [http-&lt;NUM&gt;] retry request=&lt;*&gt; "
             "attempt=&lt;*&gt;</code>. The kinds of both sides are counted: the ones only in "
-            "one file and the ones much more or less frequent (by their share of the lines) "
-            "come first; <b>Show:</b> keeps some of them. Open a template to list its first "
+            "one file and the ones much more or less frequent come first. More or less frequent "
+            "goes by the share of the lines (shown next to the counts), as the files may have "
+            "different sizes: at least twice or half the share, with too many lines to be "
+            "chance, so one line in each of two files of different sizes is not a change. "
+            "<b>Show:</b> keeps some of them. Open a template to list its first "
             "%L1 lines in each file. Double click a line to show it in its tab, a template to "
             "show its first line (in the tab of the column clicked).</p>"
             "<p><b>Group lines that differ by one word</b> also counts as one the templates of 4 "
@@ -1562,7 +1601,8 @@ void AnalysisDialog::runCompare( bool lineByLine )
                     setMessage( tr( "Stopped" ) );
                     return;
                 }
-                compareModel_->setResults( rows.rows, rows.hasSecond );
+                compareModel_->setResults( rows.rows, rows.hasSecond, rows.first.lines,
+                                           rows.hasSecond ? rows.second.lines : 0 );
                 compareView_->resizeColumnToContents( CompareModel::Status );
                 compareView_->header()->resizeSection( CompareModel::Template, 460 );
                 auto text = rows.hasSecond
