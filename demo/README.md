@@ -157,3 +157,46 @@ python3 demo/make_demo.py --big 3000000
 - 用 `Compare templates`（With 選 `(nothing: the templates of this tab)`）列出所有模板，最罕見的排最前面：只佔萬分之一的 `FATAL EXCEPTION` 馬上浮到最上面。
 
 在 1.8 GB、3000 萬行的檔案上，模板分析約 2 秒；耗時分析在 pattern 命中約 2500 萬行的最壞情況下約 8.5 秒。
+
+---
+
+## Wi-Fi log：真實擷取的三種時間格式
+
+```sh
+python3 demo/make_wifi_demo.py
+```
+
+| 檔案 | 時間格式 | 埋的問題 |
+| --- | --- | --- |
+| `wifi-logcat.txt` | `11-20 14:51:26.963151 16852 16852 I Tag: ...`（logcat，微秒，沒有年份） | 兩次連線失敗（AP 拒絕連線）、兩次連線特別慢、P2P 狀態在幾秒內反覆切換、跨過午夜、不同執行緒的行順序稍亂 |
+| `wifi-driver.log` | `2026-11-20 05:58:25.120584,[ 2024.639186] ...`（牆鐘＋開機秒數） | 一次 scan 卡住 6.5 秒後被 abort；中途網路校時把牆鐘調回 2 小時 |
+| `wifi-fw.log` | `11-20 05:58:25.758154 (    65276466) (2:RLM-S) ...`（括號內是韌體 tick） | 一次進 deep sleep 後沒醒來、被 watchdog reset；一次 TX queue 暫停 1.8 秒 |
+| `wifi-rules.json` | 9 條規則 | 上面所有問題 |
+
+### 時間差
+
+- `wifi-logcat.txt`：點第 1602 行（`11-20 23:59:57.120004`），`Ctrl`＋點第 1634 行（`11-21 00:00:03.503432`）→ `Δ +6.383428 s`。精確到微秒，跨日期也正確。
+- `wifi-driver.log`：第 1562 行是校時（下一行的牆鐘從 06:11 跳回 04:11）。點第 1560 行再 `Shift`＋點第 1566 行 → `Δ +3.096848 s`：每行同時有牆鐘和 `[開機秒數]`，flogg 自動用開機秒數，所以不受牆鐘倒退 2 小時影響。tooltip 的格式欄會寫「seconds since boot」。
+- `wifi-fw.log`：括號裡的韌體 tick 不會被誤認成時間，以行首的 `11-20 05:58:25.758154` 計算。
+
+### 成對耗時（`Tools > Analyze Log...` → `Durations`）
+
+| 檔案 | Start | End | 結果 |
+| --- | --- | --- | --- |
+| `wifi-logcat.txt` | `CMD_START_CONNECT netId=(\d+)` | `CTRL-EVENT-CONNECTED .*\[id=(\d+)` | 58 次連線，最慢 7.0 秒；2 次「no end」就是連線失敗的那兩次 |
+| `wifi-driver.log` | `\[SCAN\]TRANSITION: \[IDLE\] -> \[SCANNING\]` | `\[SCAN\]TRANSITION: \[SCANNING\] -> \[IDLE\]` | 400 次 scan，中位數約 1.18 秒，最慢的 6.7 秒就是卡住的那次（第 2692 行）；橫跨校時的 scan 也沒有出現負值 |
+| `wifi-fw.log` | `may enter deep sleep` | `WAKE UP FROM DSLP` | 499 次 sleep/wake，中位數約 73 ms，最長 4.7 秒；第 5878 行列為「no end」：晶片沒醒來 |
+
+`wifi-fw.log` 這組 pattern 沒有括號群組，結束會配給**最近一次**的開始。所以沒醒來的那次只會自己被列成「no end」，後面幾百對 sleep/wake 不會因此錯開一格。
+
+### 規則（`Rules` → 開 `demo/wifi-rules.json` → `Check`）
+
+同一份規則檔對三個檔案各跑一次：
+
+| 檔案 | 找到 |
+| --- | --- |
+| `wifi-logcat.txt` | Connection failed（第 1019、1837 行）、Association rejected（第 1047、1869 行）、P2P state flapping（第 1262 行起 5 次切換） |
+| `wifi-driver.log` | Scan stuck（第 2692 行）、Scan timeout then abort（第 2694 行，6.5 秒後 abort）、Wall clock set（第 1562 行） |
+| `wifi-fw.log` | No wake up from deep sleep（第 5878 行）、Chip reset（第 5879 行）、TX paused too long（第 2123 行，`Reason=(\d+)` 讓 pause 與 resume 依原因配對） |
+
+一份規則檔可以同時涵蓋 framework、driver、firmware 三層的已知問題：拿到一包 log，三個檔案各按一次 `Check`，就知道問題出在哪一層、哪一行。
