@@ -230,8 +230,10 @@ DurationResult measureDurations( const LogData& logData, const DurationSpec& spe
                 ++result.unmatchedEnds;
             }
             else {
-                const auto start = queue->second.front();
-                queue->second.pop_front();
+                // The latest start: a start never ended (a chip that did not wake up)
+                // stays open instead of shifting every pair after it
+                const auto start = queue->second.back();
+                queue->second.pop_back();
                 --openCount;
                 const auto difference
                     = timestamps::difference( start.times, timestamps::parseLine( text ) );

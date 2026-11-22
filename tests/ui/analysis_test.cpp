@@ -112,12 +112,13 @@ SCENARIO( "Durations of paired events", "[analysis]" )
     CHECK( result.meanUs == Approx( 1750000 ) );
     CHECK( result.fractionDigits == 3 );
 
-    // Without groups, an end closes the oldest start
+    // Without groups, an end closes the latest start
     const auto unkeyed
         = measureDurations( log.data(), { "begin request", "end request", false }, cancel, {} );
     CHECK( unkeyed.pairs == 2 );
-    CHECK( unkeyed.slowest[ 0 ].us == 2900000 );
-    CHECK( unkeyed.slowest[ 0 ].start == 1_lnum );
+    CHECK( unkeyed.slowest[ 0 ].us == 3000000 );
+    CHECK( unkeyed.slowest[ 0 ].start == 0_lnum );
+    CHECK( unkeyed.slowest[ 1 ].start == 1_lnum );
 
     // Errors
     CHECK( !measureDurations( log.data(), { "(", "end", false }, cancel, {} ).error.isEmpty() );
@@ -573,6 +574,76 @@ SCENARIO( "Demo files", "[.demo]" )
     CHECK( badRules.totalFindings[ 6 ] == 1 );
     const auto logcatRules = runRules( *logcat->logData(), set.rules, cancel, {} );
     CHECK( logcatRules.totalFindings[ 7 ] == 1 );
+
+    // Wi-Fi logs in the formats of real captures
+    auto wifiLogcat = open( demo + "/wifi-logcat.txt" );
+    auto wifiDriver = open( demo + "/wifi-driver.log" );
+    auto wifiFw = open( demo + "/wifi-fw.log" );
+    const auto midnight = delta( *wifiLogcat, 1602, 1634 );
+    REQUIRE( midnight.us );
+    CHECK( midnight.first->fractionDigits == 6 );
+    WARN( "wifi logcat 1602-1634: " << timestamps::formatDuration( *midnight.us, 6 ).toStdString() );
+    // Across the wall clock set back 2 hours: the time since boot is used
+    CHECK( line( *wifiDriver, 1562 ).contains( "wall clock adjusted" ) );
+    const auto clockSet = delta( *wifiDriver, 1560, 1566 );
+    REQUIRE( clockSet.us );
+    CHECK( clockSet.first->isMonotonic() );
+    CHECK( *clockSet.us > 0 );
+    CHECK( *clockSet.us < 10000000 );
+    WARN( "wifi driver 1560-1566: " << timestamps::formatDuration( *clockSet.us, 6 ).toStdString() );
+    const auto fwDelta = delta( *wifiFw, 1, 2 );
+    REQUIRE( fwDelta.us );
+    CHECK( *fwDelta.us == 200 );
+
+    const auto connects = measureDurations( *wifiLogcat->logData(),
+                                            { "CMD_START_CONNECT netId=(\\d+)",
+                                              "CTRL-EVENT-CONNECTED .*\\[id=(\\d+)", false },
+                                            cancel, {} );
+    WARN( "connects: " << connects.pairs << " pairs, open " << connects.openStarts << ", slowest "
+                       << timestamps::formatDuration( connects.slowest.front().us, 6 ).toStdString()
+                       << " at line " << connects.slowest.front().start.get() + 1 );
+    CHECK( connects.openStarts == 2 );
+    const auto scans = measureDurations( *wifiDriver->logData(),
+                                         { "\\[SCAN\\]TRANSITION: \\[IDLE\\] -> \\[SCANNING\\]",
+                                           "\\[SCAN\\]TRANSITION: \\[SCANNING\\] -> \\[IDLE\\]",
+                                           false },
+                                         cancel, {} );
+    WARN( "scans: " << scans.pairs << " pairs, open " << scans.openStarts << ", negative "
+                    << scans.negative << ", slowest "
+                    << timestamps::formatDuration( scans.slowest.front().us, 6 ).toStdString()
+                    << " at line " << scans.slowest.front().start.get() + 1 << ", median "
+                    << timestamps::formatDuration( scans.p50Us, 6 ).toStdString() );
+    CHECK( scans.negative == 0 );
+    CHECK( scans.openStarts == 0 );
+    const auto sleeps = measureDurations( *wifiFw->logData(),
+                                          { "may enter deep sleep", "WAKE UP FROM DSLP", false },
+                                          cancel, {} );
+    WARN( "sleeps: " << sleeps.pairs << " pairs, open " << sleeps.openStarts << " at line "
+                     << ( sleeps.openStartLines.empty() ? 0 : sleeps.openStartLines[ 0 ].get() + 1 )
+                     << ", slowest "
+                     << timestamps::formatDuration( sleeps.slowest.front().us, 6 ).toStdString()
+                     << ", median " << timestamps::formatDuration( sleeps.p50Us, 6 ).toStdString() );
+    CHECK( sleeps.openStarts == 1 );
+    CHECK( sleeps.slowest.front().us < 5000000 );
+
+    QFile wifiRulesFile( demo + "/wifi-rules.json" );
+    REQUIRE( wifiRulesFile.open( QIODevice::ReadOnly ) );
+    const auto wifiSet = parseRules( wifiRulesFile.readAll() );
+    REQUIRE( wifiSet.error.isEmpty() );
+    for ( auto* crawler : { wifiLogcat.get(), wifiDriver.get(), wifiFw.get() } ) {
+        const auto found = runRules( *crawler->logData(), wifiSet.rules, cancel, {} );
+        for ( size_t r = 0; r < wifiSet.rules.size(); ++r ) {
+            if ( found.totalFindings[ r ] > 0 ) {
+                WARN( crawler->logData()->attachedFileName().section( '/', -1 ).toStdString()
+                      << ": " << wifiSet.rules[ r ].name.toStdString() << " "
+                      << found.totalFindings[ r ] );
+            }
+        }
+        for ( const auto& finding : found.findings ) {
+            WARN( "  " << wifiSet.rules[ finding.rule ].name.toStdString() << " line "
+                       << finding.line.get() + 1 << " " << finding.detail.toStdString() );
+        }
+    }
 
     // 5. Compare
     const auto badTable = templates::build( *bad->logData(), {}, cancel, {} );

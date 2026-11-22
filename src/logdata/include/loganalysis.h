@@ -53,8 +53,10 @@ bool scanMatches( const LogData& logData, const std::vector<RegularExpressionPat
 QString captureKey( const QRegularExpression& regex, const QString& text );
 
 //
-// Time between pairs of events: a start line and the end line with the same key (the
-// capture groups of both patterns), or the next end line when the patterns have none.
+// Time between pairs of events: an end line goes with the latest start line not ended yet
+// that has the same key (the capture groups of both patterns, none when they have none).
+// A start followed by another one with the same key before any end stays open: it is
+// told as never ended, the pairs after it are not shifted.
 //
 
 struct DurationSpec {

@@ -462,7 +462,7 @@ QWidget* AnalysisDialog::createDurationsPage()
 
     auto* hint = new QLabel(
         tr( "Regular expressions. The groups in parentheses pair the lines: an end goes with "
-            "the start that has the same groups; without groups, with the oldest start." ),
+            "the latest start that has the same groups (or the latest start without groups)." ),
         page );
     hint->setWordWrap( true );
 
