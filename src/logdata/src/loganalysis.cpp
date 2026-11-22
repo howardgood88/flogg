@@ -59,6 +59,15 @@ QRegularExpression compile( const QString& pattern, bool caseSensitive )
     return QRegularExpression( pattern, options );
 }
 
+} // namespace
+
+QString toRegex( const QString& pattern, bool regex )
+{
+    return regex ? pattern : QRegularExpression::escape( pattern );
+}
+
+namespace {
+
 // Lines read at once when the matching lines follow each other
 constexpr uint64_t MaxRunLines = 1024;
 
@@ -381,10 +390,10 @@ DurationResult measureDurations( const LogData& logData, const DurationSpec& spe
     };
 
     if ( !scanCandidates( logData,
-                       { RegularExpressionPattern( spec.startPattern, spec.caseSensitive, false,
-                                                   false, false ),
-                         RegularExpressionPattern( spec.endPattern, spec.caseSensitive, false,
-                                                   false, false ) },
+                       { RegularExpressionPattern( toRegex( spec.startPattern, spec.regex ),
+                                                   spec.caseSensitive, false, false, false ),
+                         RegularExpressionPattern( toRegex( spec.endPattern, spec.regex ),
+                                                   spec.caseSensitive, false, false, false ) },
                        true, cancel, progress,
                        [ &visitOne ]( std::vector<Candidate>& batch ) {
                            for ( auto& candidate : batch ) {
@@ -458,6 +467,7 @@ RuleSet parseRules( const QByteArray& json )
         rule.note = object.value( "note" ).toString( object.value( "link" ).toString() );
         rule.severity = object.value( "severity" ).toString( "warning" );
         rule.caseSensitive = object.value( "caseSensitive" ).toBool( false );
+        rule.regex = object.value( "regex" ).toBool( true );
         if ( object.contains( "withinSeconds" ) ) {
             rule.withinSeconds = object.value( "withinSeconds" ).toDouble();
         }
@@ -490,7 +500,7 @@ RuleSet parseRules( const QByteArray& json )
             return set;
         }
         for ( const auto& pattern : rule.patterns ) {
-            const auto regex = compile( pattern, rule.caseSensitive );
+            const auto regex = compile( toRegex( pattern, rule.regex ), rule.caseSensitive );
             if ( pattern.isEmpty() || !regex.isValid() ) {
                 set.error = translate( "Rule %1: invalid regular expression %2" )
                                 .arg( name, pattern );
@@ -542,7 +552,7 @@ QString checkRule( const Rule& rule )
         return translate( "This kind of rule takes 1 pattern" );
     }
     for ( const auto& pattern : rule.patterns ) {
-        const auto regex = compile( pattern, rule.caseSensitive );
+        const auto regex = compile( toRegex( pattern, rule.regex ), rule.caseSensitive );
         if ( pattern.isEmpty() || !regex.isValid() ) {
             return translate( "Invalid regular expression %1: %2" )
                 .arg( pattern, regex.errorString() );
@@ -568,6 +578,9 @@ QByteArray rulesToJson( const std::vector<Rule>& rules )
         object.insert( "patterns", QJsonArray::fromStringList( rule.patterns ) );
         if ( rule.caseSensitive ) {
             object.insert( "caseSensitive", true );
+        }
+        if ( !rule.regex ) {
+            object.insert( "regex", false );
         }
         if ( rule.withinSeconds ) {
             object.insert( "withinSeconds", *rule.withinSeconds );
@@ -785,7 +798,9 @@ RuleResult runRules( const LogData& logData, const std::vector<Rule>& rules, Ato
     std::map<std::pair<QString, bool>, uint32_t> patternIndex;
     std::vector<std::vector<uint32_t>> steps( rules.size() );
     for ( size_t r = 0; r < rules.size(); ++r ) {
-        for ( const auto& pattern : rules[ r ].patterns ) {
+        for ( const auto& text : rules[ r ].patterns ) {
+            // A text and the same regular expression escaped are searched once
+            const auto pattern = toRegex( text, rules[ r ].regex );
             const auto key = std::make_pair( pattern, rules[ r ].caseSensitive );
             auto index = patternIndex.find( key );
             if ( index == patternIndex.end() ) {

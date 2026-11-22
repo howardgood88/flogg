@@ -1,5 +1,11 @@
 # flogg changes
 
+## Unreleased
+
+- Analysis: the Start and End of the durations and the patterns of the rules can be plain
+  text or regular expressions (`Regular expression` box; `"regex": false` in a rule file).
+  A rule started from the selected text with `Add as rule...` is plain text, as selected
+
 ## 1.4.2 (2026-11-22)
 
 - The time between the selected lines shows at once, without the flash

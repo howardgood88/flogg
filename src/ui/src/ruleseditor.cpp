@@ -139,6 +139,9 @@ RulesEditor::RulesEditor( const QString& fileName, QWidget* parent )
     patternsHint_ = new QLabel( form_ );
     patternsHint_->setWordWrap( true );
     caseSensitive_ = new QCheckBox( tr( "Match case" ), form_ );
+    regex_ = new QCheckBox( tr( "Regular expression" ), form_ );
+    regex_->setToolTip( tr( "Off: the patterns are plain text, found as they are written "
+                            "(no groups)" ) );
     within_ = new QCheckBox( tr( "Within" ), form_ );
     seconds_ = new QDoubleSpinBox( form_ );
     seconds_->setRange( 0.001, 86400 );
@@ -186,7 +189,11 @@ RulesEditor::RulesEditor( const QString& fileName, QWidget* parent )
     form->addRow( tr( "Severity:" ), severity_ );
     form->addRow( tr( "Patterns:" ), patterns_ );
     form->addRow( {}, patternsHint_ );
-    form->addRow( {}, caseSensitive_ );
+    auto* patternOptions = new QHBoxLayout();
+    patternOptions->addWidget( caseSensitive_ );
+    patternOptions->addWidget( regex_ );
+    patternOptions->addStretch();
+    form->addRow( {}, patternOptions );
     form->addRow( tr( "Time:" ), time );
     form->addRow( tr( "Note:" ), note_ );
     form->addRow( {}, notePreview_ );
@@ -202,6 +209,7 @@ RulesEditor::RulesEditor( const QString& fileName, QWidget* parent )
     connect( severity_, QOverload<int>::of( &QComboBox::currentIndexChanged ), this,
              &RulesEditor::storeRule );
     connect( caseSensitive_, &QCheckBox::toggled, this, &RulesEditor::storeRule );
+    connect( regex_, &QCheckBox::toggled, this, &RulesEditor::storeRule );
     connect( within_, &QCheckBox::toggled, this, &RulesEditor::storeRule );
     connect( seconds_, QOverload<double>::of( &QDoubleSpinBox::valueChanged ), this,
              &RulesEditor::storeRule );
@@ -258,15 +266,9 @@ void RulesEditor::addRuleFor( const QString& text )
 {
     Rule rule;
     rule.name = tr( "New rule" );
-    // Only the characters special in a regular expression, so the pattern stays readable
-    QString pattern;
-    for ( const auto c : text.trimmed() ) {
-        if ( QStringLiteral( "\\^$.|?*+()[]{}" ).contains( c ) ) {
-            pattern += u'\\';
-        }
-        pattern += c;
-    }
-    rule.patterns.append( pattern );
+    // The text as it is: plain text, a regular expression once the box is checked
+    rule.regex = false;
+    rule.patterns.append( text.trimmed() );
     addRule( rule );
     name_->setFocus();
     name_->selectAll();
@@ -309,6 +311,7 @@ void RulesEditor::showRule( int row )
         severity_->setCurrentIndex( severity >= 0 ? severity : 1 );
         patterns_->setPlainText( rule.patterns.join( "\n" ) );
         caseSensitive_->setChecked( rule.caseSensitive );
+        regex_->setChecked( rule.regex );
         within_->setChecked( rule.withinSeconds.has_value() );
         seconds_->setValue( rule.withinSeconds.value_or( 5 ) );
         count_->setValue( rule.count );
@@ -343,6 +346,7 @@ void RulesEditor::storeRule()
         }
     }
     rule.caseSensitive = caseSensitive_->isChecked();
+    rule.regex = regex_->isChecked();
     rule.withinSeconds
         = within_->isChecked() ? std::optional<double>( seconds_->value() ) : std::nullopt;
     rule.count = count_->value();
@@ -391,6 +395,16 @@ void RulesEditor::updateForm()
     count_->setVisible( type == Rule::Type::Count );
     countLabel_->setVisible( type == Rule::Type::Count );
     count_->setSuffix( tr( " times" ) );
+    if ( !regex_->isChecked() ) {
+        // Plain text has no groups: the lines of a rule are not tied by an id
+        patternsHint_->setText(
+            type == Rule::Type::Sequence ? tr( "2 or more plain texts, one per line, in their "
+                                               "order, e.g.\nlogin\nlogout" )
+            : type == Rule::Type::Absence
+                ? tr( "2 plain texts, one per line: what starts, then what must follow, e.g.\n"
+                      "connect start\nconnected" )
+                : tr( "1 plain text, found as it is written, e.g. FATAL EXCEPTION" ) );
+    }
     seconds_->setEnabled( within_->isChecked() );
 
     // The links of the note, as they will show with the results

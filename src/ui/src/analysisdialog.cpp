@@ -62,6 +62,7 @@ namespace {
 constexpr auto StartKey = "analysis/durationStart";
 constexpr auto EndKey = "analysis/durationEnd";
 constexpr auto CaseKey = "analysis/durationCase";
+constexpr auto RegexKey = "analysis/durationRegex";
 constexpr auto RulesKey = "analysis/rulesFile";
 constexpr auto GeometryKey = "analysis/geometry";
 constexpr auto RulesHiddenColumnsKey = "analysis/rulesHiddenColumns";
@@ -701,11 +702,22 @@ QWidget* AnalysisDialog::createDurationsPage()
     durationTab_->setMinimumContentsLength( 20 );
     rememberChoice( durationTab_ );
     startEdit_ = new QLineEdit( settings().value( StartKey ).toString(), page );
-    startEdit_->setPlaceholderText( tr( "begin request id=(\\d+)" ) );
     endEdit_ = new QLineEdit( settings().value( EndKey ).toString(), page );
-    endEdit_->setPlaceholderText( tr( "end request id=(\\d+)" ) );
     durationCase_ = new QCheckBox( tr( "Match case" ), page );
     durationCase_->setChecked( settings().value( CaseKey, false ).toBool() );
+    durationRegex_ = new QCheckBox( tr( "Regular expression" ), page );
+    durationRegex_->setChecked( settings().value( RegexKey, true ).toBool() );
+    durationRegex_->setToolTip( tr( "Off: Start and End are plain text, found as they are "
+                                    "written (no groups)" ) );
+    const auto updatePlaceholders = [ this ] {
+        const auto regex = durationRegex_->isChecked();
+        startEdit_->setPlaceholderText( regex ? tr( "begin request id=(\\d+)" )
+                                              : tr( "begin request" ) );
+        endEdit_->setPlaceholderText( regex ? tr( "end request id=(\\d+)" )
+                                            : tr( "end request" ) );
+    };
+    updatePlaceholders();
+    connect( durationRegex_, &QCheckBox::toggled, this, updatePlaceholders );
     auto* run = new QPushButton( tr( "Measure" ), page );
     run->setDefault( true );
     runButtons_.push_back( run );
@@ -720,9 +732,11 @@ QWidget* AnalysisDialog::createDurationsPage()
         tr( "<p>The time between a start line and an end line, for every pair in the log of "
             "the tab: how long the requests, the connections or the scans take, and which "
             "ones never end.</p>"
-            "<p><b>Start</b> and <b>End</b> are regular expressions. The groups in "
+            "<p><b>Start</b> and <b>End</b> are regular expressions, or plain text found as "
+            "it is written with <b>Regular expression</b> unchecked. The groups in "
             "parentheses pair the lines: an end goes with the latest start that has the same "
-            "groups. Without groups an end goes with the latest start; a start never ended is "
+            "groups. Without groups (always with plain text) an end goes with the latest "
+            "start; a start never ended is "
             "listed as <i>no end</i> and does not shift the pairs after it.</p>"
             "<p><b>Example</b>: with the lines</p>"
             "<pre>10:00:01.000 request begin id=7\n"
@@ -746,6 +760,7 @@ QWidget* AnalysisDialog::createDurationsPage()
     form->addRow( tr( "End:" ), endEdit_ );
     auto* options = new QHBoxLayout();
     options->addWidget( durationCase_ );
+    options->addWidget( durationRegex_ );
     options->addStretch();
     options->addWidget( run );
     form->addRow( options );
@@ -798,6 +813,7 @@ void AnalysisDialog::runDurations( const QString& startPattern, const QString& e
     settings().setValue( StartKey, startPattern );
     settings().setValue( EndKey, endPattern );
     settings().setValue( CaseKey, durationCase_->isChecked() );
+    settings().setValue( RegexKey, durationRegex_->isChecked() );
 
     durationCrawler_ = crawler;
     durationTable_->clear();
@@ -807,7 +823,7 @@ void AnalysisDialog::runDurations( const QString& startPattern, const QString& e
     const auto* data = logData.get();
     // The time stamps chosen for the time between lines of the tab
     const analysis::DurationSpec spec{ startPattern, endPattern, durationCase_->isChecked(),
-                                       crawler->timeFormat() };
+                                       crawler->timeFormat(), durationRegex_->isChecked() };
     start<DurationRows>(
         [ data, spec ]( AtomicFlag& cancel, const analysis::Progress& progress ) {
             DurationRows rows;
@@ -974,6 +990,9 @@ QWidget* AnalysisDialog::createRulesPage()
             "</ul>"
             "<p>The groups in parentheses tie the lines of one thing: the same connection id, "
             "the same user. Without groups any lines go together.</p>"
+            "<p>The patterns are regular expressions; a rule with <code>\"regex\": false</code> "
+            "(<b>Regular expression</b> unchecked in the form) takes them as plain text, found "
+            "as they are written, without groups.</p>"
             "<p>A rule of the file:</p>"
             "<pre>{ \"name\": \"Retry storm\", \"type\": \"count\",\n"
             "  \"severity\": \"warning\",\n"

@@ -252,6 +252,7 @@ class AnalysisDialog : public QDialog {
     QLineEdit* startEdit_ = nullptr;
     QLineEdit* endEdit_ = nullptr;
     QCheckBox* durationCase_ = nullptr;
+    QCheckBox* durationRegex_ = nullptr;
     QLabel* durationSummary_ = nullptr;
     QTreeWidget* durationTable_ = nullptr;
     QPointer<CrawlerWidget> durationCrawler_;

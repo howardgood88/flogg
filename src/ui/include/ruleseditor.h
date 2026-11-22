@@ -94,6 +94,7 @@ class RulesEditor : public QDialog {
     QPlainTextEdit* patterns_ = nullptr;
     QLabel* patternsHint_ = nullptr;
     QCheckBox* caseSensitive_ = nullptr;
+    QCheckBox* regex_ = nullptr;
     QCheckBox* within_ = nullptr;
     QDoubleSpinBox* seconds_ = nullptr;
     QSpinBox* count_ = nullptr;

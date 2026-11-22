@@ -53,6 +53,9 @@ bool scanMatches( const LogData& logData, const std::vector<RegularExpressionPat
 // The capture groups of the match joined, empty without groups
 QString captureKey( const QRegularExpression& regex, const QString& text );
 
+// The pattern as a regular expression: plain text is escaped (it then has no groups)
+QString toRegex( const QString& pattern, bool regex );
+
 //
 // Time between pairs of events: an end line goes with the latest start line not ended yet
 // that has the same key (the capture groups of both patterns, none when they have none).
@@ -66,6 +69,8 @@ struct DurationSpec {
     bool caseSensitive = false;
     // The time stamps compared, the first of the line by default (see timestamps::difference)
     std::optional<timestamps::Format> timeFormat;
+    // The patterns are regular expressions, plain text when false
+    bool regex = true;
 };
 
 struct DurationPair {
@@ -129,6 +134,8 @@ struct Rule {
     Type type = Type::Match;
     QStringList patterns;
     bool caseSensitive = false;
+    // The patterns are regular expressions, plain text when false ("regex": false)
+    bool regex = true;
     std::optional<double> withinSeconds;
     int count = 2;
 };

@@ -120,9 +120,33 @@ SCENARIO( "Durations of paired events", "[analysis]" )
     CHECK( unkeyed.slowest[ 0 ].start == 0_lnum );
     CHECK( unkeyed.slowest[ 1 ].start == 1_lnum );
 
+    // Plain text: found as written, the characters of a regular expression too
+    const auto text = measureDurations(
+        log.data(), { "begin request id=2", "end request id=2", false, {}, false }, cancel, {} );
+    REQUIRE( text.error.isEmpty() );
+    CHECK( text.pairs == 1 );
+    CHECK( text.slowest[ 0 ].us == 500000 );
+    CHECK( text.slowest[ 0 ].key.isEmpty() );
+    const auto literal = measureDurations(
+        log.data(), { "begin request id=.", "end request id=.", false, {}, false }, cancel, {} );
+    CHECK( literal.error.isEmpty() );
+    CHECK( literal.pairs == 0 );
+    CHECK( measureDurations( log.data(), { "(", "end", false, {}, false }, cancel, {} )
+               .error.isEmpty() );
+
+    // Rules in plain text
+    Rule textRule;
+    textRule.patterns = { "end request id=." };
+    textRule.regex = false;
+    CHECK( runRules( log.data(), { textRule }, cancel, {} ).findings.empty() );
+    textRule.regex = true;
+    CHECK( runRules( log.data(), { textRule }, cancel, {} ).findings.size() == 5 );
+
     // Errors
     CHECK( !measureDurations( log.data(), { "(", "end", false, {} }, cancel, {} ).error.isEmpty() );
     CHECK( !measureDurations( log.data(), { "", "end", false, {} }, cancel, {} ).error.isEmpty() );
+    CHECK( !measureDurations( log.data(), { "", "end", false, {}, false }, cancel, {} )
+                .error.isEmpty() );
 }
 
 SCENARIO( "Rules", "[analysis]" )

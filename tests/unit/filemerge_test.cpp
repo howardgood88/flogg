@@ -165,8 +165,25 @@ TEST_CASE( "Rules written and read back", "[rules]" )
     CHECK( !analysis::checkRule( absence ).isEmpty() );
     absence.patterns.append( "(" );
     CHECK( analysis::checkRule( absence ).contains( "Invalid" ) );
-    absence.patterns.last() = "two";
+    absence.regex = false;
     CHECK( analysis::checkRule( absence ).isEmpty() );
+    absence.patterns.last() = "two";
+    absence.regex = true;
+    CHECK( analysis::checkRule( absence ).isEmpty() );
+
+    // Plain text rules: written as "regex": false, read back the same
+    analysis::Rule text;
+    text.name = "text";
+    text.patterns = { "a (b)" };
+    text.regex = false;
+    const auto textBack = analysis::parseRules( analysis::rulesToJson( { text } ) );
+    REQUIRE( textBack.rules.size() == 1 );
+    CHECK( !textBack.rules[ 0 ].regex );
+    CHECK( textBack.rules[ 0 ].patterns == text.patterns );
+    CHECK( !analysis::rulesToJson( { text } ).contains( "\\\\(" ) );
+    CHECK( analysis::parseRules( R"({"rules":[{"type":"match","regex":false,"patterns":["("]}]})" )
+               .error.isEmpty() );
+    CHECK( again.rules[ 0 ].regex );
 }
 
 TEST_CASE( "Notes of rules with links", "[rules]" )
@@ -191,10 +208,11 @@ TEST_CASE( "Rules editor", "[rules]" )
     RulesEditor editor( {} );
     CHECK( editor.rules().empty() );
 
-    // A rule from a selected text: the text escaped
+    // A rule from a selected text: the text as it is, plain text
     editor.addRuleFor( "connect failed (code 17)" );
     REQUIRE( editor.rules().size() == 1 );
-    CHECK( editor.rules()[ 0 ].patterns == QStringList{ "connect failed \\(code 17\\)" } );
+    CHECK( editor.rules()[ 0 ].patterns == QStringList{ "connect failed (code 17)" } );
+    CHECK( !editor.rules()[ 0 ].regex );
 
     // Edited in the form
     auto* name = editor.findChildren<QLineEdit*>().at( 0 );
@@ -204,13 +222,22 @@ TEST_CASE( "Rules editor", "[rules]" )
     type->setCurrentIndex( 2 ); // absence
     auto* patterns = editor.findChild<QPlainTextEdit*>();
     patterns->setPlainText( "connect start id=(\\d+)\nconnected id=(\\d+)" );
-    auto* within = editor.findChildren<QCheckBox*>().at( 1 );
-    within->setChecked( true );
+    const auto checkBox = [ &editor ]( const QString& text ) {
+        for ( auto* box : editor.findChildren<QCheckBox*>() ) {
+            if ( box->text() == text ) {
+                return box;
+            }
+        }
+        return static_cast<QCheckBox*>( nullptr );
+    };
+    checkBox( "Regular expression" )->setChecked( true );
+    checkBox( "Within" )->setChecked( true );
 
     const auto& rule = editor.rules()[ 0 ];
     CHECK( rule.name == "Connect failed" );
     CHECK( rule.type == analysis::Rule::Type::Absence );
     CHECK( rule.patterns.size() == 2 );
+    CHECK( rule.regex );
     CHECK( rule.withinSeconds == 5.0 );
 
     const auto renderDir = qEnvironmentVariable( "FLOGG_RENDER_DIR" );
