@@ -1,6 +1,6 @@
 # flogg changes
 
-## Unreleased
+## 1.4.3 (2026-11-23)
 
 - Analysis: the Start and End of the durations and the patterns of the rules can be plain
   text or regular expressions (`Regular expression` box; `"regex": false` in a rule file).
