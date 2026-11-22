@@ -316,11 +316,13 @@ QVariant CompareModel::data( const QModelIndex& index, int role ) const
                 return *text;
             }
             case FirstLine:
-                return child.side == 0 && child.line ? QVariant( child.line->get() + 1 )
-                                                     : QVariant();
+                return child.side == 0 && child.line
+                           ? QVariant::fromValue<qulonglong>( child.line->get() + 1 )
+                           : QVariant();
             case SecondLine:
-                return child.side == 1 && child.line ? QVariant( child.line->get() + 1 )
-                                                     : QVariant();
+                return child.side == 1 && child.line
+                           ? QVariant::fromValue<qulonglong>( child.line->get() + 1 )
+                           : QVariant();
             default:
                 return {};
             }
@@ -361,9 +363,11 @@ QVariant CompareModel::data( const QModelIndex& index, int role ) const
         case SecondCount:
             return QString( "%L1" ).arg( row.secondCount );
         case FirstLine:
-            return row.firstLine ? QVariant( row.firstLine->get() + 1 ) : QVariant();
+            return row.firstLine ? QVariant::fromValue<qulonglong>( row.firstLine->get() + 1 )
+                                 : QVariant();
         case SecondLine:
-            return row.secondLine ? QVariant( row.secondLine->get() + 1 ) : QVariant();
+            return row.secondLine ? QVariant::fromValue<qulonglong>( row.secondLine->get() + 1 )
+                                  : QVariant();
         default:
             return {};
         }
