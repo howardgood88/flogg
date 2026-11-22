@@ -90,6 +90,8 @@
 #include "mainwindow.h"
 #include "analysisdialog.h"
 #include "filemerge.h"
+#include "selectiontimelabel.h"
+#include "timestamp.h"
 
 #include "clipboard.h"
 #include "crawlerwidget.h"
@@ -196,6 +198,7 @@ MainWindow::MainWindow( WindowSession session )
     signalMux_.connect( SIGNAL( sendToScratchpad( QString ) ), this,
                         SLOT( sendToScratchpad( QString ) ) );
     signalMux_.connect( SIGNAL( addToFilters( QString ) ), this, SLOT( addToFilters( QString ) ) );
+    signalMux_.connect( SIGNAL( addToRules( QString ) ), this, SLOT( addToRules( QString ) ) );
     signalMux_.connect( SIGNAL( filterHitsChanged( FilterHits ) ), this,
                         SLOT( updateFilterHits( FilterHits ) ) );
 
@@ -1027,16 +1030,14 @@ void MainWindow::createToolBars()
     sizeField = new QLabel();
     sizeField->setAlignment( Qt::AlignHCenter | Qt::AlignVCenter );
 
-    encodingField = new QLabel();
-    encodingField->setAlignment( Qt::AlignHCenter | Qt::AlignVCenter );
 
     lineNbField = new QLabel();
     lineNbField->setAlignment( Qt::AlignRight | Qt::AlignVCenter );
     lineNbField->setContentsMargins( 2, 0, 2, 0 );
 
-    selectionTimeField = new QLabel();
-    selectionTimeField->setAlignment( Qt::AlignRight | Qt::AlignVCenter );
-    selectionTimeField->setContentsMargins( 2, 0, 2, 0 );
+    selectionTimeField = new SelectionTimeLabel();
+    connect( selectionTimeField, &SelectionTimeLabel::menuRequested, this,
+             &MainWindow::showSelectionTimeMenu );
 
     toolBar = addToolBar( QApplication::translate( "klogg::mainwindow::toolbar",
                                                    klogg::mainwindow::toolbar::toolbarTitle ) );
@@ -1050,12 +1051,11 @@ void MainWindow::createToolBars()
     toolBar->addWidget( infoLine );
     toolBar->addAction( stopAction );
 
-    // The modification date is the tool tip of the size, the panel buttons take its room
-    infoToolbarSeparators.reserve( 4 );
+    // The modification date and the encoding are the tool tip of the size, the panel
+    // buttons and the time between lines take their room
+    infoToolbarSeparators.reserve( 3 );
     infoToolbarSeparators.push_back( toolBar->addSeparator() );
     toolBar->addWidget( sizeField );
-    infoToolbarSeparators.push_back( toolBar->addSeparator() );
-    toolBar->addWidget( encodingField );
     infoToolbarSeparators.push_back( toolBar->addSeparator() );
     toolBar->addWidget( lineNbField );
     selectionTimeAction = toolBar->addWidget( selectionTimeField );
@@ -1639,8 +1639,7 @@ void MainWindow::lineNumberHandler( LineNumber startLine, LinesCount nLines, Lin
 
 void MainWindow::updateSelectionTime( const QString& text, const QString& toolTip )
 {
-    selectionTimeField->setText( text );
-    selectionTimeField->setToolTip( toolTip );
+    selectionTimeField->setTime( text, toolTip );
     selectionTimeAction->setVisible( !text.isEmpty() );
 }
 
@@ -2162,6 +2161,48 @@ QString MainWindow::strippedName( const QString& fullFileName ) const
 }
 
 // Return the currently active CrawlerWidget, or NULL if none
+void MainWindow::showSelectionTimeMenu( const QPoint& globalPos )
+{
+    auto* crawler = currentCrawlerWidget();
+    if ( !crawler ) {
+        return;
+    }
+    QMenu menu;
+    const auto duration = selectionTimeField->durationText();
+    connect( menu.addAction( tr( "Copy \"%1\"" ).arg( duration ) ), &QAction::triggered, this,
+             [ duration ] { QApplication::clipboard()->setText( duration ); } );
+    const auto details = selectionTimeField->text() + "\n" + selectionTimeField->details();
+    connect( menu.addAction( tr( "Copy with the times of the lines" ) ), &QAction::triggered, this,
+             [ details ] { QApplication::clipboard()->setText( details.trimmed() ); } );
+    menu.addSeparator();
+
+    // The formats of the first selected line, the one chosen even when it is not there
+    auto* formats = menu.addMenu( tr( "Time stamps compared" ) );
+    auto* group = new QActionGroup( formats );
+    const auto chosen = crawler->timeFormat();
+    auto* first = formats->addAction( tr( "The first of the line" ) );
+    first->setCheckable( true );
+    first->setChecked( !chosen );
+    group->addAction( first );
+    connect( first, &QAction::triggered, crawler, [ crawler ] { crawler->setTimeFormat( {} ); } );
+    auto available = crawler->selectionTimeFormats();
+    if ( chosen && std::find( available.begin(), available.end(), *chosen ) == available.end() ) {
+        available.push_back( *chosen );
+    }
+    if ( !available.empty() ) {
+        formats->addSeparator();
+    }
+    for ( const auto format : available ) {
+        auto* action = formats->addAction( timestamps::formatName( format ) );
+        action->setCheckable( true );
+        action->setChecked( chosen && *chosen == format );
+        group->addAction( action );
+        connect( action, &QAction::triggered, crawler,
+                 [ crawler, format ] { crawler->setTimeFormat( format ); } );
+    }
+    menu.exec( globalPos );
+}
+
 void MainWindow::openMergeFiles( const QStringList& files )
 {
     auto* dialog = new MergeFilesDialog( files, this );
@@ -2711,15 +2752,14 @@ void MainWindow::updateInfoLine()
     infoLine->setText( current_file );
     infoLine->setPath( current_file );
     sizeField->setText( readableSize( fileSize ) );
-    encodingField->setText( currentCrawlerWidget()->encodingText() );
 
+    QStringList tip;
     if ( lastModified.isValid() ) {
         const QString date = defaultLocale.toString( lastModified, QLocale::NarrowFormat );
-        sizeField->setToolTip( tr( "modified on %1" ).arg( date ) );
+        tip.append( tr( "modified on %1" ).arg( date ) );
     }
-    else {
-        sizeField->setToolTip( {} );
-    }
+    tip.append( currentCrawlerWidget()->encodingText() );
+    sizeField->setToolTip( tip.join( "\n" ) );
 }
 
 void MainWindow::updateOpenedFilesMenu()
@@ -2956,7 +2996,6 @@ void MainWindow::showInfoLabels( bool show )
     if ( !show ) {
         sizeField->clear();
         sizeField->setToolTip( {} );
-        encodingField->clear();
         lineNbField->clear();
         updateSelectionTime( {}, {} );
     }
@@ -3348,6 +3387,12 @@ void MainWindow::applyFiltersToCurrentCrawler()
 void MainWindow::updateFilterHits( FilterHits hits )
 {
     filterPanel_->setHitCounts( hits );
+}
+
+void MainWindow::addToRules( QString text )
+{
+    openAnalysis( AnalysisDialog::Rules );
+    analysisDialog_->editRules( text );
 }
 
 void MainWindow::addToFilters( QString text )

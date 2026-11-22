@@ -109,6 +109,8 @@ class AnalysisDialog : public QDialog {
     // Run on the current tab, as the buttons do
     void runDurations( const QString& startPattern, const QString& endPattern );
     void runRules( const QString& rulesFile );
+    // The rules of the file in the editor, with a new rule matching the text when given
+    void editRules( const QString& textOfNewRule = {} );
     void runCompare( bool lineByLine );
 
     // For the tests

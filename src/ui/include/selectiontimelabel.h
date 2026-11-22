@@ -1,0 +1,73 @@
+/*
+ * Copyright (C) 2026 flogg contributors
+ *
+ * This file is part of flogg.
+ *
+ * flogg is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * flogg is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with flogg.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
+#ifndef FLOGG_SELECTIONTIMELABEL_H
+#define FLOGG_SELECTIONTIMELABEL_H
+
+#include <QWidget>
+
+class QVariantAnimation;
+
+// The time between the selected lines in the tool bar: a rounded badge that flashes when a
+// new time shows (orange with a warning, grey when the time can not be worked out). The
+// right click is left to the owner (copy, choice of the time stamps).
+class SelectionTimeLabel : public QWidget {
+    Q_OBJECT
+  public:
+    explicit SelectionTimeLabel( QWidget* parent = nullptr );
+
+    void setTime( const QString& text, const QString& details );
+    QString text() const
+    {
+        return text_;
+    }
+    QString details() const
+    {
+        return details_;
+    }
+    // "+1.234 s" out of "Δ +1.234 s ⚠", the message when there is no time
+    QString durationText() const;
+    // 1 right after a new time shows, down to 0
+    double flashLevel() const
+    {
+        return flashLevel_;
+    }
+
+    QSize sizeHint() const override;
+    QSize minimumSizeHint() const override;
+
+  Q_SIGNALS:
+    void menuRequested( const QPoint& globalPos );
+
+  protected:
+    void paintEvent( QPaintEvent* event ) override;
+    void contextMenuEvent( QContextMenuEvent* event ) override;
+    void changeEvent( QEvent* event ) override;
+
+  private:
+    enum class Kind { Time, Warning, NoTime };
+    Kind kind() const;
+
+    QString text_;
+    QString details_;
+    QVariantAnimation* flash_;
+    double flashLevel_ = 0;
+};
+
+#endif

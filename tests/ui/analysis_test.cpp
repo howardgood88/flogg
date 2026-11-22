@@ -87,7 +87,7 @@ SCENARIO( "Durations of paired events", "[analysis]" )
     AtomicFlag cancel;
     int lastProgress = 0;
     const auto result = measureDurations(
-        log.data(), { "begin request id=(\\d+)", "end request id=(\\d+)", false }, cancel,
+        log.data(), { "begin request id=(\\d+)", "end request id=(\\d+)", false, {} }, cancel,
         [ &lastProgress ]( int percent ) { lastProgress = percent; } );
 
     REQUIRE( result.error.isEmpty() );
@@ -114,15 +114,15 @@ SCENARIO( "Durations of paired events", "[analysis]" )
 
     // Without groups, an end closes the latest start
     const auto unkeyed
-        = measureDurations( log.data(), { "begin request", "end request", false }, cancel, {} );
+        = measureDurations( log.data(), { "begin request", "end request", false, {} }, cancel, {} );
     CHECK( unkeyed.pairs == 2 );
     CHECK( unkeyed.slowest[ 0 ].us == 3000000 );
     CHECK( unkeyed.slowest[ 0 ].start == 0_lnum );
     CHECK( unkeyed.slowest[ 1 ].start == 1_lnum );
 
     // Errors
-    CHECK( !measureDurations( log.data(), { "(", "end", false }, cancel, {} ).error.isEmpty() );
-    CHECK( !measureDurations( log.data(), { "", "end", false }, cancel, {} ).error.isEmpty() );
+    CHECK( !measureDurations( log.data(), { "(", "end", false, {} }, cancel, {} ).error.isEmpty() );
+    CHECK( !measureDurations( log.data(), { "", "end", false, {} }, cancel, {} ).error.isEmpty() );
 }
 
 SCENARIO( "Rules", "[analysis]" )
@@ -196,7 +196,7 @@ SCENARIO( "Analysis cancelled", "[analysis]" )
     const LoadedLog log( content );
     AtomicFlag cancel;
     cancel.set();
-    const auto result = measureDurations( log.data(), { "begin", "end", false }, cancel, {} );
+    const auto result = measureDurations( log.data(), { "begin", "end", false, {} }, cancel, {} );
     CHECK( result.cancelled );
     CHECK( result.pairs == 0 );
 }
@@ -339,7 +339,20 @@ TEST_CASE( "Templates of a large file in the background", "[templates][.benchmar
                         << timer.elapsed() << " ms" );
 
     timer.restart();
-    const auto durations = measureDurations( logData, { "ERROR", "INFO", false }, cancel, {} );
+    timer.restart();
+    uint64_t visited = 0;
+    scanMatches( logData,
+                 { RegularExpressionPattern( qEnvironmentVariable( "FLOGG_BENCH_START", "ERROR" ),
+                                             false, false, false, false ),
+                   RegularExpressionPattern( qEnvironmentVariable( "FLOGG_BENCH_END", "INFO" ),
+                                             false, false, false, false ) },
+                 cancel, {}, [ &visited ]( LineNumber, const QString&, const auto& ) { ++visited; } );
+    WARN( "scan and read only: " << visited << " lines in " << timer.elapsed() << " ms" );
+    timer.restart();
+
+    const auto start = qEnvironmentVariable( "FLOGG_BENCH_START", "ERROR" );
+    const auto end = qEnvironmentVariable( "FLOGG_BENCH_END", "INFO" );
+    const auto durations = measureDurations( logData, { start, end, false, {} }, cancel, {} );
     WARN( "durations: " << durations.pairs << " pairs in " << timer.elapsed() << " ms" );
 }
 
@@ -533,7 +546,7 @@ SCENARIO( "Demo files", "[.demo]" )
     AtomicFlag cancel;
     // 3. Durations
     const auto requests = measureDurations(
-        *bad->logData(), { "request begin id=(\\d+)", "request end id=(\\d+)", false }, cancel, {} );
+        *bad->logData(), { "request begin id=(\\d+)", "request end id=(\\d+)", false, {} }, cancel, {} );
     CHECK( requests.openStarts == 3 );
     CHECK( requests.slowest.front().us > 2500000 );
     CHECK( requests.slowest.front().start.get() > 1422 );
@@ -542,7 +555,7 @@ SCENARIO( "Demo files", "[.demo]" )
                        << ", median " << timestamps::formatDuration( requests.p50Us ).toStdString() );
     const auto launches = measureDurations( *logcat->logData(),
                                             { "START u0 \\{cmp=com\\.demo/\\.(\\w+)\\}",
-                                              "Displayed com\\.demo/\\.(\\w+)", false },
+                                              "Displayed com\\.demo/\\.(\\w+)", false, {} },
                                             cancel, {} );
     CHECK( launches.pairs == 5 );
     CHECK( launches.slowest.front().us == 4200000 );
@@ -585,7 +598,13 @@ SCENARIO( "Demo files", "[.demo]" )
     WARN( "wifi logcat 1602-1634: " << timestamps::formatDuration( *midnight.us, 6 ).toStdString() );
     // Across the wall clock set back 2 hours: the time since boot is used
     CHECK( line( *wifiDriver, 1562 ).contains( "wall clock adjusted" ) );
-    const auto clockSet = delta( *wifiDriver, 1560, 1566 );
+    // By default the first time stamp of the line (the wall clock), set back 2 hours
+    const auto byWallClock = delta( *wifiDriver, 1560, 1566 );
+    REQUIRE( byWallClock.us );
+    CHECK( timestamps::formatDuration( *byWallClock.us, 6 ) == "-2 h 00 m 10.323152 s" );
+    const auto clockSet = timestamps::difference(
+        timestamps::parseLine( line( *wifiDriver, 1560 ) ),
+        timestamps::parseLine( line( *wifiDriver, 1566 ) ), timestamps::Format::Kernel );
     REQUIRE( clockSet.us );
     CHECK( clockSet.first->isMonotonic() );
     CHECK( *clockSet.us > 0 );
@@ -597,7 +616,7 @@ SCENARIO( "Demo files", "[.demo]" )
 
     const auto connects = measureDurations( *wifiLogcat->logData(),
                                             { "CMD_START_CONNECT netId=(\\d+)",
-                                              "CTRL-EVENT-CONNECTED .*\\[id=(\\d+)", false },
+                                              "CTRL-EVENT-CONNECTED .*\\[id=(\\d+)", false, {} },
                                             cancel, {} );
     WARN( "connects: " << connects.pairs << " pairs, open " << connects.openStarts << ", slowest "
                        << timestamps::formatDuration( connects.slowest.front().us, 6 ).toStdString()
@@ -606,7 +625,7 @@ SCENARIO( "Demo files", "[.demo]" )
     const auto scans = measureDurations( *wifiDriver->logData(),
                                          { "\\[SCAN\\]TRANSITION: \\[IDLE\\] -> \\[SCANNING\\]",
                                            "\\[SCAN\\]TRANSITION: \\[SCANNING\\] -> \\[IDLE\\]",
-                                           false },
+                                           false, {} },
                                          cancel, {} );
     WARN( "scans: " << scans.pairs << " pairs, open " << scans.openStarts << ", negative "
                     << scans.negative << ", slowest "
@@ -616,7 +635,7 @@ SCENARIO( "Demo files", "[.demo]" )
     CHECK( scans.negative == 0 );
     CHECK( scans.openStarts == 0 );
     const auto sleeps = measureDurations( *wifiFw->logData(),
-                                          { "may enter deep sleep", "WAKE UP FROM DSLP", false },
+                                          { "may enter deep sleep", "WAKE UP FROM DSLP", false, {} },
                                           cancel, {} );
     WARN( "sleeps: " << sleeps.pairs << " pairs, open " << sleeps.openStarts << " at line "
                      << ( sleeps.openStartLines.empty() ? 0 : sleeps.openStartLines[ 0 ].get() + 1 )

@@ -135,3 +135,122 @@ TEST_CASE( "Merge files dialog", "[filemerge]" )
     CHECK( merged.front().front().toString() == dir.filePath( "merged.log" ) );
     CHECK( read( dir.filePath( "merged.log" ) ) == "c\na\nb\n" );
 }
+
+#include <QCheckBox>
+#include <QComboBox>
+#include <QLineEdit>
+#include <QPlainTextEdit>
+
+#include "loganalysis.h"
+#include "ruleseditor.h"
+#include "selectiontimelabel.h"
+
+TEST_CASE( "Rules written and read back", "[rules]" )
+{
+    const auto set = analysis::parseRules( analysis::exampleRules() );
+    REQUIRE( set.error.isEmpty() );
+    const auto again = analysis::parseRules( analysis::rulesToJson( set.rules ) );
+    REQUIRE( again.error.isEmpty() );
+    REQUIRE( again.rules.size() == set.rules.size() );
+    for ( size_t r = 0; r < set.rules.size(); ++r ) {
+        CHECK( again.rules[ r ].name == set.rules[ r ].name );
+        CHECK( again.rules[ r ].type == set.rules[ r ].type );
+        CHECK( again.rules[ r ].patterns == set.rules[ r ].patterns );
+        CHECK( again.rules[ r ].withinSeconds == set.rules[ r ].withinSeconds );
+        CHECK( again.rules[ r ].link == set.rules[ r ].link );
+    }
+    analysis::Rule absence;
+    absence.type = analysis::Rule::Type::Absence;
+    absence.patterns = { "only one" };
+    CHECK( !analysis::checkRule( absence ).isEmpty() );
+    absence.patterns.append( "(" );
+    CHECK( analysis::checkRule( absence ).contains( "Invalid" ) );
+    absence.patterns.last() = "two";
+    CHECK( analysis::checkRule( absence ).isEmpty() );
+}
+
+TEST_CASE( "Rules editor", "[rules]" )
+{
+    QTemporaryDir dir;
+    const auto file = dir.filePath( "rules.json" );
+    RulesEditor editor( {} );
+    CHECK( editor.rules().empty() );
+
+    // A rule from a selected text: the text escaped
+    editor.addRuleFor( "connect failed (code 17)" );
+    REQUIRE( editor.rules().size() == 1 );
+    CHECK( editor.rules()[ 0 ].patterns == QStringList{ "connect failed \\(code 17\\)" } );
+
+    // Edited in the form
+    auto* name = editor.findChildren<QLineEdit*>().at( 0 );
+    name->setText( "Connect failed" );
+    Q_EMIT name->textEdited( name->text() );
+    auto* type = editor.findChildren<QComboBox*>().at( 0 );
+    type->setCurrentIndex( 2 ); // absence
+    auto* patterns = editor.findChild<QPlainTextEdit*>();
+    patterns->setPlainText( "connect start id=(\\d+)\nconnected id=(\\d+)" );
+    auto* within = editor.findChildren<QCheckBox*>().at( 1 );
+    within->setChecked( true );
+
+    const auto& rule = editor.rules()[ 0 ];
+    CHECK( rule.name == "Connect failed" );
+    CHECK( rule.type == analysis::Rule::Type::Absence );
+    CHECK( rule.patterns.size() == 2 );
+    CHECK( rule.withinSeconds == 5.0 );
+
+    const auto renderDir = qEnvironmentVariable( "FLOGG_RENDER_DIR" );
+    if ( !renderDir.isEmpty() ) {
+        RulesEditor example( {} );
+        QFile rules( renderDir + "/example_rules.json" );
+        rules.open( QIODevice::WriteOnly );
+        rules.write( analysis::exampleRules() );
+        rules.close();
+        RulesEditor shown( renderDir + "/example_rules.json" );
+        shown.show();
+        shown.grab().save( renderDir + "/rules_editor.png" );
+    }
+
+    REQUIRE( editor.save( file ) );
+    RulesEditor reopened( file );
+    REQUIRE( reopened.rules().size() == 1 );
+    CHECK( reopened.rules()[ 0 ].patterns == rule.patterns );
+}
+
+TEST_CASE( "Time between lines label", "[timestamp]" )
+{
+    const auto renderDir = qEnvironmentVariable( "FLOGG_RENDER_DIR" );
+    if ( !renderDir.isEmpty() ) {
+        SelectionTimeLabel shown;
+        const auto save = [ & ]( const QString& name ) {
+            shown.resize( shown.sizeHint() );
+            shown.grab().save( renderDir + "/" + name + ".png" );
+        };
+        shown.setTime( "Δ +1.234 s", {} );
+        save( "time_flash" );
+        QTest::qWait( 800 );
+        save( "time_fading" );
+        QTest::qWait( 1200 );
+        save( "time_rest" );
+        shown.setTime( "Δ -29.179 s ⚠", {} );
+        QTest::qWait( 2000 );
+        save( "time_warning" );
+        shown.setTime( "Δ: No time stamp in the last line", {} );
+        QTest::qWait( 2000 );
+        save( "time_none" );
+    }
+
+    SelectionTimeLabel label;
+    label.setTime( "Δ +1.234 s ⚠", "Line 1: ..." );
+    CHECK( label.durationText() == "+1.234 s" );
+    CHECK( label.flashLevel() == 1.0 );
+    CHECK( label.toolTip().startsWith( "Line 1: ..." ) );
+    CHECK( label.toolTip().contains( "Right click" ) );
+    QTest::qWait( 2000 );
+    CHECK( label.flashLevel() == 0.0 );
+    // The same time again does not flash, a new one does
+    label.setTime( "Δ +1.234 s ⚠", "Line 1: ..." );
+    CHECK( label.flashLevel() == 0.0 );
+    label.setTime( "Δ: No time stamp in the last line", {} );
+    CHECK( label.durationText() == "No time stamp in the last line" );
+    CHECK( label.flashLevel() == 1.0 );
+}

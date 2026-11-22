@@ -251,6 +251,7 @@ class AbstractLogView : public QAbstractScrollArea, public SearchableWidgetInter
     void excludeFromSearch( const QString& selection );
     // Sent up when the user wants to create a filter from the selection
     void addToFilters( const QString& selection );
+    void addToRules( const QString& selection );
     // Lines of the file
     void editNoteRequested( LineNumber line );
     void removeNoteRequested( LineNumber line );
@@ -453,6 +454,7 @@ class AbstractLogView : public QAbstractScrollArea, public SearchableWidgetInter
     QAction* replaceSearchAction_;
     QAction* excludeFromSearchAction_;
     QAction* addToFiltersAction_;
+    QAction* addToRulesAction_;
     QAction* editNoteAction_;
     QAction* removeNoteAction_;
     QAction* exportNotesAction_;

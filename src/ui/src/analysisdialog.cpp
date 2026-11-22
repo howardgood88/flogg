@@ -46,6 +46,7 @@
 #include "crawlerwidget.h"
 #include "logdata.h"
 #include "persistentinfo.h"
+#include "ruleseditor.h"
 #include "timestamp.h"
 
 namespace {
@@ -521,7 +522,9 @@ void AnalysisDialog::runDurations( const QString& startPattern, const QString& e
 
     const auto logData = crawler->logData();
     const auto* data = logData.get();
-    const analysis::DurationSpec spec{ startPattern, endPattern, durationCase_->isChecked() };
+    // The time stamps chosen for the time between lines of the tab
+    const analysis::DurationSpec spec{ startPattern, endPattern, durationCase_->isChecked(),
+                                       crawler->timeFormat() };
     start<DurationRows>(
         [ data, spec ]( AtomicFlag& cancel, const analysis::Progress& progress ) {
             DurationRows rows;
@@ -650,6 +653,16 @@ QWidget* AnalysisDialog::createRulesPage()
         rulesPath_->setText( fileName );
         QDesktopServices::openUrl( QUrl::fromLocalFile( fileName ) );
     } );
+    example->setText( tr( "Example..." ) );
+    auto* edit = new QPushButton( tr( "Edit..." ), page );
+    edit->setToolTip( tr( "Add and change the rules of the file in a form" ) );
+    connect( edit, &QPushButton::clicked, this, [ this ] { editRules(); } );
+    auto* newFile = new QPushButton( tr( "New..." ), page );
+    newFile->setToolTip( tr( "Starts a new rule file in the form" ) );
+    connect( newFile, &QPushButton::clicked, this, [ this ] {
+        rulesPath_->clear();
+        editRules();
+    } );
     auto* run = new QPushButton( tr( "Check" ), page );
     runButtons_.push_back( run );
     connect( run, &QPushButton::clicked, this, [ this ] { runRules( rulesPath_->text() ); } );
@@ -658,6 +671,8 @@ QWidget* AnalysisDialog::createRulesPage()
     top->addWidget( new QLabel( tr( "Rules:" ), page ) );
     top->addWidget( rulesPath_, 1 );
     top->addWidget( browse );
+    top->addWidget( edit );
+    top->addWidget( newFile );
     top->addWidget( example );
     top->addWidget( run );
 
@@ -691,6 +706,25 @@ QWidget* AnalysisDialog::createRulesPage()
     return page;
 }
 
+void AnalysisDialog::editRules( const QString& textOfNewRule )
+{
+    auto* editor = new RulesEditor( rulesPath_->text(), this );
+    editor->setAttribute( Qt::WA_DeleteOnClose );
+    connect( editor, &RulesEditor::saved, this, [ this ]( const QString& fileName, bool check ) {
+        rulesPath_->setText( fileName );
+        settings().setValue( RulesKey, fileName );
+        if ( check ) {
+            showPage( Rules );
+            runRules( fileName );
+        }
+    } );
+    if ( !textOfNewRule.isEmpty() ) {
+        editor->addRuleFor( textOfNewRule );
+    }
+    editor->show();
+    editor->raise();
+}
+
 void AnalysisDialog::runRules( const QString& rulesFile )
 {
     if ( !startsOn( Rules ) ) {
@@ -719,10 +753,11 @@ void AnalysisDialog::runRules( const QString& rulesFile )
     const auto logData = crawler->logData();
     const auto* data = logData.get();
     const auto rules = set.rules;
+    const auto timeFormat = crawler->timeFormat();
     start<RuleRows>(
-        [ data, rules ]( AtomicFlag& cancel, const analysis::Progress& progress ) {
+        [ data, rules, timeFormat ]( AtomicFlag& cancel, const analysis::Progress& progress ) {
             RuleRows rows;
-            rows.result = analysis::runRules( *data, rules, cancel, progress );
+            rows.result = analysis::runRules( *data, rules, cancel, progress, timeFormat );
             std::vector<size_t> listed( rules.size(), 0 );
             for ( const auto& finding : rows.result.findings ) {
                 rows.texts.push_back( listed[ finding.rule ]++ < MaxListedFindings

@@ -19,6 +19,7 @@
 
 #include "timestamp.h"
 
+#include <algorithm>
 #include <array>
 #include <cstdlib>
 
@@ -551,7 +552,33 @@ std::optional<Timestamp> sameKind( const LineTimes& times, const Timestamp& refe
     return {};
 }
 
-Difference difference( const LineTimes& first, const LineTimes& second )
+std::vector<Timestamp> inOrder( const LineTimes& times )
+{
+    std::vector<Timestamp> stamps;
+    if ( times.wall ) {
+        stamps.push_back( *times.wall );
+    }
+    if ( times.monotonic ) {
+        stamps.push_back( *times.monotonic );
+    }
+    std::sort( stamps.begin(), stamps.end(),
+               []( const Timestamp& a, const Timestamp& b ) { return a.start < b.start; } );
+    return stamps;
+}
+
+std::optional<Timestamp> ofFormat( const LineTimes& times, Format format )
+{
+    if ( format == Format::Kernel ) {
+        return times.monotonic;
+    }
+    if ( times.wall && times.wall->format == format ) {
+        return times.wall;
+    }
+    return {};
+}
+
+Difference difference( const LineTimes& first, const LineTimes& second,
+                       std::optional<Format> format )
 {
     Difference result;
 
@@ -563,26 +590,32 @@ Difference difference( const LineTimes& first, const LineTimes& second )
         return result;
     }
 
-    if ( first.monotonic && second.monotonic ) {
-        result.first = first.monotonic;
-        result.second = second.monotonic;
-        result.us = second.monotonic->us - first.monotonic->us;
+    const auto chosen = format ? *format : inOrder( first ).front().format;
+    const auto a0 = ofFormat( first, chosen );
+    const auto b0 = ofFormat( second, chosen );
+    if ( !a0 || !b0 ) {
+        if ( format ) {
+            result.error = ( !a0 ? translate( "No %1 time stamp in the first line" )
+                                 : translate( "No %1 time stamp in the last line" ) )
+                               .arg( formatName( chosen ) );
+        }
+        else {
+            result.error = translate( "The lines have different time formats (%1 / %2)" )
+                               .arg( formatName( chosen ),
+                                     formatName( inOrder( second ).front().format ) );
+        }
         return result;
     }
 
-    if ( !first.wall || !second.wall ) {
-        result.error = translate( "One line has a time since boot, the other a clock time" );
+    if ( chosen == Format::Kernel ) {
+        result.first = a0;
+        result.second = b0;
+        result.us = b0->us - a0->us;
         return result;
     }
 
-    const auto& a = *first.wall;
-    const auto& b = *second.wall;
-    if ( a.format != b.format ) {
-        result.error = translate( "The lines have different time formats (%1 / %2)" )
-                           .arg( formatName( a.format ), formatName( b.format ) );
-        return result;
-    }
-
+    const auto& a = *a0;
+    const auto& b = *b0;
     result.first = a;
     result.second = b;
     auto us = b.us - a.us;

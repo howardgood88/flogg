@@ -31,6 +31,7 @@
 #include "atomicflag.h"
 #include "linetypes.h"
 #include "regularexpressionpattern.h"
+#include "timestamp.h"
 
 class LogData;
 
@@ -63,6 +64,8 @@ struct DurationSpec {
     QString startPattern;
     QString endPattern;
     bool caseSensitive = false;
+    // The time stamps compared, the first of the line by default (see timestamps::difference)
+    std::optional<timestamps::Format> timeFormat;
 };
 
 struct DurationPair {
@@ -134,6 +137,11 @@ struct RuleSet {
 };
 
 RuleSet parseRules( const QByteArray& json );
+// The rules as a rule file, read back the same by parseRules()
+QByteArray rulesToJson( const std::vector<Rule>& rules );
+QString ruleTypeName( Rule::Type type );
+// Why a rule can not be used, empty when it can
+QString checkRule( const Rule& rule );
 QByteArray exampleRules();
 
 struct Finding {
@@ -156,7 +164,8 @@ constexpr size_t MaxFindingsPerRule = 10000;
 constexpr size_t MaxOpenInstances = 100000;
 
 RuleResult runRules( const LogData& logData, const std::vector<Rule>& rules, AtomicFlag& cancel,
-                     const Progress& progress );
+                     const Progress& progress,
+                     std::optional<timestamps::Format> timeFormat = {} );
 
 } // namespace analysis
 

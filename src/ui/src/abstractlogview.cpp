@@ -2281,6 +2281,28 @@ void AbstractLogView::createMenu()
                                  : QString{} );
     } );
 
+    addToRulesAction_ = new QAction( tr( "Add as &rule..." ), this );
+    addToRulesAction_->setStatusTip( tr( "Create a rule of known problems from the selection" ) );
+    connect( addToRulesAction_, &QAction::triggered, this, [ this ]( auto ) {
+        if ( selection_.isPortion() ) {
+            Q_EMIT addToRules( selection_.getSelectedText( logData_ ) );
+            return;
+        }
+
+        // Without selected text the whole line is used: the one the menu was opened on,
+        // or the first selected one
+        auto line = popupLine_;
+        if ( !line ) {
+            const auto lines = selection_.getLines();
+            if ( !lines.empty() ) {
+                line = lines.front();
+            }
+        }
+        Q_EMIT addToRules( line && *line < logData_->getNbLine()
+                                 ? logData_->getLineString( *line )
+                                 : QString{} );
+    } );
+
     excludeFromSearchAction_ = new QAction( tr( "&Exclude from search" ), this );
     excludeFromSearchAction_->setStatusTip( tr( "Excludes the selection from search" ) );
     connect( excludeFromSearchAction_, &QAction::triggered, this,
@@ -2355,6 +2377,7 @@ void AbstractLogView::createMenu()
     popupMenu_->addAction( addToSearchAction_ );
     popupMenu_->addAction( excludeFromSearchAction_ );
     popupMenu_->addAction( addToFiltersAction_ );
+    popupMenu_->addAction( addToRulesAction_ );
     popupMenu_->addSeparator();
     popupMenu_->addAction( setSearchStartAction_ );
     popupMenu_->addAction( setSearchEndAction_ );

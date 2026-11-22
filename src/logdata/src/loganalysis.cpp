@@ -32,6 +32,10 @@
 #include <QJsonObject>
 #include <QRegularExpression>
 
+#include <tbb/blocked_range.h>
+#include <tbb/enumerable_thread_specific.h>
+#include <tbb/parallel_for.h>
+
 #include "logdata.h"
 #include "logfiltereddataworker.h"
 #include "timestamp.h"
@@ -88,9 +92,38 @@ QString captureKey( const QRegularExpression& regex, const QString& text )
     return parts.join( QChar( 0x1f ) );
 }
 
-bool scanMatches( const LogData& logData, const std::vector<RegularExpressionPattern>& patterns,
-                  AtomicFlag& cancel, const Progress& progress, const LineVisitor& visit,
-                  QString* error )
+namespace {
+
+// A line matching some of the patterns, with what the analyses need from it, worked out in
+// parallel before the lines are handled in order
+struct Candidate {
+    LineNumber line;
+    QString text;
+    std::vector<uint32_t> patterns;
+    // The capture groups of each matched pattern (empty for the others)
+    std::vector<QString> keys;
+    timestamps::LineTimes times;
+
+    bool has( uint32_t pattern ) const
+    {
+        return std::find( patterns.begin(), patterns.end(), pattern ) != patterns.end();
+    }
+    const QString& key( uint32_t pattern ) const
+    {
+        return keys[ pattern ];
+    }
+};
+
+constexpr size_t BatchLines = 32768;
+
+using BatchVisitor = std::function<void( std::vector<Candidate>& batch )>;
+
+// Searches the patterns (one pass, like the filters), reads the matching lines in batches,
+// works out their time stamps and capture groups in parallel when `prepare` is set, then
+// hands each batch over in the order of the lines
+bool scanCandidates( const LogData& logData, const std::vector<RegularExpressionPattern>& patterns,
+                     bool prepare, AtomicFlag& cancel, const Progress& progress,
+                     const BatchVisitor& visit, QString* error )
 {
     for ( const auto& pattern : patterns ) {
         const auto regex = static_cast<QRegularExpression>( pattern );
@@ -119,7 +152,7 @@ bool scanMatches( const LogData& logData, const std::vector<RegularExpressionPat
         if ( progress ) {
             QObject::connect( &operation, &MultiSearchOperation::searchProgressed,
                               [ &progress ]( LinesCount, int percent, LineNumber ) {
-                                  progress( percent * 7 / 10 );
+                                  progress( percent * 4 / 10 );
                               } );
         }
         operation.run( searchData );
@@ -134,32 +167,45 @@ bool scanMatches( const LogData& logData, const std::vector<RegularExpressionPat
         all |= matches;
     }
 
-    // Then only the matching lines are read, in runs of lines that follow each other
+    // Each thread its own expressions: their first match compiles them
+    tbb::enumerable_thread_specific<std::vector<QRegularExpression>> threadRegexes( [ & ] {
+        std::vector<QRegularExpression> regexes;
+        for ( const auto& pattern : patterns ) {
+            regexes.push_back( compile( pattern.pattern, pattern.isCaseSensitive ) );
+        }
+        return regexes;
+    } );
+
     const auto total = all.cardinality();
     uint64_t done = 0;
-    int reported = 70;
-    std::vector<uint32_t> matched;
-    uint64_t runStart = 0;
-    uint64_t runLength = 0;
-    const auto flush = [ & ]() {
-        if ( runLength == 0 ) {
+    int reported = 40;
+    std::vector<Candidate> batch;
+    batch.reserve( BatchLines );
+
+    const auto handOver = [ & ]() {
+        if ( batch.empty() ) {
             return;
         }
-        const auto lines = logData.getLines( LineNumber( runStart ), LinesCount( runLength ) );
-        for ( size_t i = 0; i < lines.size(); ++i ) {
-            const auto line = runStart + i;
-            matched.clear();
-            for ( size_t p = 0; p < results.newMatches.size(); ++p ) {
-                if ( results.newMatches[ p ].contains( line ) ) {
-                    matched.push_back( static_cast<uint32_t>( p ) );
-                }
-            }
-            visit( LineNumber( line ), lines[ i ], matched );
+        if ( prepare ) {
+            tbb::parallel_for( tbb::blocked_range<size_t>( 0, batch.size(), 256 ),
+                               [ & ]( const tbb::blocked_range<size_t>& range ) {
+                                   auto& regexes = threadRegexes.local();
+                                   for ( auto i = range.begin(); i != range.end(); ++i ) {
+                                       auto& candidate = batch[ i ];
+                                       candidate.times = timestamps::parseLine( candidate.text );
+                                       candidate.keys.resize( patterns.size() );
+                                       for ( const auto p : candidate.patterns ) {
+                                           candidate.keys[ p ]
+                                               = captureKey( regexes[ p ], candidate.text );
+                                       }
+                                   }
+                               } );
         }
-        done += runLength;
-        runLength = 0;
+        visit( batch );
+        done += batch.size();
+        batch.clear();
         if ( progress && total > 0 ) {
-            const auto percent = 70 + static_cast<int>( done * 30 / total );
+            const auto percent = 40 + static_cast<int>( done * 60 / total );
             if ( percent > reported ) {
                 reported = percent;
                 progress( percent );
@@ -167,9 +213,34 @@ bool scanMatches( const LogData& logData, const std::vector<RegularExpressionPat
         }
     };
 
+    // Only the matching lines are read, in runs of lines that follow each other
+    uint64_t runStart = 0;
+    uint64_t runLength = 0;
+    const auto read = [ & ]() {
+        if ( runLength == 0 ) {
+            return;
+        }
+        auto lines = logData.getLines( LineNumber( runStart ), LinesCount( runLength ) );
+        for ( size_t i = 0; i < lines.size(); ++i ) {
+            Candidate candidate;
+            candidate.line = LineNumber( runStart + i );
+            candidate.text = std::move( lines[ i ] );
+            for ( size_t p = 0; p < results.newMatches.size(); ++p ) {
+                if ( results.newMatches[ p ].contains( runStart + i ) ) {
+                    candidate.patterns.push_back( static_cast<uint32_t>( p ) );
+                }
+            }
+            batch.push_back( std::move( candidate ) );
+        }
+        runLength = 0;
+        if ( batch.size() >= BatchLines ) {
+            handOver();
+        }
+    };
+
     for ( const auto line : all ) {
         if ( runLength > 0 && ( line != runStart + runLength || runLength >= MaxRunLines ) ) {
-            flush();
+            read();
             if ( cancel ) {
                 return false;
             }
@@ -179,8 +250,24 @@ bool scanMatches( const LogData& logData, const std::vector<RegularExpressionPat
         }
         ++runLength;
     }
-    flush();
+    read();
+    handOver();
     return !cancel;
+}
+
+} // namespace
+
+bool scanMatches( const LogData& logData, const std::vector<RegularExpressionPattern>& patterns,
+                  AtomicFlag& cancel, const Progress& progress, const LineVisitor& visit,
+                  QString* error )
+{
+    return scanCandidates( logData, patterns, false, cancel, progress,
+                           [ &visit ]( std::vector<Candidate>& batch ) {
+                               for ( const auto& candidate : batch ) {
+                                   visit( candidate.line, candidate.text, candidate.patterns );
+                               }
+                           },
+                           error );
 }
 
 //
@@ -196,14 +283,13 @@ DurationResult measureDurations( const LogData& logData, const DurationSpec& spe
         return result;
     }
 
-    const auto startRegex = compile( spec.startPattern, spec.caseSensitive );
-    const auto endRegex = compile( spec.endPattern, spec.caseSensitive );
-
     struct Open {
         LineNumber line;
         timestamps::LineTimes times;
     };
-    std::unordered_map<QString, std::deque<Open>> open;
+    // Keys without an open start are taken out, so the map stays as small as the starts
+    // still open
+    std::unordered_map<QString, std::vector<Open>> open;
     size_t openCount = 0;
     uint64_t overflow = 0;
 
@@ -216,15 +302,14 @@ DurationResult measureDurations( const LogData& logData, const DurationSpec& spe
     std::priority_queue<DurationPair, std::vector<DurationPair>, decltype( slower )> slowest(
         slower );
 
-    const auto visit = [ & ]( LineNumber line, const QString& text,
-                              const std::vector<uint32_t>& patterns ) {
-        const auto isStart
-            = std::find( patterns.begin(), patterns.end(), 0u ) != patterns.end();
-        const auto isEnd = std::find( patterns.begin(), patterns.end(), 1u ) != patterns.end();
+    const auto visitOne = [ & ]( Candidate& candidate ) {
+        const auto line = candidate.line;
+        const auto isStart = candidate.has( 0 );
+        const auto isEnd = candidate.has( 1 );
 
         // A line matching both ends a pair before starting one
         if ( isEnd ) {
-            const auto key = captureKey( endRegex, text );
+            const auto& key = candidate.key( 1 );
             auto queue = open.find( key );
             if ( queue == open.end() || queue->second.empty() ) {
                 ++result.unmatchedEnds;
@@ -234,9 +319,12 @@ DurationResult measureDurations( const LogData& logData, const DurationSpec& spe
                 // stays open instead of shifting every pair after it
                 const auto start = queue->second.back();
                 queue->second.pop_back();
+                if ( queue->second.empty() ) {
+                    open.erase( queue );
+                }
                 --openCount;
                 const auto difference
-                    = timestamps::difference( start.times, timestamps::parseLine( text ) );
+                    = timestamps::difference( start.times, candidate.times, spec.timeFormat );
                 if ( !difference.us ) {
                     ++result.withoutTime;
                 }
@@ -286,18 +374,23 @@ DurationResult measureDurations( const LogData& logData, const DurationSpec& spe
                 ++overflow;
                 return;
             }
-            open[ captureKey( startRegex, text ) ].push_back(
-                { line, timestamps::parseLine( text ) } );
+            open[ candidate.key( 0 ) ].push_back( { line, std::move( candidate.times ) } );
             ++openCount;
         }
     };
 
-    if ( !scanMatches( logData,
+    if ( !scanCandidates( logData,
                        { RegularExpressionPattern( spec.startPattern, spec.caseSensitive, false,
                                                    false, false ),
                          RegularExpressionPattern( spec.endPattern, spec.caseSensitive, false,
                                                    false, false ) },
-                       cancel, progress, visit, &result.error ) ) {
+                       true, cancel, progress,
+                       [ &visitOne ]( std::vector<Candidate>& batch ) {
+                           for ( auto& candidate : batch ) {
+                               visitOne( candidate );
+                           }
+                       },
+                       &result.error ) ) {
         result.cancelled = result.error.isEmpty();
         return result;
     }
@@ -416,6 +509,79 @@ RuleSet parseRules( const QByteArray& json )
     return set;
 }
 
+QString ruleTypeName( Rule::Type type )
+{
+    switch ( type ) {
+    case Rule::Type::Match:
+        return "match";
+    case Rule::Type::Sequence:
+        return "sequence";
+    case Rule::Type::Absence:
+        return "absence";
+    case Rule::Type::Count:
+        return "count";
+    }
+    return "match";
+}
+
+QString checkRule( const Rule& rule )
+{
+    const auto needed = rule.type == Rule::Type::Sequence || rule.type == Rule::Type::Absence ? 2
+                                                                                               : 1;
+    if ( rule.patterns.size() < needed ) {
+        return translate( "%1 pattern(s) needed" )
+            .arg( rule.type == Rule::Type::Sequence ? translate( "2 or more" )
+                                                    : QString::number( needed ) );
+    }
+    if ( rule.type == Rule::Type::Absence && rule.patterns.size() != 2 ) {
+        return translate( "An absence takes 2 patterns" );
+    }
+    if ( ( rule.type == Rule::Type::Match || rule.type == Rule::Type::Count )
+         && rule.patterns.size() != 1 ) {
+        return translate( "This kind of rule takes 1 pattern" );
+    }
+    for ( const auto& pattern : rule.patterns ) {
+        const auto regex = compile( pattern, rule.caseSensitive );
+        if ( pattern.isEmpty() || !regex.isValid() ) {
+            return translate( "Invalid regular expression %1: %2" )
+                .arg( pattern, regex.errorString() );
+        }
+    }
+    if ( rule.type == Rule::Type::Count && rule.count < 1 ) {
+        return translate( "The count must be 1 or more" );
+    }
+    return {};
+}
+
+QByteArray rulesToJson( const std::vector<Rule>& rules )
+{
+    QJsonArray array;
+    for ( const auto& rule : rules ) {
+        QJsonObject object;
+        object.insert( "name", rule.name );
+        if ( !rule.description.isEmpty() ) {
+            object.insert( "description", rule.description );
+        }
+        object.insert( "type", ruleTypeName( rule.type ) );
+        object.insert( "severity", rule.severity.isEmpty() ? QString( "warning" ) : rule.severity );
+        object.insert( "patterns", QJsonArray::fromStringList( rule.patterns ) );
+        if ( rule.caseSensitive ) {
+            object.insert( "caseSensitive", true );
+        }
+        if ( rule.withinSeconds ) {
+            object.insert( "withinSeconds", *rule.withinSeconds );
+        }
+        if ( rule.type == Rule::Type::Count ) {
+            object.insert( "count", rule.count );
+        }
+        if ( !rule.link.isEmpty() ) {
+            object.insert( "link", rule.link );
+        }
+        array.append( object );
+    }
+    return QJsonDocument( QJsonObject{ { "rules", array } } ).toJson( QJsonDocument::Indented );
+}
+
 QByteArray exampleRules()
 {
     return R"json({
@@ -473,9 +639,10 @@ bool compatible( const QString& a, const QString& b )
 }
 
 // Time from `from` to `to` when both lines have a comparable time
-std::optional<int64_t> elapsed( const timestamps::LineTimes& from, const timestamps::LineTimes& to )
+std::optional<int64_t> elapsed( const timestamps::LineTimes& from, const timestamps::LineTimes& to,
+                                std::optional<timestamps::Format> format )
 {
-    return timestamps::difference( from, to ).us;
+    return timestamps::difference( from, to, format ).us;
 }
 
 // The time of the last line of the file that has one
@@ -496,14 +663,13 @@ timestamps::LineTimes endOfFileTimes( const LogData& logData )
 } // namespace
 
 RuleResult runRules( const LogData& logData, const std::vector<Rule>& rules, AtomicFlag& cancel,
-                     const Progress& progress )
+                     const Progress& progress, std::optional<timestamps::Format> timeFormat )
 {
     RuleResult result;
     result.totalFindings.assign( rules.size(), 0 );
 
     // Each different pattern is searched once for all the rules
     std::vector<RegularExpressionPattern> patterns;
-    std::vector<QRegularExpression> regexes;
     std::map<std::pair<QString, bool>, uint32_t> patternIndex;
     std::vector<std::vector<uint32_t>> steps( rules.size() );
     for ( size_t r = 0; r < rules.size(); ++r ) {
@@ -515,7 +681,6 @@ RuleResult runRules( const LogData& logData, const std::vector<Rule>& rules, Ato
                             .emplace( key, static_cast<uint32_t>( patterns.size() ) )
                             .first;
                 patterns.emplace_back( pattern, rules[ r ].caseSensitive, false, false, false );
-                regexes.push_back( compile( pattern, rules[ r ].caseSensitive ) );
             }
             steps[ r ].push_back( index->second );
         }
@@ -541,18 +706,13 @@ RuleResult runRules( const LogData& logData, const std::vector<Rule>& rules, Ato
             static_cast<int64_t>( *rule.withinSeconds * 1000000 ), 0, false );
     };
 
-    const auto visit = [ & ]( LineNumber line, const QString& text,
-                              const std::vector<uint32_t>& matched ) {
-        std::optional<timestamps::LineTimes> times;
-        const auto lineTimes = [ & ]() -> const timestamps::LineTimes& {
-            if ( !times ) {
-                times = timestamps::parseLine( text );
-            }
-            return *times;
+    const auto visit = [ & ]( const Candidate& candidate ) {
+        const auto line = candidate.line;
+        const auto lineTimes = [ &candidate ]() -> const timestamps::LineTimes& {
+            return candidate.times;
         };
-        const auto has = [ &matched ]( uint32_t pattern ) {
-            return std::find( matched.begin(), matched.end(), pattern ) != matched.end();
-        };
+        const auto has = [ &candidate ]( uint32_t pattern ) { return candidate.has( pattern ); };
+        const auto keyOf = [ &candidate ]( uint32_t pattern ) { return candidate.key( pattern ); };
 
         for ( size_t r = 0; r < rules.size(); ++r ) {
             const auto& rule = rules[ r ];
@@ -566,7 +726,7 @@ RuleResult runRules( const LogData& logData, const std::vector<Rule>& rules, Ato
             // Instances past their time: absences found, sequences given up
             if ( withinUs && !open.empty() && !lineTimes().isEmpty() ) {
                 while ( !open.empty() ) {
-                    const auto time = elapsed( open.front().times, lineTimes() );
+                    const auto time = elapsed( open.front().times, lineTimes(), timeFormat );
                     if ( !time || *time <= *withinUs ) {
                         break;
                     }
@@ -587,7 +747,7 @@ RuleResult runRules( const LogData& logData, const std::vector<Rule>& rules, Ato
 
             case Rule::Type::Absence:
                 if ( has( ruleSteps[ 1 ] ) ) {
-                    const auto key = captureKey( regexes[ ruleSteps[ 1 ] ], text );
+                    const auto key = keyOf( ruleSteps[ 1 ] );
                     const auto found
                         = std::find_if( open.begin(), open.end(), [ &key ]( const auto& i ) {
                               return compatible( i.key, key );
@@ -598,7 +758,7 @@ RuleResult runRules( const LogData& logData, const std::vector<Rule>& rules, Ato
                 }
                 if ( has( ruleSteps[ 0 ] ) && open.size() < MaxOpenInstances ) {
                     open.push_back( { { line },
-                                      captureKey( regexes[ ruleSteps[ 0 ] ], text ),
+                                      keyOf( ruleSteps[ 0 ] ),
                                       lineTimes() } );
                 }
                 break;
@@ -609,7 +769,7 @@ RuleResult runRules( const LogData& logData, const std::vector<Rule>& rules, Ato
                     if ( !has( ruleSteps[ step ] ) ) {
                         continue;
                     }
-                    const auto key = captureKey( regexes[ ruleSteps[ step ] ], text );
+                    const auto key = keyOf( ruleSteps[ step ] );
                     const auto found = std::find_if(
                         open.begin(), open.end(), [ &key, step ]( const auto& i ) {
                             return i.step == step && compatible( i.key, key );
@@ -623,7 +783,7 @@ RuleResult runRules( const LogData& logData, const std::vector<Rule>& rules, Ato
                     }
                     if ( ++found->step == ruleSteps.size() ) {
                         QString detail;
-                        if ( const auto time = elapsed( found->times, lineTimes() ) ) {
+                        if ( const auto time = elapsed( found->times, lineTimes(), timeFormat ) ) {
                             detail = translate( "In %1" ).arg(
                                 timestamps::formatDuration( *time, 3, false ) );
                         }
@@ -633,7 +793,7 @@ RuleResult runRules( const LogData& logData, const std::vector<Rule>& rules, Ato
                 }
                 if ( has( ruleSteps[ 0 ] ) && open.size() < MaxOpenInstances ) {
                     open.push_back( { { line },
-                                      captureKey( regexes[ ruleSteps[ 0 ] ], text ),
+                                      keyOf( ruleSteps[ 0 ] ),
                                       lineTimes() } );
                 }
                 break;
@@ -643,12 +803,12 @@ RuleResult runRules( const LogData& logData, const std::vector<Rule>& rules, Ato
                 if ( !has( ruleSteps[ 0 ] ) ) {
                     break;
                 }
-                const auto key = captureKey( regexes[ ruleSteps[ 0 ] ], text );
+                const auto key = keyOf( ruleSteps[ 0 ] );
                 auto& window = windows[ r ][ key ];
                 window.push_back( { { line }, key, lineTimes() } );
                 if ( withinUs ) {
                     while ( window.size() > 1 ) {
-                        const auto time = elapsed( window.front().times, lineTimes() );
+                        const auto time = elapsed( window.front().times, lineTimes(), timeFormat );
                         if ( !time || *time <= *withinUs ) {
                             break;
                         }
@@ -680,7 +840,13 @@ RuleResult runRules( const LogData& logData, const std::vector<Rule>& rules, Ato
         }
     };
 
-    if ( !scanMatches( logData, patterns, cancel, progress, visit, &result.error ) ) {
+    if ( !scanCandidates( logData, patterns, true, cancel, progress,
+                          [ &visit ]( std::vector<Candidate>& batch ) {
+                              for ( const auto& candidate : batch ) {
+                                  visit( candidate );
+                              }
+                          },
+                          &result.error ) ) {
         result.cancelled = result.error.isEmpty();
         return result;
     }
@@ -700,7 +866,7 @@ RuleResult runRules( const LogData& logData, const std::vector<Rule>& rules, Ato
             if ( !endTimes ) {
                 endTimes = endOfFileTimes( logData );
             }
-            const auto time = elapsed( open.times, *endTimes );
+            const auto time = elapsed( open.times, *endTimes, timeFormat );
             const auto withinUs = static_cast<int64_t>( *rule.withinSeconds * 1e6 );
             addFinding( r, open.lines,
                         time && *time > withinUs

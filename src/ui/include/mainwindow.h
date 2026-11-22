@@ -91,6 +91,7 @@ struct UnsavedFilters;
 // Main window of the application, creates menus, toolbar and
 // the CrawlerWidget
 class AnalysisDialog;
+class SelectionTimeLabel;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -209,6 +210,7 @@ class MainWindow : public QMainWindow {
     void showScratchPad();
     void sendToScratchpad( QString );
     void addToFilters( QString );
+    void addToRules( QString );
     void updateFilterHits( FilterHits hits );
     void replaceDataInScratchpad( QString );
     void encodingChanged( QAction* action );
@@ -375,10 +377,9 @@ class MainWindow : public QMainWindow {
     PathLine* infoLine;
     QLabel* lineNbField;
     // Time between the first and last selected lines
-    QLabel* selectionTimeField;
+    SelectionTimeLabel* selectionTimeField;
     QAction* selectionTimeAction;
     QLabel* sizeField;
-    QLabel* encodingField;
     std::vector<QAction*> infoToolbarSeparators;
 
     QToolBar* toolBar;
@@ -391,6 +392,8 @@ class MainWindow : public QMainWindow {
     QAction* mergeFilesAction;
     // The files in this order, then the merged one opened
     void openMergeFiles( const QStringList& files );
+    // Copy of the time between the lines, choice of the time stamps compared
+    void showSelectionTimeMenu( const QPoint& globalPos );
     QPointer<AnalysisDialog> analysisDialog_;
     void openAnalysis( int page );
     QAction* closeAction;

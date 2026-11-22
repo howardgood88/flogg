@@ -70,6 +70,7 @@
 #include "overview.h"
 #include "renderformat.h"
 #include "signalmux.h"
+#include "timestamp.h"
 #include "viewinterface.h"
 
 class InfoLine;
@@ -212,6 +213,18 @@ class CrawlerWidget : public QSplitter,
     {
         return selectionTimeText_;
     }
+    // The time stamps compared, in this tab: the first of the line by default, or a format
+    // chosen (a line with the wall clock and the time since boot). The analyses use it too.
+    std::optional<timestamps::Format> timeFormat() const
+    {
+        return timeFormat_;
+    }
+    void setTimeFormat( std::optional<timestamps::Format> format );
+    // The formats of the time stamps of the first selected line, in the order of the line
+    const std::vector<timestamps::Format>& selectionTimeFormats() const
+    {
+        return selectionTimeFormats_;
+    }
 
     // True until the loading of the file has finished
     bool isLoading() const
@@ -278,6 +291,8 @@ class CrawlerWidget : public QSplitter,
     void selectionTimeChanged( QString text, QString toolTip );
     // Sent up when the user wants to create a filter from a text
     void addToFilters( QString );
+    // Sent up when the user wants to create a rule of known problems from a text
+    void addToRules( QString );
     void filterHitsChanged( FilterHits hits );
     void sendToScratchpad( QString );
     void replaceDataInScratchpad( QString );
@@ -580,6 +595,8 @@ class CrawlerWidget : public QSplitter,
     QPointer<AbstractLogView> selectionTimeView_;
     QString selectionTimeText_;
     QString selectionTimeToolTip_;
+    std::optional<timestamps::Format> timeFormat_;
+    std::vector<timestamps::Format> selectionTimeFormats_;
     uint64_t selectionTimeGeneration_ = 0;
     std::shared_ptr<std::atomic_bool> clockCheckCancelled_;
     QFuture<void> clockCheck_;

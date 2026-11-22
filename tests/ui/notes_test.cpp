@@ -19,6 +19,7 @@
 
 #include <catch2/catch.hpp>
 
+#include <QDir>
 #include <QFile>
 #include <QJsonArray>
 #include <QSignalSpy>
@@ -198,15 +199,16 @@ SCENARIO( "Notes restored when the file is opened again", "[ui][notes]" )
         crawler->selectLineWhenLoaded( 7_lnum );
         crawler->toggleBookmark( 2 );
         const auto markdown = crawler->bookmarksAndNotesMarkdown();
-        CHECK( markdown.contains( "## Line 6\n\n```\nline 5\n```\n\nfive" ) );
-        CHECK( markdown.contains( "## Line 8 (bookmark 3)\n\n```\nline 7\n```\n\nseven\nsecond line" ) );
+        CHECK( markdown.endsWith( "\n\n```\n// five\n6: line 5\n// seven\n// second line\n"
+                                  "8: line 7\n```\n" ) );
+        CHECK( markdown.startsWith( QDir::toNativeSeparators( log ) ) );
     }
 
     {
         auto crawler = openCrawler( session, log );
         CHECK( crawler->note( 5_lnum ) == "five" );
         CHECK( crawler->note( 7_lnum ) == "seven\nsecond line" );
-        CHECK( crawler->bookmarksAndNotesMarkdown().contains( "## Line 8 (bookmark 3)" ) );
+        CHECK( crawler->bookmarksAndNotesMarkdown().contains( "// seven\n// second line\n8: line 7" ) );
         // Removed notes are gone from the store
         crawler->setNote( 5_lnum, {} );
     }

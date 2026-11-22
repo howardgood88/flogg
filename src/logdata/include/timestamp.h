@@ -22,6 +22,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <vector>
 
 #include <QString>
 #include <QStringList>
@@ -98,9 +99,17 @@ struct Difference {
     QStringList notes;
 };
 
-// The monotonic clock is preferred when both lines have one: it does not jump when the
-// wall clock is set. Lines of different formats are not compared.
-Difference difference( const LineTimes& first, const LineTimes& second );
+// The time stamps of the line in the order they are written
+std::vector<Timestamp> inOrder( const LineTimes& times );
+// The time stamp of the format, if the line has one
+std::optional<Timestamp> ofFormat( const LineTimes& times, Format format );
+
+// By default the format of the first time stamp of the first line is compared (the same
+// format must be in the second line); `format` asks for another one, such as the time since
+// boot of a line that starts with the wall clock. Lines of different formats are not
+// compared.
+Difference difference( const LineTimes& first, const LineTimes& second,
+                       std::optional<Format> format = {} );
 
 // The timestamp of the line in the same format and clock as `reference`
 std::optional<Timestamp> sameKind( const LineTimes& times, const Timestamp& reference );

@@ -196,3 +196,38 @@ TEST_CASE( "Time stamps of lines", "[timestamp]" )
         CHECK( timer.elapsed() < 2000 );
     }
 }
+
+TEST_CASE( "Time stamps compared: the first of the line or a chosen one", "[timestamp]" )
+{
+    // A driver log: the wall clock first, the time since boot after it; the wall clock is set
+    // back 2 hours between the lines
+    const auto first = parseLine( u"2026-11-20 06:11:55.776556,[ 2835.295153] main sync" );
+    const auto last = parseLine( u"2026-11-20 04:11:45.000000,[ 2838.392001] main scan" );
+
+    const auto formats = inOrder( first );
+    REQUIRE( formats.size() == 2 );
+    CHECK( formats[ 0 ].format == Format::DateTime );
+    CHECK( formats[ 1 ].format == Format::Kernel );
+
+    // By default the first time stamp of the line
+    const auto byDefault = difference( first, last );
+    REQUIRE( byDefault.us );
+    CHECK( byDefault.first->format == Format::DateTime );
+    CHECK( *byDefault.us < 0 );
+
+    // Chosen: the time since boot
+    const auto sinceBoot = difference( first, last, Format::Kernel );
+    REQUIRE( sinceBoot.us );
+    CHECK( *sinceBoot.us == 3096848 );
+
+    // A format a line does not have
+    const auto missing = difference( first, parseLine( u"2026-11-20 06:12:00 no boot time" ),
+                                     Format::Kernel );
+    CHECK( !missing.us );
+    CHECK( missing.error.contains( "last line" ) );
+
+    // The kernel time first in the line
+    CHECK( difference( parseLine( u"[ 5.000100] 2026-11-22 14:00:00 a" ),
+                       parseLine( u"[ 7.500100] 2026-11-22 13:00:00 b" ) )
+               .first->isMonotonic() );
+}

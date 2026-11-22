@@ -1388,6 +1388,7 @@ void CrawlerWidget::setup()
     connect( logMainView_, QOverload<const QString&>::of( &LogMainView::excludeFromSearch ), this,
              &CrawlerWidget::excludeFromSearch );
     connect( logMainView_, &LogMainView::addToFilters, this, &CrawlerWidget::addToFilters );
+    connect( logMainView_, &LogMainView::addToRules, this, &CrawlerWidget::addToRules );
 
     connect( logMainView_, QOverload<const QString&>::of( &LogMainView::replaceSearch ), this,
              &CrawlerWidget::replaceSearch );
@@ -1558,6 +1559,7 @@ void CrawlerWidget::connectAllFilteredViewSlots( FilteredView* view )
     view->setFilterHighlighterSet( filters_ ? filters_->highlighters : nullptr );
     view->setLineToolTipProvider( [ this ]( LineNumber line ) { return filterToolTip( line ); } );
     connect( view, &FilteredView::addToFilters, this, &CrawlerWidget::addToFilters );
+    connect( view, &FilteredView::addToRules, this, &CrawlerWidget::addToRules );
 
     connect( view, &FilteredView::newSelection, view, [ view ]( auto ) { view->update(); } );
 
@@ -2857,6 +2859,12 @@ void CrawlerWidget::selectionChangedIn( AbstractLogView* view )
     dispatchToObject( [ this ] { updateSelectionTime(); }, this );
 }
 
+void CrawlerWidget::setTimeFormat( std::optional<timestamps::Format> format )
+{
+    timeFormat_ = format;
+    updateSelectionTime();
+}
+
 void CrawlerWidget::setSelectionTime( const QString& text, const QString& toolTip )
 {
     if ( text == selectionTimeText_ && toolTip == selectionTimeToolTip_ ) {
@@ -2884,12 +2892,17 @@ void CrawlerWidget::updateSelectionTime()
 
     // Two lines read and parsed, a few microseconds
     const auto [ firstLine, lastLine ] = *bounds;
-    const auto result
-        = timestamps::difference( timestamps::parseLine( logData_->getLineString( firstLine ) ),
-                                  timestamps::parseLine( logData_->getLineString( lastLine ) ) );
+    const auto firstTimes = timestamps::parseLine( logData_->getLineString( firstLine ) );
+    selectionTimeFormats_.clear();
+    for ( const auto& stamp : timestamps::inOrder( firstTimes ) ) {
+        selectionTimeFormats_.push_back( stamp.format );
+    }
+    const auto result = timestamps::difference(
+        firstTimes, timestamps::parseLine( logData_->getLineString( lastLine ) ), timeFormat_ );
 
     if ( !result.us ) {
-        setSelectionTime( tr( "Δ: %1" ).arg( result.error ), {} );
+        setSelectionTime( tr( "Δ: %1" ).arg( result.error ),
+                          tr( "Right click to choose the time stamp compared" ) );
         return;
     }
 
@@ -2903,7 +2916,8 @@ void CrawlerWidget::updateSelectionTime()
     rows.append( tr( "Line %1: %2" )
                      .arg( lastLine.get() + 1 )
                      .arg( timestamps::formatTimestamp( *result.second ) ) );
-    rows.append( tr( "Format: %1" ).arg( timestamps::formatName( result.first->format ) ) );
+    rows.append( ( timeFormat_ ? tr( "Format: %1 (chosen)" ) : tr( "Format: %1 (first in the line)" ) )
+                     .arg( timestamps::formatName( result.first->format ) ) );
     if ( *result.us < 0 ) {
         rows.append( tr( "The last line is earlier than the first one" ) );
     }
@@ -3081,36 +3095,28 @@ void CrawlerWidget::restoreNotes()
 
 QString CrawlerWidget::bookmarksAndNotesMarkdown() const
 {
-    const auto lines = logFilteredData_->getBookmarksAndNotes();
-    QStringList parts;
-    parts.append( tr( "# Bookmarks and notes" ) );
-    parts.append( tr( "%1, %2" )
-                      .arg( QDir::toNativeSeparators( logData_->attachedFileName() ),
-                            QDateTime::currentDateTime().toString( Qt::ISODate ) ) );
-    for ( const auto& line : lines ) {
-        QStringList numbers;
-        for ( size_t slot = 0; slot < LogFilteredData::NbBookmarks; ++slot ) {
-            if ( line.slots & ( 1u << slot ) ) {
-                numbers.append( QString::number( slot + 1 ) );
+    // The lines with their numbers (as Copy with line numbers), each note above its line as
+    // // comments, all in one code block
+    QStringList body;
+    for ( const auto& line : logFilteredData_->getBookmarksAndNotes() ) {
+        if ( !line.text.isEmpty() ) {
+            for ( const auto& noteLine : line.text.split( QChar::LineFeed ) ) {
+                body.append( "// " + noteLine );
             }
         }
-        auto title = tr( "## Line %1" ).arg( line.line.get() + 1 );
-        if ( !numbers.isEmpty() ) {
-            title += tr( " (bookmark %1)" ).arg( numbers.join( ", " ) );
-        }
-        parts.append( title );
-        // A fence longer than any run of backticks in the line
-        const auto text = logData_->getLineString( line.line );
-        QString fence = "```";
-        while ( text.contains( fence ) ) {
-            fence += "`";
-        }
-        parts.append( fence + "\n" + text + "\n" + fence );
-        if ( !line.text.isEmpty() ) {
-            parts.append( line.text );
-        }
+        body.append( QStringLiteral( "%1: %2" )
+                         .arg( line.line.get() + 1 )
+                         .arg( logData_->getLineString( line.line ) ) );
     }
-    return parts.join( "\n\n" ) + "\n";
+    const auto content = body.join( QChar::LineFeed );
+
+    // A fence longer than any run of backticks in the lines
+    QString fence = "```";
+    while ( content.contains( fence ) ) {
+        fence += "`";
+    }
+    return QDir::toNativeSeparators( logData_->attachedFileName() ) + "\n\n" + fence + "\n"
+           + content + "\n" + fence + "\n";
 }
 
 void CrawlerWidget::exportNotes()
