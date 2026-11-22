@@ -2950,8 +2950,8 @@ SCENARIO( "Filter panel passes the bookmark keys on", "[ui]" )
     REQUIRE( toggled.size() == 1 );
     CHECK( toggled.at( 0 ).at( 0 ).toInt() == 2 );
 
-    QTest::keyClick( tree, Qt::Key_5, Qt::AltModifier );
-    QTest::keyClick( tree, Qt::Key_1, Qt::AltModifier | Qt::ShiftModifier );
+    QTest::keyClick( tree, Qt::Key_5 );
+    QTest::keyClick( tree, Qt::Key_Exclam );
     REQUIRE( jumped.size() == 2 );
     CHECK( jumped.at( 0 ).at( 0 ).toInt() == 4 );
     CHECK_FALSE( jumped.at( 0 ).at( 1 ).toBool() );
