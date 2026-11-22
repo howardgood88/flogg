@@ -624,12 +624,12 @@ std::optional<Timestamp> parseCustom( QStringView line )
             return text.isEmpty() ? fallback : text.toInt();
         };
         int month = number( "M", 1 );
-        const auto monthName = match.capturedView( "N" );
+        const auto monthName = match.capturedView( QStringLiteral( "N" ) );
         if ( !monthName.isEmpty() ) {
             month = *monthFromName( monthName, 0 );
         }
         auto year = number( "Y", NoYear );
-        if ( !match.capturedView( "y" ).isEmpty() ) {
+        if ( !match.capturedView( QStringLiteral( "y" ) ).isEmpty() ) {
             year = 2000 + number( "y", 0 );
         }
         const auto day = number( "D", 1 );
@@ -641,7 +641,7 @@ std::optional<Timestamp> parseCustom( QStringView line )
         }
         Parsed time;
         time.us = ( ( static_cast<int64_t>( hour ) * 60 + minute ) * 60 + second ) * UsPerSecond;
-        const auto fraction = match.capturedView( "f" );
+        const auto fraction = match.capturedView( QStringLiteral( "f" ) );
         if ( !fraction.isEmpty() ) {
             time.fractionDigits = static_cast<int>( fraction.size() );
             time.us += fractionToUs( fraction.toLongLong(), time.fractionDigits );
