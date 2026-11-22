@@ -1,5 +1,16 @@
 # flogg changes
 
+## 1.4.1 (2026-11-22)
+
+- Compare by templates marks a template more or fewer only when its share of the lines
+  changes 2 times or more **and** the split is too unlikely to be chance (binomial test,
+  below 0.1%): 1 line in each of two files of different sizes is no longer "fewer"; the
+  marked templates come first
+- The counts show the share of the lines of their file, the tool tip the line totals
+- Line by line is the first and default compare mode
+- The time between the selected lines uses the colours of a checked tool button of the
+  current style
+
 ## 1.4.0 (2026-11-22)
 
 - **New: time between lines**: with two or more lines selected (`Ctrl+click`,
