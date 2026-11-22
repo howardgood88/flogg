@@ -3100,8 +3100,8 @@ void CrawlerWidget::restoreNotes()
 
 QString CrawlerWidget::bookmarksAndNotesMarkdown() const
 {
-    // The file, then the lines with their numbers (as Copy with line numbers), each note
-    // above its line as // comments
+    // The file, then in one code block the lines with their numbers (as Copy with line
+    // numbers), each note above its line as // comments
     QStringList body;
     for ( const auto& line : logFilteredData_->getBookmarksAndNotes() ) {
         if ( !line.text.isEmpty() ) {
@@ -3113,8 +3113,14 @@ QString CrawlerWidget::bookmarksAndNotesMarkdown() const
                          .arg( line.line.get() + 1 )
                          .arg( logData_->getLineString( line.line ) ) );
     }
-    return QDir::toNativeSeparators( logData_->attachedFileName() ) + "\n\n"
-           + body.join( QChar::LineFeed ) + "\n";
+    const auto content = body.join( QChar::LineFeed );
+    // In a code block, its fence longer than any run of backticks in the lines
+    QString fence = "```";
+    while ( content.contains( fence ) ) {
+        fence += "`";
+    }
+    return QDir::toNativeSeparators( logData_->attachedFileName() ) + "\n\n" + fence + "\n"
+           + content + "\n" + fence + "\n";
 }
 
 void CrawlerWidget::exportNotes()

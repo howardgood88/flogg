@@ -39,7 +39,7 @@
       "severity": "error",
       "patterns": [ "db error", "circuit breaker OPEN" ],
       "withinSeconds": 30,
-      "link": "https://example.com/runbooks/ledger-circuit-breaker"
+      "note": "Restart the ledger pool after the database is back. Runbook: https://example.com/runbooks/ledger-circuit-breaker (ask the payments on-call)"
     },
     {
       "name": "Login then logout within 1 s",

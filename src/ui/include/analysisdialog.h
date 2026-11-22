@@ -58,6 +58,8 @@ class CompareModel : public QAbstractTableModel {
 
     void setResults( std::vector<templates::Compared> rows, bool hasSecond );
     void setFilter( Filter filter );
+    // The names of the files compared, for the titles and the changes
+    void setNames( const QString& first, const QString& second );
     const templates::Compared& compared( int row ) const
     {
         return all_[ shown_[ static_cast<size_t>( row ) ] ];
@@ -72,6 +74,8 @@ class CompareModel : public QAbstractTableModel {
     std::vector<templates::Compared> all_;
     std::vector<size_t> shown_;
     bool hasSecond_ = false;
+    QString firstName_;
+    QString secondName_;
     Filter filter_ = All;
 };
 
@@ -138,6 +142,10 @@ class AnalysisDialog : public QDialog {
     {
         return firstTab_;
     }
+    QLabel* ruleDetails() const
+    {
+        return ruleDetails_;
+    }
     // The message of the last analysis
     QString message() const;
 
@@ -185,6 +193,9 @@ class AnalysisDialog : public QDialog {
 
     QLineEdit* rulesPath_ = nullptr;
     QTreeWidget* rulesTree_ = nullptr;
+    QLabel* ruleDetails_ = nullptr;
+    // The rules of the results shown, for their details
+    std::vector<analysis::Rule> shownRules_;
     QPointer<CrawlerWidget> rulesCrawler_;
 
     QComboBox* firstTab_ = nullptr;
@@ -193,6 +204,8 @@ class AnalysisDialog : public QDialog {
     QComboBox* secondScope_ = nullptr;
     QCheckBox* merge_ = nullptr;
     QComboBox* statusFilter_ = nullptr;
+    QComboBox* compareMode_ = nullptr;
+    QWidget* filterRow_ = nullptr;
     QStackedWidget* compareResults_ = nullptr;
     QTreeView* compareView_ = nullptr;
     CompareModel* compareModel_ = nullptr;

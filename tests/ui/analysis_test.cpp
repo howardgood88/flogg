@@ -439,6 +439,12 @@ SCENARIO( "Analysis window", "[ui][analysis]" )
     CHECK( tree->topLevelItem( 0 )->text( 0 ) == "Crash (1)" );
     CHECK( tree->topLevelItem( 0 )->text( 1 ) == "match" );
     CHECK( tree->topLevelItem( 0 )->text( 2 ) == "error" );
+    // The details of a rule: its note, with its web address as a link
+    auto* login = tree->findItems( "Login then logout right away (0)", Qt::MatchExactly ).value( 0 );
+    REQUIRE( login );
+    tree->setCurrentItem( login );
+    CHECK( dialog.ruleDetails()->text().contains(
+        "<a href=\"https://example.com/wiki/login-loop\">https://example.com/wiki/login-loop</a>" ) );
     REQUIRE( tree->topLevelItem( 0 )->childCount() == 1 );
     CHECK( tree->topLevelItem( 0 )->child( 0 )->text( 0 ) == "Line 100" );
     CHECK( dialog.message() == "Rules that found something: 1 of 4" );
@@ -485,11 +491,15 @@ SCENARIO( "Analysis window", "[ui][analysis]" )
     CHECK( model->compared( 0 ).text == "FATAL EXCEPTION in main" );
     CHECK( model->compared( 0 ).status == templates::Compared::Status::OnlyFirst );
     CHECK( model->compared( 0 ).firstCount == 1 );
+    CHECK( model->headerData( CompareModel::FirstCount, Qt::Horizontal, Qt::DisplayRole ) == "bad.log" );
+    CHECK( model->data( model->index( 0, CompareModel::Status ), Qt::DisplayRole ) == "only in bad.log" );
 
     // Line by line
     dialog.runCompare( true );
     REQUIRE( waitUiState( [ & ]() { return !dialog.isRunning(); } ) );
-    CHECK( dialog.message() == "Lines only in the first tab: 1, only in the other: 1" );
+    CHECK( dialog.message() == "Lines only in bad.log: 1, only in good.log: 1" );
+    CHECK( dialog.diffTree()->headerItem()->text( 1 ) == "bad.log" );
+    CHECK( dialog.diffTree()->headerItem()->text( 3 ) == "good.log" );
     auto* diff = dialog.diffTree();
     REQUIRE( diff->topLevelItemCount() > 3 );
     // Side by side: a line missing on the left next to the line of the right
@@ -522,6 +532,17 @@ SCENARIO( "Analysis window", "[ui][analysis]" )
         dialog.runCompare( false );
         waitUiState( [ & ]() { return !dialog.isRunning(); } );
         dialog.grab().save( renderDir + "/analysis_compare.png" );
+        dialog.showPage( AnalysisDialog::Rules );
+        {
+            QFile file( rulesFile );
+            REQUIRE( file.open( QIODevice::WriteOnly ) );
+            file.write( analysis::exampleRules() );
+        }
+        dialog.runRules( rulesFile );
+        waitUiState( [ & ]() { return !dialog.isRunning(); } );
+        dialog.rulesTree()->setCurrentItem(
+            dialog.rulesTree()->findItems( "Login then logout right away (0)", Qt::MatchExactly ).value( 0 ) );
+        dialog.grab().save( renderDir + "/analysis_rule_note.png" );
         dialog.showPage( AnalysisDialog::Rules );
         dialog.runRules( dir.filePath( "missing.json" ) );
         {

@@ -157,7 +157,7 @@ TEST_CASE( "Rules written and read back", "[rules]" )
         CHECK( again.rules[ r ].type == set.rules[ r ].type );
         CHECK( again.rules[ r ].patterns == set.rules[ r ].patterns );
         CHECK( again.rules[ r ].withinSeconds == set.rules[ r ].withinSeconds );
-        CHECK( again.rules[ r ].link == set.rules[ r ].link );
+        CHECK( again.rules[ r ].note == set.rules[ r ].note );
     }
     analysis::Rule absence;
     absence.type = analysis::Rule::Type::Absence;
@@ -167,6 +167,21 @@ TEST_CASE( "Rules written and read back", "[rules]" )
     CHECK( analysis::checkRule( absence ).contains( "Invalid" ) );
     absence.patterns.last() = "two";
     CHECK( analysis::checkRule( absence ).isEmpty() );
+}
+
+TEST_CASE( "Notes of rules with links", "[rules]" )
+{
+    CHECK( RulesEditor::noteHtml( "See https://wiki.example.com/runbook, then ask <ops>." )
+           == "See <a href=\"https://wiki.example.com/runbook\">https://wiki.example.com/runbook</a>"
+              ", then ask &lt;ops&gt;." );
+    CHECK( RulesEditor::noteHtml( "(www.example.com/a?b=1)\nline 2" )
+           == "(<a href=\"https://www.example.com/a?b=1\">www.example.com/a?b=1</a>)<br>line 2" );
+    CHECK( RulesEditor::noteHtml( "no link" ) == "no link" );
+    // The older name of the field is read too
+    const auto set
+        = analysis::parseRules( R"json({"rules":[{"name":"a","pattern":"x","link":"http://y"}]})json" );
+    REQUIRE( set.rules.size() == 1 );
+    CHECK( set.rules[ 0 ].note == "http://y" );
 }
 
 TEST_CASE( "Rules editor", "[rules]" )

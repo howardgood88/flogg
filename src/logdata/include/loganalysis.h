@@ -122,7 +122,9 @@ struct Rule {
     enum class Type { Match, Sequence, Absence, Count };
     QString name;
     QString description;
-    QString link;
+    // Free text shown with the results: what to do, who to ask; web addresses in it are
+    // links (read from "link" too, the older name)
+    QString note;
     QString severity;
     Type type = Type::Match;
     QStringList patterns;

@@ -51,16 +51,18 @@ python3 demo/make_demo.py --big 3000000 # 另外產生約 300 MB 的 big-app.log
 2. 第 1477 行加備註「OOM，可能是重試堆積造成」，再按 `Ctrl+1` 加書籤 1。
 3. 書籤欄最右邊會出現黃色的備註圖示；滑鼠停在該行，tooltip 最上方就是你的備註。
 4. 關掉分頁再打開 `app-bad.log`：備註和書籤都還在。
-5. 右鍵 → `Export bookmarks and notes...` → 得到檔名加上帶行號的各行，備註以 `//` 標在該行上方，可以直接貼進 bug 單：
+5. 右鍵 → `Export bookmarks and notes...` → 先是檔名，接著是放在同一個 code block 裡、帶行號的各行，備註以 `//` 標在該行上方，可以直接貼進 bug 單：
 
-   ```
+   ````
    /.../demo/app-bad.log
 
+   ```
    // ledger-db 拒絕連線，問題起點
    1421: 2026-11-22 09:00:53.774 ERROR [pool] db error: connection refused host=ledger-db:5432
    // OOM，可能是重試堆積造成
    1477: 2026-11-22 09:01:12.568 ERROR [pool] FATAL EXCEPTION: java.lang.OutOfMemoryError: Java heap space
    ```
+   ````
 
 **強在哪**
 
@@ -106,7 +108,7 @@ python3 demo/make_demo.py --big 3000000 # 另外產生約 300 MB 的 big-app.log
 | Request never answered | absence | 3 個 10 秒內沒有回應的 request |
 | Login then logout within 1 s | sequence | 事故後幾個使用者登入後 1 秒內就登出（同一個 user） |
 | Retry storm | count | `r77` 在 60 秒內重試 5 次 |
-| Database errors open the circuit breaker | sequence | `db error` 之後 30 秒內 breaker 打開；雙擊規則可開 runbook 連結 |
+| Database errors open the circuit breaker | sequence | `db error` 之後 30 秒內 breaker 打開；選取規則，下方會顯示備註與可點擊的 runbook 連結 |
 | Clock set | match | NTP 調整時鐘的那一行 |
 
 在 `app-good.log` 上跑同一份規則，什麼都沒找到：規則只對真正的問題起反應。在 `logcat.txt` 上則會找到 ANR。
@@ -116,7 +118,7 @@ python3 demo/make_demo.py --big 3000000 # 另外產生約 300 MB 的 big-app.log
 - 4 種規則涵蓋常見的「問題長相」：**某行出現**、**依序出現**、**該出現卻沒出現**、**短時間內重複太多次**。
 - 括號群組把同一件事的行綁在一起（同一個連線、同一個使用者），不會把 A 連線的開始和 B 連線的成功誤配。
 - 規則檔是 JSON，可以像 filter 檔一樣在團隊間分享：資深同事踩過的坑，新人一鍵就能檢查。
-- **不必手寫 JSON**：`Edit...` 會開啟表單，左邊列出規則，右邊編輯選取的那條：種類（每種都有說明與範例）、pattern 一行一個、時間、次數、嚴重度、連結。輸入時就會檢查，錯誤的 regex 立刻標示。`Save and Check` 存檔後直接在目前分頁檢查。
+- **不必手寫 JSON**：`Edit...` 會開啟表單，左邊列出規則，右邊編輯選取的那條：種類（每種都有說明與範例）、pattern 一行一個、時間、次數、嚴重度、備註（任意文字，網址會自動變成連結）。輸入時就會檢查，錯誤的 regex 立刻標示。`Save and Check` 存檔後直接在目前分頁檢查。
 - **從 log 直接建立規則**：在 log 檢視選一段文字（例如 `OutOfMemoryError`），右鍵 → `Add as rule...`，編輯器會開啟一條新規則，pattern 已填好（特殊字元已跳脫），只要取個名字。
 - `Example...` 會產生每種規則各一條的範本。
 
@@ -124,14 +126,14 @@ python3 demo/make_demo.py --big 3000000 # 另外產生約 300 MB 的 big-app.log
 
 ## 5. 比較：好的 log 和壞的 log 差在哪
 
-**操作**：在 `app-bad.log` 分頁開 `Tools > Analyze Log...` → `Compare`，`With:` 選 `app-good.log`，兩邊都選 `Whole file` → `Compare templates`：
+**操作**：在 `app-bad.log` 分頁開 `Tools > Analyze Log...` → `Compare`，`With:` 選 `app-good.log`，兩邊都選 `Whole file`，模式選 `Templates` → `Compare`：
 
-- 最上面是 **only there**（只在好 log）：`circuit breaker CLOSED for service=<*>`，代表壞 log 裡 breaker 一直沒恢復。
-- 接著是 **only here**（只出現在壞 log）：`retry request=<*> attempt=<*>`（5 次）、`db error: connection refused host=<*>`、`FATAL EXCEPTION...`、`clock adjusted...`、`circuit breaker OPEN...`，以及 stack trace 的每一行。整天幾千行裡，事故相關的事件全部浮到最上面。
-- 下拉選單選 `Fewer there`：`cache miss` 在好 log 比例低得多（壞 log 121 次、好 log 53 次），也就是事故後快取失效變嚴重。
-- 雙擊任一列，會跳到該模板第一次出現的位置（點 `There` 欄就跳到另一個分頁）。
+- 最上面是 **only in app-good.log**（只在好 log）：`circuit breaker CLOSED for service=<*>`，代表壞 log 裡 breaker 一直沒恢復。
+- 接著是 **only in app-bad.log**（只出現在壞 log）：`retry request=<*> attempt=<*>`（5 次）、`db error: connection refused host=<*>`、`FATAL EXCEPTION...`、`clock adjusted...`、`circuit breaker OPEN...`，以及 stack trace 的每一行。整天幾千行裡，事故相關的事件全部浮到最上面。
+- 結果右上方的 `Show:` 選 `Fewer in app-good.log`：`cache miss` 在好 log 比例低得多（壞 log 121 次、好 log 53 次），也就是事故後快取失效變嚴重。
+- 雙擊任一列，會跳到該模板第一次出現的位置（點另一個檔名的欄位就跳到另一個分頁）。
 
-換成 `Compare line by line`，並在兩個分頁各選一段相近的行（`Selected lines`），會以雙欄（像 code review）逐行對照：左邊是第一個分頁、右邊是另一個，時間與數字不同不算差異，只有一邊有的行以紅色與綠色標示，相同的行會摺疊。`Compare:` 也可以選任一個分頁，不必是目前的分頁。
+模式換成 `Line by line` 再按 `Compare`，並在兩個分頁各選一段相近的行（`Selected lines`），會以雙欄（像 code review）逐行對照：左右欄標題就是兩個檔名，時間與數字不同不算差異，只有一邊有的行以紅色與綠色標示，相同的行會摺疊。`Compare:` 也可以選任一個分頁，不必是目前的分頁。
 
 **強在哪**
 
@@ -167,7 +169,7 @@ python3 demo/make_demo.py --big 3000000
 開啟 `demo/big-app.log`（約 300 萬行）：
 
 - 用 `Durations`（`request begin id=(\d+)` / `request end id=(\d+)`）：大部分 request 在 300 ms 內，約萬分之五花了 5 秒，全部排在表格最上面。
-- 用 `Compare templates`（With 選 `(nothing: the templates of this tab)`）列出所有模板，最罕見的排最前面：只佔萬分之一的 `FATAL EXCEPTION` 馬上浮到最上面。
+- 模式選 `Templates`、按 `Compare`（With 選 `(nothing: the templates of this tab)`）列出所有模板，最罕見的排最前面：只佔萬分之一的 `FATAL EXCEPTION` 馬上浮到最上面。
 
 在 1.8 GB、3000 萬行的檔案上，模板分析約 2 秒；耗時分析在 pattern 命中約 2500 萬行的最壞情況下約 8.5 秒。
 

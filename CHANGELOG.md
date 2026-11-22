@@ -13,13 +13,14 @@
 - **New: notes on lines** (`Add note...`, `Shift+M`): shown beside the bookmarks and in
   the tool tip, kept in `notes.json` of flogg with their bookmarks (never next to the
   logs), dropped when the file or the line changed, 200 files at most; `Export bookmarks
-  and notes...` writes the lines with their numbers, the notes as `//` comments above them
+  and notes...` writes the lines with their numbers in a code block, the notes as `//`
+  comments above them
 - **New: `Tools > Analyze Log...`**, in the background:
   - Durations between a start and an end pattern, paired by their groups: percentiles,
     the slowest pairs, the starts never ended
   - Rules of known problems in a JSON file (match, sequence, absence, count, within a
     time, tied by their groups), edited in a form (`Edit...`, `New...`, `Add as rule...`
-    in the log views); `Example...`
+    in the log views), with a note whose web addresses are links; `Example...`
   - Compare two tabs (the whole file, the filtered view or the selection) by the
     templates of the lines, or line by line in two columns
 - **New: merge files** (`Merge N Files...` in the file panel, `File > Merge Files...`):

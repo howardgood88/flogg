@@ -454,7 +454,7 @@ RuleSet parseRules( const QByteArray& json )
         Rule rule;
         rule.name = object.value( "name" ).toString();
         rule.description = object.value( "description" ).toString();
-        rule.link = object.value( "link" ).toString();
+        rule.note = object.value( "note" ).toString( object.value( "link" ).toString() );
         rule.severity = object.value( "severity" ).toString( "warning" );
         rule.caseSensitive = object.value( "caseSensitive" ).toBool( false );
         if ( object.contains( "withinSeconds" ) ) {
@@ -574,8 +574,8 @@ QByteArray rulesToJson( const std::vector<Rule>& rules )
         if ( rule.type == Rule::Type::Count ) {
             object.insert( "count", rule.count );
         }
-        if ( !rule.link.isEmpty() ) {
-            object.insert( "link", rule.link );
+        if ( !rule.note.isEmpty() ) {
+            object.insert( "note", rule.note );
         }
         array.append( object );
     }
@@ -617,7 +617,7 @@ QByteArray exampleRules()
       "severity": "info",
       "patterns": [ "login user=(\\w+)", "logout user=(\\w+)" ],
       "withinSeconds": 2,
-      "link": "https://example.com/wiki/login-loop"
+      "note": "Check the token service first, see https://example.com/wiki/login-loop"
     }
   ]
 }

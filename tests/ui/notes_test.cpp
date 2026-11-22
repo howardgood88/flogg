@@ -199,8 +199,8 @@ SCENARIO( "Notes restored when the file is opened again", "[ui][notes]" )
         crawler->selectLineWhenLoaded( 7_lnum );
         crawler->toggleBookmark( 2 );
         const auto markdown = crawler->bookmarksAndNotesMarkdown();
-        CHECK( markdown.endsWith( "\n\n// five\n6: line 5\n// seven\n// second line\n"
-                                  "8: line 7\n" ) );
+        CHECK( markdown.endsWith( "\n\n```\n// five\n6: line 5\n// seven\n// second line\n"
+                                  "8: line 7\n```\n" ) );
         CHECK( markdown.startsWith( QDir::toNativeSeparators( log ) ) );
     }
 

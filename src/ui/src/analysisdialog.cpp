@@ -65,7 +65,7 @@ enum RuleColumn {
     RuleSeverityColumn,
     RuleFindingColumn,
     RuleTextColumn,
-    RuleLinkColumn,
+    RuleNoteColumn,
 };
 
 // Findings listed per rule, the others counted
@@ -93,7 +93,7 @@ QString duration( int64_t us, int digits )
     return timestamps::formatDuration( us, digits, false );
 }
 
-enum Role { FirstLineRole = Qt::UserRole + 1, LastLineRole, SideRole, LinkRole };
+enum Role { FirstLineRole = Qt::UserRole + 1, LastLineRole, SideRole, RuleRole };
 
 void setLines( QTreeWidgetItem* item, LineNumber first, LineNumber last, int side = 0 )
 {
@@ -158,6 +158,13 @@ void CompareModel::setResults( std::vector<templates::Compared> rows, bool hasSe
     setFilter( filter_ );
 }
 
+void CompareModel::setNames( const QString& first, const QString& second )
+{
+    firstName_ = first;
+    secondName_ = second;
+    headerDataChanged( Qt::Horizontal, 0, NbColumns - 1 );
+}
+
 void CompareModel::setFilter( Filter filter )
 {
     using St = templates::Compared::Status;
@@ -203,13 +210,13 @@ QVariant CompareModel::data( const QModelIndex& index, int role ) const
         case Status:
             switch ( row.status ) {
             case St::OnlyFirst:
-                return QApplication::translate( "AnalysisDialog", "only here" );
+                return QApplication::translate( "AnalysisDialog", "only in %1" ).arg( firstName_ );
             case St::OnlySecond:
-                return QApplication::translate( "AnalysisDialog", "only there" );
+                return QApplication::translate( "AnalysisDialog", "only in %1" ).arg( secondName_ );
             case St::More:
-                return QApplication::translate( "AnalysisDialog", "more there" );
+                return QApplication::translate( "AnalysisDialog", "more in %1" ).arg( secondName_ );
             case St::Fewer:
-                return QApplication::translate( "AnalysisDialog", "fewer there" );
+                return QApplication::translate( "AnalysisDialog", "fewer in %1" ).arg( secondName_ );
             case St::Same:
                 return {};
             }
@@ -263,13 +270,13 @@ QVariant CompareModel::headerData( int section, Qt::Orientation orientation, int
     case Template:
         return tr( "Template" );
     case FirstCount:
-        return hasSecond_ ? tr( "Here" ) : tr( "Lines" );
+        return hasSecond_ ? firstName_ : tr( "Lines" );
     case SecondCount:
-        return tr( "There" );
+        return secondName_;
     case FirstLine:
-        return hasSecond_ ? tr( "First line here" ) : tr( "First line" );
+        return hasSecond_ ? tr( "First line in %1" ).arg( firstName_ ) : tr( "First line" );
     case SecondLine:
-        return tr( "First line there" );
+        return tr( "First line in %1" ).arg( secondName_ );
     default:
         return {};
     }
@@ -709,10 +716,10 @@ QWidget* AnalysisDialog::createRulesPage()
     rulesTree_ = new QTreeWidget( page );
     rulesTree_->setUniformRowHeights( true );
     rulesTree_->setHeaderLabels( { tr( "Rule / line" ), tr( "Kind" ), tr( "Severity" ),
-                                   tr( "Finding" ), tr( "Text" ), tr( "Link" ) } );
+                                   tr( "Finding" ), tr( "Text" ), tr( "Note" ) } );
     rulesTree_->header()->resizeSection( RuleFindingColumn, 220 );
     rulesTree_->setToolTip( tr( "Double click a line to select it in the log, a rule to open its "
-                                "link; right click the column titles to choose the columns" ) );
+                                "note below; right click the column titles to choose the columns" ) );
     // The columns shown, chosen with the right click on their titles
     rulesTree_->header()->setContextMenuPolicy( Qt::CustomContextMenu );
     connect( rulesTree_->header(), &QWidget::customContextMenuRequested, this,
@@ -736,27 +743,56 @@ QWidget* AnalysisDialog::createRulesPage()
                  menu.exec( rulesTree_->header()->mapToGlobal( pos ) );
              } );
     const auto hiddenColumns
-        = settings().value( RulesHiddenColumnsKey, QStringList{ QString::number( RuleLinkColumn ) } )
+        = settings().value( RulesHiddenColumnsKey, QStringList{ QString::number( RuleNoteColumn ) } )
               .toStringList();
     for ( const auto& column : hiddenColumns ) {
         rulesTree_->setColumnHidden( column.toInt(), true );
     }
     connect( rulesTree_, &QTreeWidget::itemActivated, this, [ this ]( QTreeWidgetItem* item ) {
         if ( !item->data( 0, FirstLineRole ).isValid() ) {
-            const auto link = item->data( 0, LinkRole ).toString();
-            if ( !link.isEmpty() ) {
-                QDesktopServices::openUrl( QUrl( link ) );
-            }
             return;
         }
         showLinesOf( rulesCrawler_, LineNumber( item->data( 0, FirstLineRole ).toULongLong() ),
               LineNumber( item->data( 0, LastLineRole ).toULongLong() ) );
     } );
 
+    // The rule of the row selected: its description and its note, the web addresses in the
+    // note as links
+    ruleDetails_ = new QLabel( page );
+    ruleDetails_->setWordWrap( true );
+    ruleDetails_->setOpenExternalLinks( true );
+    ruleDetails_->setTextInteractionFlags( Qt::TextBrowserInteraction );
+    ruleDetails_->setFrameShape( QFrame::StyledPanel );
+    ruleDetails_->setContentsMargins( 6, 4, 6, 4 );
+    ruleDetails_->hide();
+    connect( rulesTree_, &QTreeWidget::currentItemChanged, this,
+             [ this ]( QTreeWidgetItem* item ) {
+                 auto* top = item;
+                 while ( top && top->parent() ) {
+                     top = top->parent();
+                 }
+                 const auto index = top ? top->data( 0, RuleRole ) : QVariant{};
+                 if ( !index.isValid() || index.toInt() >= static_cast<int>( shownRules_.size() ) ) {
+                     ruleDetails_->hide();
+                     return;
+                 }
+                 const auto& rule = shownRules_[ static_cast<size_t>( index.toInt() ) ];
+                 QString html = QString( "<b>%1</b>" ).arg( rule.name.toHtmlEscaped() );
+                 if ( !rule.description.isEmpty() ) {
+                     html += " - " + rule.description.toHtmlEscaped();
+                 }
+                 if ( !rule.note.isEmpty() ) {
+                     html += "<br>" + RulesEditor::noteHtml( rule.note );
+                 }
+                 ruleDetails_->setText( html );
+                 ruleDetails_->show();
+             } );
+
     auto* layout = new QVBoxLayout( page );
     layout->addLayout( top );
     layout->addWidget( hint );
     layout->addWidget( rulesTree_, 1 );
+    layout->addWidget( ruleDetails_ );
     return page;
 }
 
@@ -835,6 +871,7 @@ void AnalysisDialog::runRules( const QString& rulesFile )
                 return;
             }
 
+            shownRules_ = rules;
             std::vector<QTreeWidgetItem*> ruleItems;
             size_t found = 0;
             for ( size_t r = 0; r < rules.size(); ++r ) {
@@ -846,13 +883,14 @@ void AnalysisDialog::runRules( const QString& rulesFile )
                 item->setText( RuleKindColumn, analysis::ruleTypeName( rule.type ) );
                 item->setText( RuleSeverityColumn, rule.severity );
                 item->setText( RuleFindingColumn, rule.description );
-                item->setText( RuleLinkColumn, rule.link );
+                item->setText( RuleNoteColumn, QString( rule.note ).replace( '\n', ' ' ) );
+                item->setData( 0, RuleRole, static_cast<int>( r ) );
                 QStringList tip{ rule.description };
-                if ( !rule.link.isEmpty() ) {
-                    tip.append( tr( "Double click to open %1" ).arg( rule.link ) );
-                    item->setData( 0, LinkRole, rule.link );
+                if ( !rule.note.isEmpty() ) {
+                    tip.append( rule.note );
+                    tip.append( tr( "Select the rule to click the links of its note" ) );
                 }
-                for ( int c = 0; c <= RuleLinkColumn; ++c ) {
+                for ( int c = 0; c <= RuleNoteColumn; ++c ) {
                     item->setToolTip( c, tip.join( "\n" ) );
                 }
                 const auto color = total == 0             ? palette().color( QPalette::PlaceholderText )
@@ -957,20 +995,28 @@ QWidget* AnalysisDialog::createComparePage()
                             "user alice ok\" and \"login user bob ok\" become \"login user <*> "
                             "ok\". Off, they are counted apart." ) );
 
-    auto* compareButton = new QPushButton( tr( "Compare templates" ), page );
-    compareButton->setToolTip( tr( "Counts the lines of each kind in both: what is new, gone, "
-                                   "more or less frequent" ) );
-    auto* diffButton = new QPushButton( tr( "Compare line by line" ), page );
-    diffButton->setToolTip( tr( "Up to %L1 lines on each side, times and numbers left out" )
-                                .arg( templates::MaxDiffLines ) );
+    compareMode_ = new QComboBox( page );
+    compareMode_->addItem( tr( "Templates" ) );
+    compareMode_->addItem( tr( "Line by line" ) );
+    compareMode_->setItemData( 0, tr( "Counts the lines of each kind in both: what is new, gone, "
+                                      "more or less frequent" ),
+                               Qt::ToolTipRole );
+    compareMode_->setItemData(
+        1, tr( "Up to %L1 lines on each side, times and numbers left out, in two columns" )
+               .arg( templates::MaxDiffLines ),
+        Qt::ToolTipRole );
+    auto* compareButton = new QPushButton( tr( "Compare" ), page );
     runButtons_.push_back( compareButton );
-    runButtons_.push_back( diffButton );
-    connect( compareButton, &QPushButton::clicked, this, [ this ] { runCompare( false ); } );
-    connect( diffButton, &QPushButton::clicked, this, [ this ] { runCompare( true ); } );
+    connect( compareButton, &QPushButton::clicked, this,
+             [ this ] { runCompare( compareMode_->currentIndex() == 1 ); } );
+    // Grouping by one word is about templates only
+    connect( compareMode_, QOverload<int>::of( &QComboBox::currentIndexChanged ), this,
+             [ this ]( int mode ) { merge_->setEnabled( mode == 0 ); } );
 
     statusFilter_ = new QComboBox( page );
-    statusFilter_->addItems( { tr( "All templates" ), tr( "Changed" ), tr( "Only here" ),
-                               tr( "Only there" ), tr( "More there" ), tr( "Fewer there" ) } );
+    statusFilter_->addItems( { tr( "All templates" ), tr( "Changed" ), tr( "Only in the first" ),
+                               tr( "Only in the other" ), tr( "More in the other" ),
+                               tr( "Fewer in the other" ) } );
 
     auto* form = new QFormLayout();
     auto* firstRow = new QHBoxLayout();
@@ -984,9 +1030,8 @@ QWidget* AnalysisDialog::createComparePage()
     auto* buttons = new QHBoxLayout();
     buttons->addWidget( merge_ );
     buttons->addStretch();
-    buttons->addWidget( statusFilter_ );
+    buttons->addWidget( compareMode_ );
     buttons->addWidget( compareButton );
-    buttons->addWidget( diffButton );
     form->addRow( buttons );
 
     auto* hint = new QLabel( tr( "Pasted text can be compared too: paste it as a tab "
@@ -1022,7 +1067,7 @@ QWidget* AnalysisDialog::createComparePage()
     diffTree_ = new QTreeWidget( page );
     diffTree_->setRootIsDecorated( false );
     diffTree_->setUniformRowHeights( true );
-    diffTree_->setHeaderLabels( { tr( "Line" ), tr( "First tab" ), tr( "Line" ), tr( "Other tab" ) } );
+    diffTree_->setHeaderLabels( { tr( "Line" ), {}, tr( "Line" ), {} } );
     diffTree_->setToolTip( tr( "Double click a side to show its line in its tab" ) );
     connect( diffTree_, &QTreeWidget::itemActivated, this,
              [ this ]( QTreeWidgetItem* item, int column ) {
@@ -1043,9 +1088,19 @@ QWidget* AnalysisDialog::createComparePage()
     compareResults_->addWidget( compareView_ );
     compareResults_->addWidget( diffTree_ );
 
+    // Above the results, on the right: which templates to show, for the templates only
+    filterRow_ = new QWidget( page );
+    auto* filterLayout = new QHBoxLayout( filterRow_ );
+    filterLayout->setContentsMargins( 0, 0, 0, 0 );
+    filterLayout->addStretch();
+    filterLayout->addWidget( new QLabel( tr( "Show:" ), filterRow_ ) );
+    filterLayout->addWidget( statusFilter_ );
+    filterRow_->hide();
+
     auto* layout = new QVBoxLayout( page );
     layout->addLayout( form );
     layout->addWidget( hint );
+    layout->addWidget( filterRow_ );
     layout->addWidget( compareResults_, 1 );
     return page;
 }
@@ -1162,6 +1217,14 @@ void AnalysisDialog::runCompare( bool lineByLine )
 
     firstCrawler_ = first;
     secondCrawler_ = second;
+    // The results name the files, the tabs may change meanwhile
+    const auto firstName = firstTab_->currentText();
+    const auto secondName = second ? otherTab_->currentText() : QString{};
+    compareModel_->setNames( firstName, secondName );
+    statusFilter_->setItemText( 2, tr( "Only in %1" ).arg( firstName ) );
+    statusFilter_->setItemText( 3, tr( "Only in %1" ).arg( second ? secondName : tr( "the other" ) ) );
+    statusFilter_->setItemText( 4, tr( "More in %1" ).arg( second ? secondName : tr( "the other" ) ) );
+    statusFilter_->setItemText( 5, tr( "Fewer in %1" ).arg( second ? secondName : tr( "the other" ) ) );
     const auto firstData = first->logData();
     const auto secondData = second ? second->logData() : std::shared_ptr<LogData>{};
     const auto* a = firstData.get();
@@ -1170,6 +1233,7 @@ void AnalysisDialog::runCompare( bool lineByLine )
     if ( !lineByLine ) {
         const auto merge = merge_->isChecked();
         compareResults_->setCurrentWidget( compareView_ );
+        filterRow_->show();
         compareModel_->setResults( {}, b != nullptr );
         start<CompareRows>(
             [ a, b, scopeA = *firstScope, scopeB = secondScope,
@@ -1195,13 +1259,21 @@ void AnalysisDialog::runCompare( bool lineByLine )
                     return;
                 }
                 compareModel_->setResults( rows.rows, rows.hasSecond );
-                compareView_->header()->resizeSection( CompareModel::Status, 90 );
+                compareView_->resizeColumnToContents( CompareModel::Status );
                 compareView_->header()->resizeSection( CompareModel::Template, 460 );
                 auto text = rows.hasSecond
-                                ? tr( "%L1 templates: %L2 lines here, %L3 lines there" )
+                                ? tr( "%L1 templates: %L2 lines in %3, %L4 lines in %5" )
                                       .arg( rows.rows.size() )
                                       .arg( rows.first.lines )
+                                      .arg( compareModel_->headerData( CompareModel::FirstCount,
+                                                                       Qt::Horizontal,
+                                                                       Qt::DisplayRole )
+                                                .toString() )
                                       .arg( rows.second.lines )
+                                      .arg( compareModel_->headerData( CompareModel::SecondCount,
+                                                                       Qt::Horizontal,
+                                                                       Qt::DisplayRole )
+                                                .toString() )
                                 : tr( "%L1 templates in %L2 lines, the rarest first" )
                                       .arg( rows.rows.size() )
                                       .arg( rows.first.lines );
@@ -1216,6 +1288,8 @@ void AnalysisDialog::runCompare( bool lineByLine )
     }
 
     compareResults_->setCurrentWidget( diffTree_ );
+    filterRow_->hide();
+    diffTree_->setHeaderLabels( { tr( "Line" ), firstName, tr( "Line" ), secondName } );
     diffTree_->clear();
     start<DiffRows>(
         [ a, b, scopeA = *firstScope, scopeB = *secondScope ]( AtomicFlag& cancel,
@@ -1353,8 +1427,10 @@ void AnalysisDialog::runCompare( bool lineByLine )
             diffTree_->setColumnWidth( 1, textWidth );
             setMessage( rows.added + rows.removed == 0
                             ? tr( "The lines are alike (times and numbers left out)" )
-                            : tr( "Lines only in the first tab: %L1, only in the other: %L2" )
+                            : tr( "Lines only in %1: %L2, only in %3: %L4" )
+                                  .arg( diffTree_->headerItem()->text( 1 ) )
                                   .arg( rows.removed )
+                                  .arg( diffTree_->headerItem()->text( 3 ) )
                                   .arg( rows.added ) );
         },
         { firstData, secondData } );

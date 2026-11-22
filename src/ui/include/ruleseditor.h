@@ -59,6 +59,9 @@ class RulesEditor : public QDialog {
     // Writes the rules, false (and a message) when one can not be used
     bool save( const QString& fileName );
 
+    // The note as HTML: the text escaped, the web addresses as links
+    static QString noteHtml( const QString& note );
+
   Q_SIGNALS:
     // Saved, to be checked on the current tab when `check` is set
     void saved( const QString& fileName, bool check );
@@ -95,7 +98,8 @@ class RulesEditor : public QDialog {
     QDoubleSpinBox* seconds_ = nullptr;
     QSpinBox* count_ = nullptr;
     QLabel* countLabel_ = nullptr;
-    QLineEdit* link_ = nullptr;
+    QPlainTextEdit* note_ = nullptr;
+    QLabel* notePreview_ = nullptr;
     QLabel* problem_ = nullptr;
     QLabel* file_ = nullptr;
 };

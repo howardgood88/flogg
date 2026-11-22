@@ -148,8 +148,15 @@ RulesEditor::RulesEditor( const QString& fileName, QWidget* parent )
     count_ = new QSpinBox( form_ );
     count_->setRange( 1, 1000000 );
     countLabel_ = new QLabel( tr( "At least" ), form_ );
-    link_ = new QLineEdit( form_ );
-    link_->setPlaceholderText( tr( "https://... (a runbook, a ticket), opened by a double click" ) );
+    note_ = new QPlainTextEdit( form_ );
+    note_->setTabChangesFocus( true );
+    note_->setPlaceholderText( tr( "What to do, who to ask... Web addresses become links, e.g. "
+                                   "https://wiki.example.com/runbook" ) );
+    note_->setFixedHeight( note_->fontMetrics().lineSpacing() * 4 + 12 );
+    notePreview_ = new QLabel( form_ );
+    notePreview_->setWordWrap( true );
+    notePreview_->setOpenExternalLinks( true );
+    notePreview_->setTextInteractionFlags( Qt::TextBrowserInteraction );
     problem_ = new QLabel( form_ );
     problem_->setWordWrap( true );
     problem_->setStyleSheet( "color: #d03030" );
@@ -181,13 +188,15 @@ RulesEditor::RulesEditor( const QString& fileName, QWidget* parent )
     form->addRow( {}, patternsHint_ );
     form->addRow( {}, caseSensitive_ );
     form->addRow( tr( "Time:" ), time );
-    form->addRow( tr( "Link:" ), link_ );
+    form->addRow( tr( "Note:" ), note_ );
+    form->addRow( {}, notePreview_ );
     form->addRow( {}, problem_ );
 
-    for ( auto* edit : { name_, description_, link_ } ) {
+    for ( auto* edit : { name_, description_ } ) {
         connect( edit, &QLineEdit::textEdited, this, &RulesEditor::storeRule );
     }
     connect( patterns_, &QPlainTextEdit::textChanged, this, &RulesEditor::storeRule );
+    connect( note_, &QPlainTextEdit::textChanged, this, &RulesEditor::storeRule );
     connect( type_, QOverload<int>::of( &QComboBox::currentIndexChanged ), this,
              &RulesEditor::storeRule );
     connect( severity_, QOverload<int>::of( &QComboBox::currentIndexChanged ), this,
@@ -303,12 +312,13 @@ void RulesEditor::showRule( int row )
         within_->setChecked( rule.withinSeconds.has_value() );
         seconds_->setValue( rule.withinSeconds.value_or( 5 ) );
         count_->setValue( rule.count );
-        link_->setText( rule.link );
+        note_->setPlainText( rule.note );
     }
     else {
-        for ( auto* edit : { name_, description_, link_ } ) {
+        for ( auto* edit : { name_, description_ } ) {
             edit->clear();
         }
+        note_->clear();
         patterns_->clear();
     }
     loading_ = false;
@@ -336,7 +346,7 @@ void RulesEditor::storeRule()
     rule.withinSeconds
         = within_->isChecked() ? std::optional<double>( seconds_->value() ) : std::nullopt;
     rule.count = count_->value();
-    rule.link = link_->text().trimmed();
+    rule.note = note_->toPlainText().trimmed();
     updateForm();
 
     // The name and the warning of the row, without rebuilding the list as it is typed
@@ -383,6 +393,11 @@ void RulesEditor::updateForm()
     count_->setSuffix( tr( " times" ) );
     seconds_->setEnabled( within_->isChecked() );
 
+    // The links of the note, as they will show with the results
+    const auto note = current_ >= 0 ? rules_[ static_cast<size_t>( current_ ) ].note : QString{};
+    notePreview_->setText( noteHtml( note ) );
+    notePreview_->setVisible( note.contains( "://" ) || note.contains( "www." ) );
+
     problem_->setText( current_ >= 0 ? analysis::checkRule( rules_[ static_cast<size_t>( current_ ) ] )
                                      : QString{} );
 }
@@ -427,4 +442,26 @@ bool RulesEditor::saveAs()
         this, tr( "Save rules" ), fileName_.isEmpty() ? "rules.json" : fileName_,
         tr( "flogg rules (*.json);;All files (*)" ) );
     return !fileName.isEmpty() && save( fileName );
+}
+
+QString RulesEditor::noteHtml( const QString& note )
+{
+    // http(s)://, ftp:// and www. addresses, without the punctuation that ends a sentence
+    static const QRegularExpression url(
+        R"re((?:https?://|ftp://|www\.)[^\s<>"]*[^\s<>".,;:!?)\]}'])re" );
+    QString html;
+    qsizetype last = 0;
+    auto matches = url.globalMatch( note );
+    while ( matches.hasNext() ) {
+        const auto match = matches.next();
+        html += note.mid( last, match.capturedStart() - last ).toHtmlEscaped();
+        const auto address = match.captured();
+        const auto target = address.startsWith( "www." ) ? "https://" + address : address;
+        html += QString( "<a href=\"%1\">%2</a>" )
+                    .arg( target.toHtmlEscaped(), address.toHtmlEscaped() );
+        last = match.capturedEnd();
+    }
+    html += note.mid( last ).toHtmlEscaped();
+    html.replace( "\n", "<br>" );
+    return html;
 }
