@@ -387,9 +387,9 @@ SCENARIO( "Templates of logs compared", "[templates]" )
             return Status::OnlyFirst;
         };
         // 1 line in each, files 15 times apart: the share differs but it is chance
-        const auto small = table( 7680, { { "once", 1 } } );
-        const auto large = table( 117823, { { "once", 1 } } );
-        CHECK( status( templates::compare( small, &large, false ), "once" ) == Status::Same );
+        const auto fewLines = table( 7680, { { "once", 1 } } );
+        const auto manyLines = table( 117823, { { "once", 1 } } );
+        CHECK( status( templates::compare( fewLines, &manyLines, false ), "once" ) == Status::Same );
         // 3 against 1 in files of the same size: twice the share, still chance
         const auto three = table( 100, { { "few", 3 } } );
         const auto one = table( 100, { { "few", 1 } } );
