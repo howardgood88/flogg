@@ -437,9 +437,31 @@ SCENARIO( "Analysis window", "[ui][analysis]" )
     auto* tree = dialog.rulesTree();
     REQUIRE( tree->topLevelItemCount() == 4 );
     CHECK( tree->topLevelItem( 0 )->text( 0 ) == "Crash (1)" );
+    CHECK( tree->topLevelItem( 0 )->text( 1 ) == "match" );
+    CHECK( tree->topLevelItem( 0 )->text( 2 ) == "error" );
     REQUIRE( tree->topLevelItem( 0 )->childCount() == 1 );
     CHECK( tree->topLevelItem( 0 )->child( 0 )->text( 0 ) == "Line 100" );
     CHECK( dialog.message() == "Rules that found something: 1 of 4" );
+
+    // A finding of several lines: one row under it for each line
+    {
+        QFile file( rulesFile );
+        REQUIRE( file.open( QIODevice::WriteOnly ) );
+        file.write( R"json({"rules":[{"name":"Pair","type":"sequence","patterns":)json"
+                    R"json(["begin request id=(\\d+)","end request id=(\\d+)"],)json"
+                    R"json("withinSeconds":5}]})json" );
+    }
+    dialog.runRules( rulesFile );
+    REQUIRE( waitUiState( [ & ]() { return !dialog.isRunning(); } ) );
+    REQUIRE( tree->topLevelItemCount() == 1 );
+    auto* pairRule = tree->topLevelItem( 0 );
+    CHECK( pairRule->text( 0 ) == "Pair (49)" );
+    REQUIRE( pairRule->childCount() > 0 );
+    auto* pair = pairRule->child( 0 );
+    CHECK( pair->text( 0 ) == "Lines 1 - 2 (2)" );
+    REQUIRE( pair->childCount() == 2 );
+    CHECK( pair->child( 1 )->text( 0 ) == "Line 2" );
+    CHECK( pair->child( 1 )->text( 4 ).contains( "end request id=0" ) );
 
     // A rule file with a mistake
     {
@@ -467,11 +489,35 @@ SCENARIO( "Analysis window", "[ui][analysis]" )
     // Line by line
     dialog.runCompare( true );
     REQUIRE( waitUiState( [ & ]() { return !dialog.isRunning(); } ) );
-    CHECK( dialog.message() == "Lines only here: 1, only there: 1" );
-    CHECK( dialog.diffTree()->topLevelItemCount() > 3 );
+    CHECK( dialog.message() == "Lines only in the first tab: 1, only in the other: 1" );
+    auto* diff = dialog.diffTree();
+    REQUIRE( diff->topLevelItemCount() > 3 );
+    // Side by side: a line missing on the left next to the line of the right
+    bool onlyRight = false;
+    bool onlyLeft = false;
+    for ( int i = 0; i < diff->topLevelItemCount(); ++i ) {
+        const auto* row = diff->topLevelItem( i );
+        onlyRight |= row->text( 0 ).isEmpty() && row->text( 3 ).contains( "end request id=7" );
+        onlyLeft |= row->text( 2 ).isEmpty() && row->text( 1 ).contains( "FATAL" );
+    }
+    CHECK( onlyRight );
+    CHECK( onlyLeft );
+
+    // The first side can be another tab
+    REQUIRE( dialog.firstTab()->count() == 2 );
+    dialog.firstTab()->setCurrentIndex( 0 );
+    Q_EMIT dialog.firstTab()->activated( 0 );
+    CHECK( dialog.otherTab()->itemText( 1 ) == "bad.log" );
+    dialog.otherTab()->setCurrentIndex( 1 );
+    dialog.runCompare( false );
+    REQUIRE( waitUiState( [ & ]() { return !dialog.isRunning(); } ) );
+    CHECK( model->compared( 0 ).status == templates::Compared::Status::OnlySecond );
+    CHECK( model->compared( 0 ).text == "FATAL EXCEPTION in main" );
 
     const auto renderDir = qEnvironmentVariable( "FLOGG_RENDER_DIR" );
     if ( !renderDir.isEmpty() ) {
+        dialog.runCompare( true );
+        waitUiState( [ & ]() { return !dialog.isRunning(); } );
         dialog.grab().save( renderDir + "/analysis_diff.png" );
         dialog.runCompare( false );
         waitUiState( [ & ]() { return !dialog.isRunning(); } );

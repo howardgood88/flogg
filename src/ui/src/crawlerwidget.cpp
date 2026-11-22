@@ -2859,6 +2859,12 @@ void CrawlerWidget::selectionChangedIn( AbstractLogView* view )
     dispatchToObject( [ this ] { updateSelectionTime(); }, this );
 }
 
+QString CrawlerWidget::firstSelectedLineText() const
+{
+    const auto bounds = selectedLineBounds();
+    return bounds ? logData_->getLineString( bounds->first ) : QString{};
+}
+
 void CrawlerWidget::setTimeFormat( std::optional<timestamps::Format> format )
 {
     timeFormat_ = format;
@@ -2916,8 +2922,7 @@ void CrawlerWidget::updateSelectionTime()
     rows.append( tr( "Line %1: %2" )
                      .arg( lastLine.get() + 1 )
                      .arg( timestamps::formatTimestamp( *result.second ) ) );
-    rows.append( ( timeFormat_ ? tr( "Format: %1 (chosen)" ) : tr( "Format: %1 (first in the line)" ) )
-                     .arg( timestamps::formatName( result.first->format ) ) );
+    rows.append( tr( "Format: %1" ).arg( timestamps::formatName( result.first->format ) ) );
     if ( *result.us < 0 ) {
         rows.append( tr( "The last line is earlier than the first one" ) );
     }
@@ -3095,8 +3100,8 @@ void CrawlerWidget::restoreNotes()
 
 QString CrawlerWidget::bookmarksAndNotesMarkdown() const
 {
-    // The lines with their numbers (as Copy with line numbers), each note above its line as
-    // // comments, all in one code block
+    // The file, then the lines with their numbers (as Copy with line numbers), each note
+    // above its line as // comments
     QStringList body;
     for ( const auto& line : logFilteredData_->getBookmarksAndNotes() ) {
         if ( !line.text.isEmpty() ) {
@@ -3108,15 +3113,8 @@ QString CrawlerWidget::bookmarksAndNotesMarkdown() const
                          .arg( line.line.get() + 1 )
                          .arg( logData_->getLineString( line.line ) ) );
     }
-    const auto content = body.join( QChar::LineFeed );
-
-    // A fence longer than any run of backticks in the lines
-    QString fence = "```";
-    while ( content.contains( fence ) ) {
-        fence += "`";
-    }
-    return QDir::toNativeSeparators( logData_->attachedFileName() ) + "\n\n" + fence + "\n"
-           + content + "\n" + fence + "\n";
+    return QDir::toNativeSeparators( logData_->attachedFileName() ) + "\n\n"
+           + body.join( QChar::LineFeed ) + "\n";
 }
 
 void CrawlerWidget::exportNotes()

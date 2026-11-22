@@ -220,6 +220,7 @@ class CrawlerWidget : public QSplitter,
         return timeFormat_;
     }
     void setTimeFormat( std::optional<timestamps::Format> format );
+    QString firstSelectedLineText() const;
     // The formats of the time stamps of the first selected line, in the order of the line
     const std::vector<timestamps::Format>& selectionTimeFormats() const
     {

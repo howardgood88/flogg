@@ -338,6 +338,16 @@ class Configuration final : public Persistable<Configuration> {
         filterFileRules_ = std::move( rules );
     }
 
+    // Time formats of the user, such as "dd.MM.yyyy HH:mm:ss.f" (see timestamps)
+    const QStringList& customTimeFormats() const
+    {
+        return customTimeFormats_;
+    }
+    void setCustomTimeFormats( QStringList formats )
+    {
+        customTimeFormats_ = std::move( formats );
+    }
+
     // Default settings for new views
     // Whether a tab shows the filters of the panel when it opens and after an empty search,
     // otherwise the panel only highlights until the Filters button is pressed
@@ -597,6 +607,7 @@ class Configuration final : public Persistable<Configuration> {
     bool searchAutoRefresh_ = false;
     bool filterModeByDefault_ = true;
     QList<FilterFileRule> filterFileRules_;
+    QStringList customTimeFormats_;
     bool searchIgnoreCase_ = false;
     bool searchLogicalCombining_ = false;
     QList<int> splitterSizes_;

@@ -60,6 +60,7 @@ add_library(
   ${CMAKE_CURRENT_SOURCE_DIR}/include/filemerge.h
   ${CMAKE_CURRENT_SOURCE_DIR}/include/selectiontimelabel.h
   ${CMAKE_CURRENT_SOURCE_DIR}/include/ruleseditor.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/include/timeformatsdialog.h
   ${CMAKE_CURRENT_SOURCE_DIR}/include/highlighteredit.ui
   ${CMAKE_CURRENT_SOURCE_DIR}/include/optionsdialog.ui
   ${CMAKE_CURRENT_SOURCE_DIR}/src/abstractlogview.cpp
@@ -88,6 +89,7 @@ add_library(
   ${CMAKE_CURRENT_SOURCE_DIR}/src/filemerge.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/src/selectiontimelabel.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/src/ruleseditor.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/timeformatsdialog.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/src/session.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/src/sessioninfo.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/src/signalmux.cpp

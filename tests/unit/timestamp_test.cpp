@@ -21,6 +21,9 @@
 
 #include <QElapsedTimer>
 
+#include <atomic>
+#include <thread>
+
 #include "timestamp.h"
 
 using namespace timestamps;
@@ -230,4 +233,58 @@ TEST_CASE( "Time stamps compared: the first of the line or a chosen one", "[time
     CHECK( difference( parseLine( u"[ 5.000100] 2026-11-22 14:00:00 a" ),
                        parseLine( u"[ 7.500100] 2026-11-22 13:00:00 b" ) )
                .first->isMonotonic() );
+}
+
+TEST_CASE( "Time formats of the user", "[timestamp]" )
+{
+    CHECK( checkCustomFormat( "yyyy/MM/dd HH:mm:ss.f" ).isEmpty() );
+    CHECK( !checkCustomFormat( "yyyy-MM-dd" ).isEmpty() );
+    CHECK( !checkCustomFormat( "" ).isEmpty() );
+
+    // Not a built-in format: a day first, a dot between the seconds and a space
+    const QString first = "<I> 22.11.2026 at 14:32:05 . 120 main started";
+    const QString last = "<I> 22.11.2026 at 14:32:07 . 370 main done";
+    // Without the format only the time of day is seen
+    CHECK( parseLine( first ).wall->format == Format::TimeOfDay );
+
+    setCustomFormats( { "dd.MM.yyyy at HH:mm:ss . fff" } );
+    const auto times = parseLine( first );
+    REQUIRE( times.wall );
+    CHECK( times.wall->format == customFormat( 0 ) );
+    CHECK( times.wall->hasYear() );
+    CHECK( times.wall->start == 4 );
+    CHECK( formatName( times.wall->format ) == "dd.MM.yyyy at HH:mm:ss . fff" );
+    CHECK( formatTimestamp( *times.wall ) == "2026-11-22 14:32:05.120" );
+    const auto result = difference( times, parseLine( last ) );
+    REQUIRE( result.us );
+    CHECK( *result.us == 2250000 );
+
+    // Month names, no year, no date
+    setCustomFormats( { "MMM d HH:mm", "H.mm.ss" } );
+    const auto named = parseLine( u"x Nov 2 14:32 y" );
+    REQUIRE( named.wall );
+    CHECK( named.wall->format == customFormat( 0 ) );
+    CHECK( !named.wall->hasYear() );
+    const auto noDate = difference( parseLine( u"at 23.59.58 a" ), parseLine( u"at 0.00.01 b" ) );
+    REQUIRE( noDate.us );
+    CHECK( *noDate.us == 3000000 );
+
+    // Several threads at once
+    std::vector<std::thread> threads;
+    std::atomic<int> found{ 0 };
+    for ( int t = 0; t < 4; ++t ) {
+        threads.emplace_back( [ & ] {
+            for ( int i = 0; i < 1000; ++i ) {
+                found += parseLine( u"x Nov 2 14:32 y" ).wall ? 1 : 0;
+            }
+        } );
+    }
+    for ( auto& thread : threads ) {
+        thread.join();
+    }
+    CHECK( found == 4000 );
+
+    setCustomFormats( {} );
+    CHECK( parseLine( u"x Nov 2 14:32 y" ).wall->format != customFormat( 0 ) );
+    CHECK( builtInFormats().size() == 7 );
 }

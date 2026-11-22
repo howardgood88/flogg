@@ -91,6 +91,7 @@
 #include "analysisdialog.h"
 #include "filemerge.h"
 #include "selectiontimelabel.h"
+#include "timeformatsdialog.h"
 #include "timestamp.h"
 
 #include "clipboard.h"
@@ -149,6 +150,9 @@ MainWindow::MainWindow( WindowSession session )
     , mainTabWidget_()
     , tempDir_( QDir::temp().filePath( "flogg_temp_" ) )
 {
+    // The time formats of the user, for every window of the process
+    timestamps::setCustomFormats( Configuration::get().customTimeFormats() );
+
     createActions();
     createMenus();
     createToolBars();
@@ -593,6 +597,11 @@ void MainWindow::createActions()
         tr( "Durations between events, rules of known problems, comparison with another tab" ) );
     connect( analyzeAction, &QAction::triggered, this, [ this ] { openAnalysis( -1 ); } );
 
+    timeFormatsAction = new QAction( tr( "&Time Formats..." ), this );
+    timeFormatsAction->setStatusTip( tr( "The time formats read for the time between lines and "
+                                         "the analyses, and your own" ) );
+    connect( timeFormatsAction, &QAction::triggered, this, &MainWindow::openTimeFormats );
+
     mergeFilesAction = new QAction( tr( "&Merge Files..." ), this );
     mergeFilesAction->setStatusTip( tr( "Writes several files one after the other into a new one" ) );
     connect( mergeFilesAction, &QAction::triggered, this, [ this ] {
@@ -1002,6 +1011,7 @@ void MainWindow::createMenus()
 
     toolsMenu->addAction( showScratchPadAction );
     toolsMenu->addAction( analyzeAction );
+    toolsMenu->addAction( timeFormatsAction );
 
     menuBar()->addMenu( EncodingMenu::generate( encodingGroup ) );
     menuBar()->addSeparator();
@@ -2161,6 +2171,21 @@ QString MainWindow::strippedName( const QString& fullFileName ) const
 }
 
 // Return the currently active CrawlerWidget, or NULL if none
+void MainWindow::openTimeFormats()
+{
+    auto* crawler = currentCrawlerWidget();
+    auto* dialog = new TimeFormatsDialog( crawler ? crawler->firstSelectedLineText() : QString{},
+                                          this );
+    dialog->setAttribute( Qt::WA_DeleteOnClose );
+    connect( dialog, &TimeFormatsDialog::formatsChanged, this, [ this ] {
+        // The time between lines again, with the formats as they are now
+        if ( auto* current = currentCrawlerWidget() ) {
+            current->setTimeFormat( current->timeFormat() );
+        }
+    } );
+    dialog->open();
+}
+
 void MainWindow::showSelectionTimeMenu( const QPoint& globalPos )
 {
     auto* crawler = currentCrawlerWidget();
@@ -2176,30 +2201,30 @@ void MainWindow::showSelectionTimeMenu( const QPoint& globalPos )
              [ details ] { QApplication::clipboard()->setText( details.trimmed() ); } );
     menu.addSeparator();
 
-    // The formats of the first selected line, the one chosen even when it is not there
+    // The formats of the first selected line, the one compared checked
     auto* formats = menu.addMenu( tr( "Time stamps compared" ) );
     auto* group = new QActionGroup( formats );
-    const auto chosen = crawler->timeFormat();
-    auto* first = formats->addAction( tr( "The first of the line" ) );
-    first->setCheckable( true );
-    first->setChecked( !chosen );
-    group->addAction( first );
-    connect( first, &QAction::triggered, crawler, [ crawler ] { crawler->setTimeFormat( {} ); } );
     auto available = crawler->selectionTimeFormats();
+    const auto chosen = crawler->timeFormat();
     if ( chosen && std::find( available.begin(), available.end(), *chosen ) == available.end() ) {
         available.push_back( *chosen );
     }
-    if ( !available.empty() ) {
-        formats->addSeparator();
-    }
+    const auto inUse = chosen ? *chosen
+                       : available.empty() ? std::optional<timestamps::Format>{}
+                                           : std::optional<timestamps::Format>{ available.front() };
     for ( const auto format : available ) {
         auto* action = formats->addAction( timestamps::formatName( format ) );
         action->setCheckable( true );
-        action->setChecked( chosen && *chosen == format );
+        action->setChecked( inUse && *inUse == format );
         group->addAction( action );
-        connect( action, &QAction::triggered, crawler,
-                 [ crawler, format ] { crawler->setTimeFormat( format ); } );
+        const auto isFirst = format == available.front() && !chosen;
+        connect( action, &QAction::triggered, crawler, [ crawler, format, isFirst ] {
+            // The first of the line stays the default: other lines may start differently
+            crawler->setTimeFormat( isFirst ? std::optional<timestamps::Format>{} : format );
+        } );
     }
+    formats->setEnabled( !available.empty() );
+    menu.addAction( timeFormatsAction );
     menu.exec( globalPos );
 }
 

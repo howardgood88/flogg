@@ -31,6 +31,7 @@
 #include <QHeaderView>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMenu>
 #include <QProgressBar>
 #include <QPushButton>
 #include <QSaveFile>
@@ -56,6 +57,16 @@ constexpr auto EndKey = "analysis/durationEnd";
 constexpr auto CaseKey = "analysis/durationCase";
 constexpr auto RulesKey = "analysis/rulesFile";
 constexpr auto GeometryKey = "analysis/geometry";
+constexpr auto RulesHiddenColumnsKey = "analysis/rulesHiddenColumns";
+
+enum RuleColumn {
+    RuleNameColumn,
+    RuleKindColumn,
+    RuleSeverityColumn,
+    RuleFindingColumn,
+    RuleTextColumn,
+    RuleLinkColumn,
+};
 
 // Findings listed per rule, the others counted
 constexpr size_t MaxListedFindings = 1000;
@@ -82,7 +93,7 @@ QString duration( int64_t us, int digits )
     return timestamps::formatDuration( us, digits, false );
 }
 
-enum Role { FirstLineRole = Qt::UserRole + 1, LastLineRole, SideRole };
+enum Role { FirstLineRole = Qt::UserRole + 1, LastLineRole, SideRole, LinkRole };
 
 void setLines( QTreeWidgetItem* item, LineNumber first, LineNumber last, int side = 0 )
 {
@@ -99,7 +110,8 @@ struct DurationRows {
 
 struct RuleRows {
     analysis::RuleResult result;
-    std::vector<QString> texts;
+    // The text of every line of each finding listed
+    std::vector<std::vector<QString>> texts;
 };
 
 struct CompareRows {
@@ -110,12 +122,15 @@ struct CompareRows {
     bool cancelled = false;
 };
 
+// A row of the two columns: a line of each side (alike), a line on one side only (the other
+// side empty), or lines changed side by side; or a fold of lines alike
 struct DiffRow {
-    templates::DiffLine::Op op = templates::DiffLine::Op::Same;
     std::optional<LineNumber> first;
     std::optional<LineNumber> second;
-    QString text;
-    // Unchanged lines left out here
+    QString firstText;
+    QString secondText;
+    bool changed = false;
+    // Lines alike left out here
     uint64_t gap = 0;
 };
 
@@ -485,12 +500,21 @@ QWidget* AnalysisDialog::createDurationsPage()
     durationTable_->setUniformRowHeights( true );
     durationTable_->setHeaderLabels(
         { tr( "Duration" ), tr( "Start line" ), tr( "End line" ), tr( "Key" ), tr( "Start" ) } );
-    durationTable_->setToolTip( tr( "Double click to select the lines in the log" ) );
+    durationTable_->setToolTip( tr( "Double click the start or the end line to show it, another "
+                                    "column to select both lines" ) );
     connect( durationTable_, &QTreeWidget::itemActivated, this,
-             [ this ]( QTreeWidgetItem* item ) {
-                 showLinesOf( durationCrawler_,
-                       LineNumber( item->data( 0, FirstLineRole ).toULongLong() ),
-                       LineNumber( item->data( 0, LastLineRole ).toULongLong() ) );
+             [ this ]( QTreeWidgetItem* item, int column ) {
+                 const LineNumber first( item->data( 0, FirstLineRole ).toULongLong() );
+                 const LineNumber last( item->data( 0, LastLineRole ).toULongLong() );
+                 if ( column == 1 ) {
+                     showLinesOf( durationCrawler_, first, first );
+                 }
+                 else if ( column == 2 ) {
+                     showLinesOf( durationCrawler_, last, last );
+                 }
+                 else {
+                     showLinesOf( durationCrawler_, first, last );
+                 }
              } );
 
     auto* layout = new QVBoxLayout( page );
@@ -684,12 +708,42 @@ QWidget* AnalysisDialog::createRulesPage()
 
     rulesTree_ = new QTreeWidget( page );
     rulesTree_->setUniformRowHeights( true );
-    rulesTree_->setHeaderLabels( { tr( "Rule / line" ), tr( "Finding" ), tr( "Text" ) } );
-    rulesTree_->header()->resizeSection( 1, 260 );
-    rulesTree_->setToolTip( tr( "Double click a line to select it in the log" ) );
+    rulesTree_->setHeaderLabels( { tr( "Rule / line" ), tr( "Kind" ), tr( "Severity" ),
+                                   tr( "Finding" ), tr( "Text" ), tr( "Link" ) } );
+    rulesTree_->header()->resizeSection( RuleFindingColumn, 220 );
+    rulesTree_->setToolTip( tr( "Double click a line to select it in the log, a rule to open its "
+                                "link; right click the column titles to choose the columns" ) );
+    // The columns shown, chosen with the right click on their titles
+    rulesTree_->header()->setContextMenuPolicy( Qt::CustomContextMenu );
+    connect( rulesTree_->header(), &QWidget::customContextMenuRequested, this,
+             [ this ]( const QPoint& pos ) {
+                 QMenu menu;
+                 for ( int c = 1; c < rulesTree_->columnCount(); ++c ) {
+                     auto* action = menu.addAction( rulesTree_->headerItem()->text( c ) );
+                     action->setCheckable( true );
+                     action->setChecked( !rulesTree_->isColumnHidden( c ) );
+                     connect( action, &QAction::toggled, this, [ this, c ]( bool shown ) {
+                         rulesTree_->setColumnHidden( c, !shown );
+                         QStringList hidden;
+                         for ( int h = 1; h < rulesTree_->columnCount(); ++h ) {
+                             if ( rulesTree_->isColumnHidden( h ) ) {
+                                 hidden.append( QString::number( h ) );
+                             }
+                         }
+                         settings().setValue( RulesHiddenColumnsKey, hidden );
+                     } );
+                 }
+                 menu.exec( rulesTree_->header()->mapToGlobal( pos ) );
+             } );
+    const auto hiddenColumns
+        = settings().value( RulesHiddenColumnsKey, QStringList{ QString::number( RuleLinkColumn ) } )
+              .toStringList();
+    for ( const auto& column : hiddenColumns ) {
+        rulesTree_->setColumnHidden( column.toInt(), true );
+    }
     connect( rulesTree_, &QTreeWidget::itemActivated, this, [ this ]( QTreeWidgetItem* item ) {
         if ( !item->data( 0, FirstLineRole ).isValid() ) {
-            const auto link = item->data( 1, Qt::UserRole ).toString();
+            const auto link = item->data( 0, LinkRole ).toString();
             if ( !link.isEmpty() ) {
                 QDesktopServices::openUrl( QUrl( link ) );
             }
@@ -760,9 +814,13 @@ void AnalysisDialog::runRules( const QString& rulesFile )
             rows.result = analysis::runRules( *data, rules, cancel, progress, timeFormat );
             std::vector<size_t> listed( rules.size(), 0 );
             for ( const auto& finding : rows.result.findings ) {
-                rows.texts.push_back( listed[ finding.rule ]++ < MaxListedFindings
-                                          ? lineText( *data, finding.line )
-                                          : QString{} );
+                std::vector<QString> texts;
+                if ( listed[ finding.rule ]++ < MaxListedFindings ) {
+                    for ( const auto& line : finding.lines ) {
+                        texts.push_back( lineText( *data, line ) );
+                    }
+                }
+                rows.texts.push_back( std::move( texts ) );
             }
             return rows;
         },
@@ -783,19 +841,25 @@ void AnalysisDialog::runRules( const QString& rulesFile )
                 const auto& rule = rules[ r ];
                 const auto total = result.totalFindings[ r ];
                 found += total > 0 ? 1 : 0;
-                auto* item = new QTreeWidgetItem(
-                    { tr( "%1 (%L2)" ).arg( rule.name ).arg( total ), rule.description } );
+                auto* item = new QTreeWidgetItem();
+                item->setText( RuleNameColumn, tr( "%1 (%L2)" ).arg( rule.name ).arg( total ) );
+                item->setText( RuleKindColumn, analysis::ruleTypeName( rule.type ) );
+                item->setText( RuleSeverityColumn, rule.severity );
+                item->setText( RuleFindingColumn, rule.description );
+                item->setText( RuleLinkColumn, rule.link );
                 QStringList tip{ rule.description };
                 if ( !rule.link.isEmpty() ) {
                     tip.append( tr( "Double click to open %1" ).arg( rule.link ) );
-                    item->setData( 1, Qt::UserRole, rule.link );
+                    item->setData( 0, LinkRole, rule.link );
                 }
-                item->setToolTip( 0, tip.join( "\n" ) );
-                item->setToolTip( 1, tip.join( "\n" ) );
+                for ( int c = 0; c <= RuleLinkColumn; ++c ) {
+                    item->setToolTip( c, tip.join( "\n" ) );
+                }
                 const auto color = total == 0             ? palette().color( QPalette::PlaceholderText )
                                    : rule.severity == "error" ? QColor( 0xd0, 0x30, 0x30 )
                                    : rule.severity == "info"  ? QColor( 0x30, 0x70, 0xd0 )
                                                               : QColor( 0xc0, 0x80, 0x00 );
+                item->setForeground( RuleSeverityColumn, color );
                 item->setForeground( 0, color );
                 auto font = item->font( 0 );
                 font.setBold( total > 0 );
@@ -809,18 +873,39 @@ void AnalysisDialog::runRules( const QString& rulesFile )
                 if ( listed[ finding.rule ]++ >= MaxListedFindings ) {
                     continue;
                 }
-                QStringList numbers;
-                for ( const auto& line : finding.lines ) {
-                    if ( numbers.size() == 5 ) {
-                        numbers.append( QChar( 0x2026 ) );
-                        break;
-                    }
-                    numbers.append( QString::number( line.get() + 1 ) );
-                }
-                auto* child = new QTreeWidgetItem( ruleItems[ finding.rule ],
-                                                   { tr( "Line %1" ).arg( numbers.join( ", " ) ),
-                                                     finding.detail, rows.texts[ f ] } );
+                const auto& texts = rows.texts[ f ];
+                const auto& rule = rules[ finding.rule ];
+                auto* child = new QTreeWidgetItem( ruleItems[ finding.rule ] );
+                child->setText( RuleFindingColumn, finding.detail );
                 setLines( child, finding.lines.front(), finding.lines.back() );
+                if ( finding.lines.size() == 1 ) {
+                    child->setText( RuleNameColumn,
+                                    tr( "Line %1" ).arg( finding.lines.front().get() + 1 ) );
+                    child->setText( RuleTextColumn, texts.empty() ? QString{} : texts.front() );
+                    continue;
+                }
+                // Several lines (a sequence, an absence, a count): one row each under it
+                child->setText( RuleNameColumn, tr( "Lines %1 - %2 (%3)" )
+                                                    .arg( finding.lines.front().get() + 1 )
+                                                    .arg( finding.lines.back().get() + 1 )
+                                                    .arg( finding.lines.size() ) );
+                child->setText( RuleTextColumn, texts.empty() ? QString{} : texts.front() );
+                for ( size_t l = 0; l < finding.lines.size(); ++l ) {
+                    const auto line = finding.lines[ l ];
+                    auto* lineItem = new QTreeWidgetItem( child );
+                    lineItem->setText( RuleNameColumn, tr( "Line %1" ).arg( line.get() + 1 ) );
+                    if ( l < texts.size() ) {
+                        lineItem->setText( RuleTextColumn, texts[ l ] );
+                    }
+                    if ( rule.type == analysis::Rule::Type::Sequence
+                         && l < static_cast<size_t>( rule.patterns.size() ) ) {
+                        lineItem->setText( RuleFindingColumn, rule.patterns[ static_cast<int>( l ) ] );
+                    }
+                    else if ( rule.type == analysis::Rule::Type::Count ) {
+                        lineItem->setText( RuleFindingColumn, tr( "#%1" ).arg( l + 1 ) );
+                    }
+                    setLines( lineItem, line, line );
+                }
             }
             for ( size_t r = 0; r < rules.size(); ++r ) {
                 const auto total = result.totalFindings[ r ];
@@ -853,6 +938,11 @@ QWidget* AnalysisDialog::createComparePage()
     auto* page = new QWidget( this );
     const QStringList scopes
         = { tr( "Whole file" ), tr( "Lines of the filtered view" ), tr( "Selected lines" ) };
+    firstTab_ = new QComboBox( page );
+    firstTab_->setSizeAdjustPolicy( QComboBox::AdjustToMinimumContentsLengthWithIcon );
+    firstTab_->setMinimumContentsLength( 20 );
+    connect( firstTab_, QOverload<int>::of( &QComboBox::activated ), this,
+             [ this ]( int ) { refreshTabs(); } );
     firstScope_ = new QComboBox( page );
     firstScope_->addItems( scopes );
     otherTab_ = new QComboBox( page );
@@ -860,9 +950,12 @@ QWidget* AnalysisDialog::createComparePage()
     otherTab_->setMinimumContentsLength( 20 );
     secondScope_ = new QComboBox( page );
     secondScope_->addItems( scopes );
-    merge_ = new QCheckBox( tr( "Merge templates that differ by one word" ), page );
-    merge_->setToolTip( tr( "Lines of 4 words or more that differ by one word (a name, a state) "
-                            "count as one template" ) );
+    merge_ = new QCheckBox( tr( "Group lines that differ by one word" ), page );
+    merge_->setToolTip( tr( "Numbers, ids and quoted text are already left out of the templates. "
+                            "With this, lines of 4 words or more that differ by one more word "
+                            "(a user name, a host, a state) count as one template, e.g. \"login "
+                            "user alice ok\" and \"login user bob ok\" become \"login user <*> "
+                            "ok\". Off, they are counted apart." ) );
 
     auto* compareButton = new QPushButton( tr( "Compare templates" ), page );
     compareButton->setToolTip( tr( "Counts the lines of each kind in both: what is new, gone, "
@@ -880,7 +973,10 @@ QWidget* AnalysisDialog::createComparePage()
                                tr( "Only there" ), tr( "More there" ), tr( "Fewer there" ) } );
 
     auto* form = new QFormLayout();
-    form->addRow( tr( "This tab:" ), firstScope_ );
+    auto* firstRow = new QHBoxLayout();
+    firstRow->addWidget( firstTab_, 1 );
+    firstRow->addWidget( firstScope_ );
+    form->addRow( tr( "Compare:" ), firstRow );
     auto* other = new QHBoxLayout();
     other->addWidget( otherTab_, 1 );
     other->addWidget( secondScope_ );
@@ -922,23 +1018,26 @@ QWidget* AnalysisDialog::createComparePage()
         }
     } );
 
+    // Two columns, like a code review: the first tab on the left, the other on the right
     diffTree_ = new QTreeWidget( page );
     diffTree_->setRootIsDecorated( false );
     diffTree_->setUniformRowHeights( true );
-    diffTree_->setHeaderLabels( { {}, tr( "Here" ), tr( "There" ), tr( "Line" ) } );
-    diffTree_->setToolTip( tr( "Double click to show the line in its tab" ) );
-    connect( diffTree_, &QTreeWidget::itemActivated, this, [ this ]( QTreeWidgetItem* item ) {
-        const auto first = item->data( 1, Qt::UserRole );
-        const auto second = item->data( 2, Qt::UserRole );
-        if ( item->data( 0, SideRole ).toInt() == 2 && second.isValid() ) {
-            const LineNumber line( second.toULongLong() );
-            showLinesOf( secondCrawler_, line, line );
-        }
-        else if ( first.isValid() ) {
-            const LineNumber line( first.toULongLong() );
-            showLinesOf( firstCrawler_, line, line );
-        }
-    } );
+    diffTree_->setHeaderLabels( { tr( "Line" ), tr( "First tab" ), tr( "Line" ), tr( "Other tab" ) } );
+    diffTree_->setToolTip( tr( "Double click a side to show its line in its tab" ) );
+    connect( diffTree_, &QTreeWidget::itemActivated, this,
+             [ this ]( QTreeWidgetItem* item, int column ) {
+                 const auto first = item->data( 0, Qt::UserRole );
+                 const auto second = item->data( 2, Qt::UserRole );
+                 const auto right = column >= 2;
+                 if ( ( right && second.isValid() ) || ( !first.isValid() && second.isValid() ) ) {
+                     const LineNumber line( second.toULongLong() );
+                     showLinesOf( secondCrawler_, line, line );
+                 }
+                 else if ( first.isValid() ) {
+                     const LineNumber line( first.toULongLong() );
+                     showLinesOf( firstCrawler_, line, line );
+                 }
+             } );
 
     compareResults_ = new QStackedWidget( page );
     compareResults_->addWidget( compareView_ );
@@ -956,21 +1055,44 @@ void AnalysisDialog::refreshTabs()
     if ( !otherTab_ ) {
         return;
     }
+    const auto tabs = context_.tabs ? context_.tabs() : std::vector<Tab>{};
+
+    // The first side: the tab chosen before while it is open, the current one otherwise
+    const auto previousFirst = firstTab_->currentData().value<QObject*>();
+    auto* current = context_.current ? context_.current() : nullptr;
+    firstTab_->clear();
+    int selectedFirst = -1;
+    for ( const auto& tab : tabs ) {
+        if ( !tab.crawler ) {
+            continue;
+        }
+        firstTab_->addItem( tab.name, QVariant::fromValue<QObject*>( tab.crawler.data() ) );
+        if ( tab.crawler == previousFirst ) {
+            selectedFirst = firstTab_->count() - 1;
+        }
+        else if ( selectedFirst < 0 && tab.crawler == current ) {
+            selectedFirst = firstTab_->count() - 1;
+        }
+    }
+    if ( selectedFirst < 0 && firstTab_->count() > 0 ) {
+        selectedFirst = 0;
+    }
+    firstTab_->setCurrentIndex( selectedFirst );
+    auto* first = firstTab_->currentData().value<QObject*>();
+
+    // The other side: any other tab
     const auto previous = otherTab_->currentData().value<QObject*>();
     otherTab_->clear();
-    otherTab_->addItem( tr( "(nothing: the templates of this tab)" ),
+    otherTab_->addItem( tr( "(nothing: the templates of the first tab)" ),
                         QVariant::fromValue<QObject*>( nullptr ) );
-    auto* current = context_.current ? context_.current() : nullptr;
     int selected = 0;
-    if ( context_.tabs ) {
-        for ( const auto& tab : context_.tabs() ) {
-            if ( !tab.crawler || tab.crawler == current ) {
-                continue;
-            }
-            otherTab_->addItem( tab.name, QVariant::fromValue<QObject*>( tab.crawler.data() ) );
-            if ( tab.crawler == previous || ( !previous && selected == 0 ) ) {
-                selected = otherTab_->count() - 1;
-            }
+    for ( const auto& tab : tabs ) {
+        if ( !tab.crawler || tab.crawler == first ) {
+            continue;
+        }
+        otherTab_->addItem( tab.name, QVariant::fromValue<QObject*>( tab.crawler.data() ) );
+        if ( tab.crawler == previous || ( !previous && selected == 0 ) ) {
+            selected = otherTab_->count() - 1;
         }
     }
     otherTab_->setCurrentIndex( selected );
@@ -1003,11 +1125,16 @@ void AnalysisDialog::runCompare( bool lineByLine )
     if ( !startsOn( Compare ) ) {
         return;
     }
-    auto* first = currentCrawler();
+    refreshTabs();
+    auto* first = qobject_cast<CrawlerWidget*>( firstTab_->currentData().value<QObject*>() );
     if ( !first ) {
+        setMessage( tr( "Open a file first" ), true );
         return;
     }
-    refreshTabs();
+    if ( first->isLoading() ) {
+        setMessage( tr( "The file is still loading" ), true );
+        return;
+    }
     auto* second = qobject_cast<CrawlerWidget*>( otherTab_->currentData().value<QObject*>() );
     if ( lineByLine && !second ) {
         setMessage( tr( "Choose the tab to compare with" ), true );
@@ -1113,27 +1240,60 @@ void AnalysisDialog::runCompare( bool lineByLine )
                     shown[ j ] = true;
                 }
             }
+            using Op = templates::DiffLine::Op;
             uint64_t gap = 0;
-            for ( size_t i = 0; i < diff.lines.size(); ++i ) {
-                const auto& line = diff.lines[ i ];
-                rows.added += line.op == templates::DiffLine::Op::Added ? 1 : 0;
-                rows.removed += line.op == templates::DiffLine::Op::Removed ? 1 : 0;
-                if ( !shown[ i ] ) {
-                    ++gap;
-                    continue;
-                }
+            const auto flushGap = [ &rows, &gap ]() {
                 if ( gap > 0 ) {
-                    rows.rows.push_back( { templates::DiffLine::Op::Same, {}, {}, {}, gap } );
+                    DiffRow fold;
+                    fold.gap = gap;
+                    rows.rows.push_back( fold );
                     gap = 0;
                 }
-                const auto text = line.op == templates::DiffLine::Op::Added
-                                      ? lineText( *b, *line.second )
-                                      : lineText( *a, *line.first );
-                rows.rows.push_back( { line.op, line.first, line.second, text, 0 } );
+            };
+            for ( size_t i = 0; i < diff.lines.size(); ) {
+                const auto& line = diff.lines[ i ];
+                if ( line.op == Op::Same ) {
+                    if ( !shown[ i ] ) {
+                        ++gap;
+                    }
+                    else {
+                        flushGap();
+                        rows.rows.push_back( { line.first, line.second, lineText( *a, *line.first ),
+                                               lineText( *b, *line.second ), false, 0 } );
+                    }
+                    ++i;
+                    continue;
+                }
+                // A block of changes: the lines of each side next to each other
+                flushGap();
+                std::vector<LineNumber> removed;
+                std::vector<LineNumber> added;
+                while ( i < diff.lines.size() && diff.lines[ i ].op != Op::Same ) {
+                    if ( diff.lines[ i ].op == Op::Removed ) {
+                        removed.push_back( *diff.lines[ i ].first );
+                    }
+                    else {
+                        added.push_back( *diff.lines[ i ].second );
+                    }
+                    ++i;
+                }
+                rows.removed += removed.size();
+                rows.added += added.size();
+                for ( size_t k = 0; k < qMax( removed.size(), added.size() ); ++k ) {
+                    DiffRow row;
+                    row.changed = true;
+                    if ( k < removed.size() ) {
+                        row.first = removed[ k ];
+                        row.firstText = lineText( *a, removed[ k ] );
+                    }
+                    if ( k < added.size() ) {
+                        row.second = added[ k ];
+                        row.secondText = lineText( *b, added[ k ] );
+                    }
+                    rows.rows.push_back( row );
+                }
             }
-            if ( gap > 0 ) {
-                rows.rows.push_back( { templates::DiffLine::Op::Same, {}, {}, {}, gap } );
-            }
+            flushGap();
             return rows;
         },
         [ this ]( const DiffRows& rows ) {
@@ -1145,49 +1305,55 @@ void AnalysisDialog::runCompare( bool lineByLine )
                 setMessage( tr( "Stopped" ) );
                 return;
             }
-            const QColor removed( 0xd0, 0x30, 0x30 );
-            const QColor added( 0x20, 0x90, 0x40 );
+            // Light tints, readable in the light and the dark styles
+            const QColor removed( 0xe0, 0x40, 0x40, 0x48 );
+            const QColor added( 0x30, 0xb0, 0x50, 0x48 );
+            const QColor empty( 0x80, 0x80, 0x80, 0x24 );
             for ( const auto& row : rows.rows ) {
                 auto* item = new QTreeWidgetItem();
                 if ( row.gap > 0 ) {
-                    item->setText( 3, tr( "%L1 lines alike" ).arg( row.gap ) );
+                    const auto text = tr( "%L1 lines alike" ).arg( row.gap );
+                    item->setText( 1, text );
+                    item->setText( 3, text );
+                    item->setForeground( 1, palette().color( QPalette::PlaceholderText ) );
                     item->setForeground( 3, palette().color( QPalette::PlaceholderText ) );
+                    item->setTextAlignment( 1, Qt::AlignCenter );
+                    item->setTextAlignment( 3, Qt::AlignCenter );
                     diffTree_->addTopLevelItem( item );
                     continue;
                 }
-                const auto op = row.op;
-                item->setText( 0, op == templates::DiffLine::Op::Added     ? "+"
-                                  : op == templates::DiffLine::Op::Removed ? "-"
-                                                                           : " " );
                 if ( row.first ) {
-                    item->setText( 1, QString::number( row.first->get() + 1 ) );
-                    item->setData( 1, Qt::UserRole,
-                                   QVariant::fromValue<qulonglong>( row.first->get() ) );
+                    item->setText( 0, QString::number( row.first->get() + 1 ) );
+                    item->setData( 0, Qt::UserRole, QVariant::fromValue<qulonglong>( row.first->get() ) );
+                    item->setText( 1, row.firstText );
                 }
                 if ( row.second ) {
                     item->setText( 2, QString::number( row.second->get() + 1 ) );
-                    item->setData( 2, Qt::UserRole,
-                                   QVariant::fromValue<qulonglong>( row.second->get() ) );
+                    item->setData( 2, Qt::UserRole, QVariant::fromValue<qulonglong>( row.second->get() ) );
+                    item->setText( 3, row.secondText );
                 }
-                item->setData( 0, SideRole, op == templates::DiffLine::Op::Added ? 2 : 1 );
-                item->setText( 3, row.text );
-                if ( op != templates::DiffLine::Op::Same ) {
-                    const auto color = op == templates::DiffLine::Op::Added ? added : removed;
-                    for ( int c = 0; c < 4; ++c ) {
-                        item->setForeground( c, color );
-                    }
+                if ( row.changed ) {
+                    const auto left = row.first ? removed : empty;
+                    const auto right = row.second ? added : empty;
+                    item->setBackground( 0, left );
+                    item->setBackground( 1, left );
+                    item->setBackground( 2, right );
+                    item->setBackground( 3, right );
                 }
-                for ( int c = 1; c < 3; ++c ) {
-                    item->setTextAlignment( c, Qt::AlignRight | Qt::AlignVCenter );
-                }
+                item->setTextAlignment( 0, Qt::AlignRight | Qt::AlignVCenter );
+                item->setTextAlignment( 2, Qt::AlignRight | Qt::AlignVCenter );
                 diffTree_->addTopLevelItem( item );
             }
-            for ( int c = 0; c < 3; ++c ) {
-                diffTree_->resizeColumnToContents( c );
-            }
+            diffTree_->resizeColumnToContents( 0 );
+            diffTree_->resizeColumnToContents( 2 );
+            // The two sides share the width
+            const auto textWidth = qMax( 200, ( diffTree_->viewport()->width()
+                                                - diffTree_->columnWidth( 0 )
+                                                - diffTree_->columnWidth( 2 ) ) / 2 );
+            diffTree_->setColumnWidth( 1, textWidth );
             setMessage( rows.added + rows.removed == 0
                             ? tr( "The lines are alike (times and numbers left out)" )
-                            : tr( "Lines only here: %L1, only there: %L2" )
+                            : tr( "Lines only in the first tab: %L1, only in the other: %L2" )
                                   .arg( rows.removed )
                                   .arg( rows.added ) );
         },

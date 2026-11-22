@@ -39,6 +39,7 @@ python3 demo/make_demo.py --big 3000000 # 另外產生約 300 MB 的 big-app.log
 - 預設用該行的第一個時間戳；一行有兩種時間戳時，在時間差上按右鍵即可換成另一種（例如開機秒數，不受校時影響）。
 - 新的時間差出現時會閃一下提醒你；右鍵可以直接複製時間差。
 - 格式不同的兩行不硬算，直接說明原因。
+- 遇到不支援的格式：`Tools > Time Formats...` 會列出所有內建格式與範例，也可以加入自己的格式（例如 `dd.MM.yyyy HH:mm:ss.f`），並貼一行自己的 log 即時測試。
 
 ---
 
@@ -50,16 +51,16 @@ python3 demo/make_demo.py --big 3000000 # 另外產生約 300 MB 的 big-app.log
 2. 第 1477 行加備註「OOM，可能是重試堆積造成」，再按 `Ctrl+1` 加書籤 1。
 3. 書籤欄最右邊會出現黃色的備註圖示；滑鼠停在該行，tooltip 最上方就是你的備註。
 4. 關掉分頁再打開 `app-bad.log`：備註和書籤都還在。
-5. 右鍵 → `Export bookmarks and notes...` → 得到一份 Markdown：所有書籤與備註的行放在同一個 code block 裡並帶行號，備註以 `//` 標在該行上方，可以直接貼進 bug 單：
+5. 右鍵 → `Export bookmarks and notes...` → 得到檔名加上帶行號的各行，備註以 `//` 標在該行上方，可以直接貼進 bug 單：
 
-   ````
    ```
+   /.../demo/app-bad.log
+
    // ledger-db 拒絕連線，問題起點
    1421: 2026-11-22 09:00:53.774 ERROR [pool] db error: connection refused host=ledger-db:5432
    // OOM，可能是重試堆積造成
    1477: 2026-11-22 09:01:12.568 ERROR [pool] FATAL EXCEPTION: java.lang.OutOfMemoryError: Java heap space
    ```
-   ````
 
 **強在哪**
 
@@ -130,7 +131,7 @@ python3 demo/make_demo.py --big 3000000 # 另外產生約 300 MB 的 big-app.log
 - 下拉選單選 `Fewer there`：`cache miss` 在好 log 比例低得多（壞 log 121 次、好 log 53 次），也就是事故後快取失效變嚴重。
 - 雙擊任一列，會跳到該模板第一次出現的位置（點 `There` 欄就跳到另一個分頁）。
 
-換成 `Compare line by line`，並在兩個分頁各選一段相近的行（`Selected lines`），會看到像 diff 的逐行比較：時間與數字不同不算差異，只標出真正多出或少掉的行。
+換成 `Compare line by line`，並在兩個分頁各選一段相近的行（`Selected lines`），會以雙欄（像 code review）逐行對照：左邊是第一個分頁、右邊是另一個，時間與數字不同不算差異，只有一邊有的行以紅色與綠色標示，相同的行會摺疊。`Compare:` 也可以選任一個分頁，不必是目前的分頁。
 
 **強在哪**
 

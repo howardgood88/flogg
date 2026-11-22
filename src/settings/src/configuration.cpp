@@ -322,6 +322,8 @@ void Configuration::retrieveFromStorage( QSettings& settings )
         settings.remove( "shortcuts.mapping" );
     }
 
+    customTimeFormats_ = settings.value( "timeFormats/custom" ).toStringList();
+
     filterFileRules_.clear();
     const auto rulesCount = settings.beginReadArray( "filterFileRules" );
     for ( auto ruleIndex = 0; ruleIndex < rulesCount; ++ruleIndex ) {
@@ -445,6 +447,7 @@ void Configuration::saveToStorage( QSettings& settings ) const
 
     settings.setValue( "defaultView.splitterSizes", splitterSizes );
 
+    settings.setValue( "timeFormats/custom", customTimeFormats_ );
     settings.remove( "filterFileRules" );
     settings.beginWriteArray( "filterFileRules" );
     for ( auto ruleIndex = 0; ruleIndex < filterFileRules_.size(); ++ruleIndex ) {

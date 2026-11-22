@@ -27,6 +27,7 @@
 #include <QString>
 #include <QStringList>
 #include <QStringView>
+#include <QStringList>
 
 // Time stamps of single lines, parsed on demand (two selected lines, the candidate lines
 // of an analysis): nothing is detected or indexed for the whole file. Each line is parsed
@@ -41,9 +42,36 @@ enum class Format {
     TimeOfDay, // 14:32:05.120, no date
     Epoch,     // 1763822400, 1763822400123 (ms), 1763822400.123 at the start of the line
     Kernel,    // [12345.678901]: seconds since boot (dmesg), a monotonic clock
+    // The formats of the user come after, see setCustomFormats()
+    FirstCustom = 100,
 };
 
 QString formatName( Format format );
+
+// The built-in formats, with an example of each
+struct FormatInfo {
+    Format format;
+    QString name;
+    QString example;
+};
+std::vector<FormatInfo> builtInFormats();
+
+// Formats of the user, looked for before the built-in ones, written like
+// "yyyy/MM/dd HH:mm:ss.f": yyyy, yy, MM, M, MMM (Jan...), dd, d, HH, H, mm, ss, f (digits after
+// the seconds), any other character as it is. The time (H and mm) is needed, the date is not.
+// Thread safe: the analyses parse lines in several threads.
+void setCustomFormats( const QStringList& patterns );
+QStringList customFormats();
+// Why the pattern can not be used, empty when it can
+QString checkCustomFormat( const QString& pattern );
+inline Format customFormat( int index )
+{
+    return static_cast<Format>( static_cast<int>( Format::FirstCustom ) + index );
+}
+inline bool isCustom( Format format )
+{
+    return static_cast<int>( format ) >= static_cast<int>( Format::FirstCustom );
+}
 
 struct Timestamp {
     // Microseconds: since 1970 for the wall clock (the zone applied when there is one, the
@@ -65,12 +93,18 @@ struct Timestamp {
     }
     bool hasDate() const
     {
+        if ( isCustom( format ) ) {
+            return customDate;
+        }
         return format != Format::TimeOfDay && format != Format::Kernel;
     }
     bool hasYear() const;
 
     // Set for Syslog when a year follows the day
     bool syslogYear = false;
+    // What a format of the user has
+    bool customDate = false;
+    bool customYear = false;
 };
 
 struct LineTimes {

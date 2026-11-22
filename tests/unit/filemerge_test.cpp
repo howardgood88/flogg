@@ -254,3 +254,29 @@ TEST_CASE( "Time between lines label", "[timestamp]" )
     CHECK( label.durationText() == "No time stamp in the last line" );
     CHECK( label.flashLevel() == 1.0 );
 }
+
+#include "timeformatsdialog.h"
+#include "timestamp.h"
+
+TEST_CASE( "Time formats window", "[timestamp]" )
+{
+    const QString line = "<I> 22.11.2026 at 14:32:05 . 120 main started";
+    TimeFormatsDialog dialog( line );
+    CHECK( dialog.result().contains( "time of day" ) );
+
+    // A format of the user, tried on the line as it is typed
+    dialog.setFormats( { "dd.MM.yyyy at HH:mm:ss . fff", "yyyy-MM-dd" } );
+    CHECK( dialog.result().contains( "dd.MM.yyyy at HH:mm:ss . fff" ) );
+    CHECK( dialog.result().contains( "2026-11-22 14:32:05.120" ) );
+    CHECK( timestamps::customFormats() == QStringList{ "dd.MM.yyyy at HH:mm:ss . fff" } );
+
+    const auto renderDir = qEnvironmentVariable( "FLOGG_RENDER_DIR" );
+    if ( !renderDir.isEmpty() ) {
+        dialog.show();
+        dialog.grab().save( renderDir + "/time_formats.png" );
+    }
+
+    // Cancel puts the previous formats back
+    dialog.reject();
+    CHECK( timestamps::customFormats().isEmpty() );
+}

@@ -21,9 +21,14 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cstdlib>
+#include <limits>
 
 #include <QCoreApplication>
+#include <QMutex>
+#include <QRegularExpression>
+#include <QSet>
 
 namespace timestamps {
 
@@ -448,6 +453,11 @@ QString fractionText( int64_t usOfSecond, int digits )
 
 QString formatName( Format format )
 {
+    if ( isCustom( format ) ) {
+        const auto index = static_cast<int>( format ) - static_cast<int>( Format::FirstCustom );
+        const auto patterns = customFormats();
+        return index < patterns.size() ? patterns[ index ] : translate( "format of the user" );
+    }
     switch ( format ) {
     case Format::DateTime:
         return translate( "date and time" );
@@ -469,6 +479,9 @@ QString formatName( Format format )
 
 bool Timestamp::hasYear() const
 {
+    if ( isCustom( format ) ) {
+        return customYear;
+    }
     switch ( format ) {
     case Format::DateTime:
     case Format::Apache:
@@ -479,6 +492,217 @@ bool Timestamp::hasYear() const
     default:
         return false;
     }
+}
+
+//
+// Formats of the user
+//
+
+namespace {
+
+struct CustomFormats {
+    QStringList patterns;
+    uint64_t generation = 0;
+};
+
+QMutex& customMutex()
+{
+    static QMutex mutex;
+    return mutex;
+}
+
+CustomFormats& customStore()
+{
+    static CustomFormats store;
+    return store;
+}
+
+std::atomic<uint64_t> customGeneration{ 0 };
+
+struct Token {
+    const char* text;
+    const char* regex;
+};
+
+// Longest first
+constexpr std::array<Token, 12> Tokens = { {
+    { "yyyy", "(?<Y>\\d{4})" },
+    { "yy", "(?<y>\\d{2})" },
+    { "MMM", "(?<N>Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)" },
+    { "MM", "(?<M>\\d{2})" },
+    { "M", "(?<M>\\d{1,2})" },
+    { "dd", "(?<D>\\d{2})" },
+    { "d", "(?<D>\\d{1,2})" },
+    { "HH", "(?<h>\\d{2})" },
+    { "H", "(?<h>\\d{1,2})" },
+    { "mm", "(?<m>\\d{2})" },
+    { "ss", "(?<s>\\d{2})" },
+    { "f", "(?<f>\\d{1,9})" },
+} };
+
+struct Compiled {
+    QRegularExpression regex;
+    bool year = false;
+    bool date = false;
+};
+
+Compiled compileCustom( const QString& pattern )
+{
+    QString regex = "(?<![\\p{L}\\p{N}])";
+    QSet<QString> used;
+    Compiled compiled;
+    for ( int i = 0; i < pattern.size(); ) {
+        bool matched = false;
+        for ( const auto& token : Tokens ) {
+            const auto text = QLatin1String( token.text );
+            if ( pattern.mid( i, text.size() ) == text ) {
+                // f stands for all the digits, whatever the number of f
+                const auto name = text == QLatin1String( "f" ) ? QString( "f" ) : QString( text.front() );
+                if ( !used.contains( name ) ) {
+                    regex += QLatin1String( token.regex );
+                    used.insert( name );
+                }
+                else {
+                    regex += QRegularExpression::escape( text );
+                }
+                i += static_cast<int>( text.size() );
+                while ( text == QLatin1String( "f" ) && i < pattern.size() && pattern[ i ] == u'f' ) {
+                    ++i;
+                }
+                matched = true;
+                break;
+            }
+        }
+        if ( !matched ) {
+            regex += QRegularExpression::escape( pattern.mid( i, 1 ) );
+            ++i;
+        }
+    }
+    regex += "(?![\\p{N}])";
+    compiled.regex = QRegularExpression( regex );
+    compiled.year = used.contains( "y" );
+    compiled.date = ( used.contains( "M" ) || used.contains( "N" ) ) && used.contains( "d" );
+    return compiled;
+}
+
+// Each thread its own expressions, rebuilt when the formats change
+const std::vector<Compiled>& threadCustom()
+{
+    thread_local uint64_t generation = std::numeric_limits<uint64_t>::max();
+    thread_local std::vector<Compiled> compiled;
+    const auto current = customGeneration.load();
+    if ( generation != current ) {
+        QStringList patterns;
+        {
+            QMutexLocker lock( &customMutex() );
+            patterns = customStore().patterns;
+        }
+        compiled.clear();
+        for ( const auto& pattern : patterns ) {
+            compiled.push_back( compileCustom( pattern ) );
+        }
+        generation = current;
+    }
+    return compiled;
+}
+
+std::optional<Timestamp> parseCustom( QStringView line )
+{
+    const auto& formats = threadCustom();
+    std::optional<Timestamp> best;
+    for ( size_t index = 0; index < formats.size(); ++index ) {
+        const auto& format = formats[ index ];
+        if ( !format.regex.isValid() ) {
+            continue;
+        }
+        const auto match = format.regex.matchView( line );
+        if ( !match.hasMatch() || ( best && match.capturedStart() >= best->start ) ) {
+            continue;
+        }
+        const auto number = [ &match ]( const QString& name, int fallback ) {
+            const auto text = match.capturedView( name );
+            return text.isEmpty() ? fallback : text.toInt();
+        };
+        int month = number( "M", 1 );
+        const auto monthName = match.capturedView( "N" );
+        if ( !monthName.isEmpty() ) {
+            month = *monthFromName( monthName, 0 );
+        }
+        auto year = number( "Y", NoYear );
+        if ( !match.capturedView( "y" ).isEmpty() ) {
+            year = 2000 + number( "y", 0 );
+        }
+        const auto day = number( "D", 1 );
+        const auto hour = number( "h", 0 );
+        const auto minute = number( "m", 0 );
+        const auto second = number( "s", 0 );
+        if ( !validDate( month, day ) || hour > 23 || minute > 59 || second > 60 ) {
+            continue;
+        }
+        Parsed time;
+        time.us = ( ( static_cast<int64_t>( hour ) * 60 + minute ) * 60 + second ) * UsPerSecond;
+        const auto fraction = match.capturedView( "f" );
+        if ( !fraction.isEmpty() ) {
+            time.fractionDigits = static_cast<int>( fraction.size() );
+            time.us += fractionToUs( fraction.toLongLong(), time.fractionDigits );
+        }
+        time.end = static_cast<int>( match.capturedEnd() );
+        const auto start = static_cast<int>( match.capturedStart() );
+        auto stamp = makeWall( customFormat( static_cast<int>( index ) ), start, time,
+                               format.date ? daysFromCivil( year, month, day ) : 0, {} );
+        stamp.customDate = format.date;
+        stamp.customYear = format.year && format.date;
+        best = stamp;
+    }
+    return best;
+}
+
+} // namespace
+
+void setCustomFormats( const QStringList& patterns )
+{
+    {
+        QMutexLocker lock( &customMutex() );
+        customStore().patterns = patterns;
+    }
+    ++customGeneration;
+}
+
+QStringList customFormats()
+{
+    QMutexLocker lock( &customMutex() );
+    return customStore().patterns;
+}
+
+QString checkCustomFormat( const QString& pattern )
+{
+    if ( pattern.trimmed().isEmpty() ) {
+        return translate( "The format is empty" );
+    }
+    const auto compiled = compileCustom( pattern );
+    if ( !compiled.regex.isValid() ) {
+        return compiled.regex.errorString();
+    }
+    if ( !compiled.regex.namedCaptureGroups().contains( "h" )
+         || !compiled.regex.namedCaptureGroups().contains( "m" ) ) {
+        return translate( "The hours (H or HH) and the minutes (mm) are needed" );
+    }
+    return {};
+}
+
+std::vector<FormatInfo> builtInFormats()
+{
+    return {
+        { Format::DateTime, formatName( Format::DateTime ),
+          "2026-11-22 14:32:05.120, 2026/11/22T14:32:05Z, 2026-11-22 14:32:05,123 +08:00" },
+        { Format::MonthDay, formatName( Format::MonthDay ), "11-22 14:32:05.120 (Android logcat)" },
+        { Format::Syslog, formatName( Format::Syslog ), "Nov 22 14:32:05, Nov 22 2026 14:32:05" },
+        { Format::Apache, formatName( Format::Apache ), "22/Nov/2026:14:32:05 +0800" },
+        { Format::TimeOfDay, formatName( Format::TimeOfDay ), "14:32:05.123456" },
+        { Format::Epoch, formatName( Format::Epoch ),
+          translate( "1763822400, 1763822400123 (ms), at the start of the line" ) },
+        { Format::Kernel, formatName( Format::Kernel ), "[12345.678901] (dmesg, kernel)" },
+    };
 }
 
 LineTimes parseLine( QStringView line )
@@ -535,6 +759,15 @@ LineTimes parseLine( QStringView line )
         if ( found ) {
             times.wall = found;
             i = found->start + found->length - 1;
+        }
+    }
+
+    // A format of the user wins over a built-in one starting at the same place or after it
+    if ( customGeneration.load() > 0 ) {
+        if ( auto custom = parseCustom( scanned ) ) {
+            if ( !times.wall || custom->start <= times.wall->start ) {
+                times.wall = custom;
+            }
         }
     }
 
@@ -625,7 +858,7 @@ Difference difference( const LineTimes& first, const LineTimes& second,
         result.notes.append( translate( "Only one line has a time zone: the zone is ignored" ) );
     }
 
-    if ( a.format == Format::TimeOfDay ) {
+    if ( !a.hasDate() ) {
         result.notes.append(
             translate( "No date in the lines: they are taken as less than 12 hours apart" ) );
         if ( us > UsPerDay / 2 ) {
@@ -717,7 +950,7 @@ QString formatTimestamp( const Timestamp& timestamp )
                           .arg( twoDigits( seconds / 3600 ), twoDigits( ( seconds / 60 ) % 60 ),
                                 twoDigits( seconds % 60 ),
                                 fractionText( ofDay % UsPerSecond, timestamp.fractionDigits ) );
-    if ( timestamp.format == Format::TimeOfDay ) {
+    if ( !timestamp.hasDate() ) {
         return time;
     }
 

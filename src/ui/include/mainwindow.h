@@ -390,6 +390,8 @@ class MainWindow : public QMainWindow {
     QAction* searchInFolderAction;
     QAction* analyzeAction;
     QAction* mergeFilesAction;
+    QAction* timeFormatsAction;
+    void openTimeFormats();
     // The files in this order, then the merged one opened
     void openMergeFiles( const QStringList& files );
     // Copy of the time between the lines, choice of the time stamps compared

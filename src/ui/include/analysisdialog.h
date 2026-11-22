@@ -134,6 +134,10 @@ class AnalysisDialog : public QDialog {
     {
         return otherTab_;
     }
+    QComboBox* firstTab() const
+    {
+        return firstTab_;
+    }
     // The message of the last analysis
     QString message() const;
 
@@ -183,6 +187,7 @@ class AnalysisDialog : public QDialog {
     QTreeWidget* rulesTree_ = nullptr;
     QPointer<CrawlerWidget> rulesCrawler_;
 
+    QComboBox* firstTab_ = nullptr;
     QComboBox* firstScope_ = nullptr;
     QComboBox* otherTab_ = nullptr;
     QComboBox* secondScope_ = nullptr;
