@@ -25,20 +25,10 @@
 #include <QPainterPath>
 #include <QStyle>
 #include <QStyleOptionToolButton>
-#include <QVariantAnimation>
 
 namespace {
 constexpr int HorizontalPadding = 8;
 constexpr int VerticalPadding = 2;
-constexpr int FlashMs = 1600;
-
-QColor mix( const QColor& a, const QColor& b, double t )
-{
-    return QColor::fromRgbF( static_cast<float>( a.redF() + ( b.redF() - a.redF() ) * t ),
-                             static_cast<float>( a.greenF() + ( b.greenF() - a.greenF() ) * t ),
-                             static_cast<float>( a.blueF() + ( b.blueF() - a.blueF() ) * t ),
-                             static_cast<float>( a.alphaF() + ( b.alphaF() - a.alphaF() ) * t ) );
-}
 } // namespace
 
 void SelectionTimeLabel::updateCheckedColors()
@@ -67,22 +57,12 @@ void SelectionTimeLabel::updateCheckedColors()
 
 SelectionTimeLabel::SelectionTimeLabel( QWidget* parent )
     : QWidget( parent )
-    , flash_( new QVariantAnimation( this ) )
 {
-    flash_->setStartValue( 1.0 );
-    flash_->setEndValue( 0.0 );
-    flash_->setDuration( FlashMs );
-    flash_->setEasingCurve( QEasingCurve::InQuad );
-    connect( flash_, &QVariantAnimation::valueChanged, this, [ this ]( const QVariant& value ) {
-        flashLevel_ = value.toDouble();
-        update();
-    } );
     setSizePolicy( QSizePolicy::Fixed, QSizePolicy::Preferred );
 }
 
 void SelectionTimeLabel::setTime( const QString& text, const QString& details )
 {
-    const auto isNew = !text.isEmpty() && text != text_;
     text_ = text;
     details_ = details;
 
@@ -96,11 +76,6 @@ void SelectionTimeLabel::setTime( const QString& text, const QString& details )
     setToolTip( tip );
     updateGeometry();
 
-    if ( isNew ) {
-        flash_->stop();
-        flashLevel_ = 1.0;
-        flash_->start();
-    }
     update();
 }
 
@@ -162,17 +137,15 @@ void SelectionTimeLabel::paintEvent( QPaintEvent* )
         updateCheckedColors();
     }
     // A time at rest looks like the checked tool buttons next to it, the other kinds (and
-    // styles without such buttons) a light tint of their accent. Right after a change the
-    // badge is the accent itself.
+    // styles without such buttons) a light tint of their accent.
     const auto likeChecked = kind() == Kind::Time && checkedFill_.isValid();
     auto rest = accent;
     rest.setAlphaF( 0.18f );
     if ( likeChecked ) {
         rest = checkedFill_;
     }
-    const auto background = mix( rest, accent, flashLevel_ );
-    const auto foreground = mix( colors.color( QPalette::WindowText ),
-                                 colors.color( QPalette::HighlightedText ), flashLevel_ );
+    const auto& background = rest;
+    const auto foreground = colors.color( QPalette::WindowText );
 
     const auto box = QRectF( rect() ).adjusted( 0.5, 1.5, -0.5, -1.5 );
     QPainterPath path;
@@ -181,7 +154,7 @@ void SelectionTimeLabel::paintEvent( QPaintEvent* )
     auto border = accent;
     border.setAlphaF( 0.55f );
     if ( likeChecked && checkedBorder_.isValid() ) {
-        border = mix( checkedBorder_, accent, flashLevel_ );
+        border = checkedBorder_;
     }
     painter.setPen( QPen( border, 1 ) );
     painter.drawPath( path );

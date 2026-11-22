@@ -1,5 +1,9 @@
 # flogg changes
 
+## Unreleased
+
+- The time between the selected lines shows at once, without the flash
+
 ## 1.4.1 (2026-11-22)
 
 - Compare by templates marks a template more or fewer only when its share of the lines

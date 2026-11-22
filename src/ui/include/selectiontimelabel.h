@@ -23,11 +23,9 @@
 #include <QColor>
 #include <QWidget>
 
-class QVariantAnimation;
-
-// The time between the selected lines in the tool bar: a rounded badge that flashes when a
-// new time shows (orange with a warning, grey when the time can not be worked out). The
-// right click is left to the owner (copy, choice of the time stamps).
+// The time between the selected lines in the tool bar: a rounded badge (orange with a
+// warning, grey when the time can not be worked out), shown at once without animation.
+// The right click is left to the owner (copy, choice of the time stamps).
 class SelectionTimeLabel : public QWidget {
     Q_OBJECT
   public:
@@ -44,11 +42,6 @@ class SelectionTimeLabel : public QWidget {
     }
     // "+1.234 s" out of "Δ +1.234 s ⚠", the message when there is no time
     QString durationText() const;
-    // 1 right after a new time shows, down to 0
-    double flashLevel() const
-    {
-        return flashLevel_;
-    }
 
     QSize sizeHint() const override;
     QSize minimumSizeHint() const override;
@@ -74,8 +67,6 @@ class SelectionTimeLabel : public QWidget {
 
     QString text_;
     QString details_;
-    QVariantAnimation* flash_;
-    double flashLevel_ = 0;
 };
 
 #endif

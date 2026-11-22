@@ -245,16 +245,10 @@ TEST_CASE( "Time between lines label", "[timestamp]" )
             shown.grab().save( renderDir + "/" + name + ".png" );
         };
         shown.setTime( "Δ +1.234 s", {} );
-        save( "time_flash" );
-        QTest::qWait( 800 );
-        save( "time_fading" );
-        QTest::qWait( 1200 );
         save( "time_rest" );
         shown.setTime( "Δ -29.179 s ⚠", {} );
-        QTest::qWait( 2000 );
         save( "time_warning" );
         shown.setTime( "Δ: No time stamp in the last line", {} );
-        QTest::qWait( 2000 );
         save( "time_none" );
 
         // Next to a checked tool button in the flogg styles: the badge at rest uses its colours
@@ -272,7 +266,6 @@ TEST_CASE( "Time between lines label", "[timestamp]" )
             layout->addWidget( badge );
             layout->addWidget( button );
             bar.show();
-            QTest::qWait( 2000 );
             bar.grab().save( renderDir + "/time_beside_checked_" + QString( styleName ) + ".png" );
         }
         StyleManager::applyStyle( StyleManager::FusionKey );
@@ -281,17 +274,10 @@ TEST_CASE( "Time between lines label", "[timestamp]" )
     SelectionTimeLabel label;
     label.setTime( "Δ +1.234 s ⚠", "Line 1: ..." );
     CHECK( label.durationText() == "+1.234 s" );
-    CHECK( label.flashLevel() == 1.0 );
     CHECK( label.toolTip().startsWith( "Line 1: ..." ) );
     CHECK( label.toolTip().contains( "Right click" ) );
-    QTest::qWait( 2000 );
-    CHECK( label.flashLevel() == 0.0 );
-    // The same time again does not flash, a new one does
-    label.setTime( "Δ +1.234 s ⚠", "Line 1: ..." );
-    CHECK( label.flashLevel() == 0.0 );
     label.setTime( "Δ: No time stamp in the last line", {} );
     CHECK( label.durationText() == "No time stamp in the last line" );
-    CHECK( label.flashLevel() == 1.0 );
 }
 
 #include "timeformatsdialog.h"
