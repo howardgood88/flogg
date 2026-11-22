@@ -1,6 +1,6 @@
 # flogg changes
 
-## Unreleased
+## 1.4.2 (2026-11-22)
 
 - The time between the selected lines shows at once, without the flash
 
