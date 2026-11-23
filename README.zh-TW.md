@@ -90,7 +90,7 @@ Emoji：亮點功能
     - **Rules（問題特徵規則庫）**：照特定 rule 分析 log，快速檢查是否有特定問題。
         - 支援 `match`（某一行）、`sequence`（依序出現）、`absence`（某行之後一段時間內沒出現另一行）、`count`（一段時間內重複出現）。
     - **Compare file（比較檔案）**：比較兩個檔案的差異。
-        - **Line by line**：像文字比對工具一樣直接比較每行文字（每邊比較前 100 萬行，有行沒被比較時訊息會提示），以類似 code review 的雙欄顯示，有變更的行會標出不同的字元（`Character level`；選 `Line level` 只標整行）。`Ignore time stamps`、`Ignore numbers` 可忽略兩次執行一定不同的時間戳與數字。
+        - **Line by line**：像文字比對工具一樣直接比較每行文字（每邊比較前 100 萬行，有行沒被比較時訊息會提示），以類似 code review 的雙欄顯示，有變更的行會標出不同的字元。`Ignore time stamps`、`Ignore numbers` 可忽略兩次執行一定不同的時間戳與數字。
         - **Templates**：每行轉成模板（去掉時間戳，數字、ID、引號內文字與 `key=value` 的值換成佔位符）後計數，差異過大的檔案建議用這個。
             - 勾選 `Group lines that differ by one word` 時，原本因一個字詞不同（例如使用者名稱、主機名稱）而分開的模板會合併成一種。
         - 檔案更大時改用 templates 比較。差異大到幾秒內無法逐行配對的部分，會整段顯示為刪除與新增，訊息會提示行數。

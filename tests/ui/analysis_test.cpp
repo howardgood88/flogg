@@ -1065,23 +1065,17 @@ SCENARIO( "Analysis window", "[ui][analysis]" )
         CHECK( dialog.secondText()->textCursor().blockNumber() == 3 );
         CHECK( dialog.secondText()->textCursor().selectedText() == "extra" );
     }
-    // Line level: the changed lines without the characters that differ, shown at once
+    // A changed line marks the characters that differ
     {
         dialog.textNumbers()->setChecked( false );
         dialog.firstText()->setPlainText( "retry id=7\n" );
         dialog.secondText()->setPlainText( "retry id=8\n" );
-        CHECK( dialog.textLevel()->itemText( 0 ) == "Character level" );
-        dialog.textLevel()->setCurrentIndex( 0 );
         dialog.runCompareText();
         REQUIRE( waitUiState( [ & ]() { return !dialog.isRunning(); } ) );
         auto* texts = dialog.textDiffModel();
         REQUIRE( texts->rowCount() == 1 );
         CHECK( !texts->index( 0, 1 ).data( DiffModel::ChangesRole ).toList().isEmpty() );
-        dialog.textLevel()->setCurrentIndex( 1 );
-        CHECK( !texts->characterLevel() );
-        CHECK( texts->index( 0, 1 ).data( DiffModel::ChangesRole ).toList().isEmpty() );
         CHECK( texts->index( 0, 1 ).data( Qt::BackgroundRole ).isValid() );
-        dialog.textLevel()->setCurrentIndex( 0 );
     }
     // Lines alike far from the changes are folded, as when comparing files
     {

@@ -76,8 +76,6 @@ constexpr auto DiffTimesKey = "analysis/diffIgnoreTimes";
 constexpr auto DiffNumbersKey = "analysis/diffIgnoreNumbers";
 constexpr auto TextTimesKey = "analysis/textIgnoreTimes";
 constexpr auto TextNumbersKey = "analysis/textIgnoreNumbers";
-constexpr auto DiffLevelKey = "analysis/diffCharacterLevel";
-constexpr auto TextLevelKey = "analysis/textCharacterLevel";
 // Set on a list of tabs once the user chose one
 constexpr auto ChosenProperty = "floggTabChosen";
 
@@ -380,37 +378,6 @@ QCheckBox* rememberedCheckBox( const QString& text, const char* key, QWidget* pa
     return box;
 }
 
-// The level of the differences of a line by line comparison, remembered in the settings:
-// character level (index 0, the default) or line level (index 1)
-constexpr int CharacterLevelIndex = 0;
-QComboBox* levelComboBox( const char* key, QWidget* parent )
-{
-    auto* box = new QComboBox( parent );
-    box->addItem( QObject::tr( "Character level" ) );
-    box->setItemData(
-        0, QObject::tr( "In a changed line the characters that differ are marked darker" ),
-        Qt::ToolTipRole );
-    box->addItem( QObject::tr( "Line level" ) );
-    box->setItemData( 1, QObject::tr( "A changed line is marked as a whole" ), Qt::ToolTipRole );
-    box->setToolTip( QObject::tr( "How the differences of a changed line are shown" ) );
-    box->setCurrentIndex( settings().value( key, true ).toBool() ? CharacterLevelIndex : 1 );
-    QObject::connect( box, QOverload<int>::of( &QComboBox::currentIndexChanged ), box,
-                      [ key ]( int index ) {
-                          settings().setValue( key, index == CharacterLevelIndex );
-                      } );
-    return box;
-}
-
-// The model shown at the level chosen
-void followLevel( QComboBox* box, DiffModel* model )
-{
-    model->setCharacterLevel( box->currentIndex() == CharacterLevelIndex );
-    QObject::connect( box, QOverload<int>::of( &QComboBox::currentIndexChanged ), model,
-                      [ model ]( int index ) {
-                          model->setCharacterLevel( index == CharacterLevelIndex );
-                      } );
-}
-
 } // namespace
 
 //
@@ -703,18 +670,6 @@ void DiffModel::setRows( std::vector<Row> rows, TextReader reader, templates::Di
     endResetModel();
 }
 
-void DiffModel::setCharacterLevel( bool characterLevel )
-{
-    if ( characterLevel == characterLevel_ ) {
-        return;
-    }
-    characterLevel_ = characterLevel;
-    texts_.clear();
-    if ( !rows_.empty() ) {
-        Q_EMIT dataChanged( index( 0, 0 ), index( rowCount() - 1, NbColumns - 1 ) );
-    }
-}
-
 void DiffModel::clear()
 {
     setRows( {}, {}, {} );
@@ -750,7 +705,7 @@ const DiffModel::Texts& DiffModel::textsOf( int row ) const
     const auto first = read( 0, r.first );
     const auto second = read( 1, r.second );
     // The characters that differ of a line changed into another one, on the whole lines
-    if ( characterLevel_ && r.changed && r.first != Row::None && r.second != Row::None ) {
+    if ( r.changed && r.first != Row::None && r.second != Row::None ) {
         const auto changes = templates::changedParts( first, second, options_ );
         texts->firstChanges = rangesData( changes.first );
         texts->secondChanges = rangesData( changes.second );
@@ -1722,13 +1677,11 @@ QWidget* AnalysisDialog::createComparePage()
     diffNumbers_ = rememberedCheckBox( tr( "Ignore numbers" ), DiffNumbersKey, page );
     diffNumbers_->setToolTip(
         tr( "Lines that differ only by their numbers (ids, counters, durations) are alike" ) );
-    diffLevel_ = levelComboBox( DiffLevelKey, page );
     // Grouping by one word is about templates only, what is left out about line by line
     const auto showOptions = [ this ]( int mode ) {
         merge_->setVisible( mode == TemplatesMode );
         diffTimes_->setVisible( mode == LineByLineMode );
         diffNumbers_->setVisible( mode == LineByLineMode );
-        diffLevel_->setVisible( mode == LineByLineMode );
     };
     connect( compareMode_, QOverload<int>::of( &QComboBox::currentIndexChanged ), this,
              showOptions );
@@ -1750,8 +1703,8 @@ QWidget* AnalysisDialog::createComparePage()
             "<i>Compare text</i> page.</p>"
             "<p><b>Line by line</b> compares the text of the lines, as a text comparison tool "
             "does, in two columns like a code review: the lines of one side only in red and "
-            "green, in a line changed into another the characters that differ darker (<b>Character "
-            "level</b>; <b>Line level</b> marks the whole lines only), the lines alike folded. <b>Ignore time stamps</b> and <b>Ignore numbers</b> leave out what "
+            "green, in a line changed into another the characters that differ darker, the lines alike "
+            "folded. <b>Ignore time stamps</b> and <b>Ignore numbers</b> leave out what "
             "always differs between two runs. The first %L2 lines of each side are compared "
             "(the message tells how many were left out): for larger files compare the "
             "<b>Templates</b>. Parts too different to pair up line by line in a few seconds "
@@ -1786,7 +1739,6 @@ QWidget* AnalysisDialog::createComparePage()
     buttons->addWidget( merge_ );
     buttons->addWidget( diffTimes_ );
     buttons->addWidget( diffNumbers_ );
-    buttons->addWidget( diffLevel_ );
     buttons->addStretch();
     buttons->addWidget( compareMode_ );
     buttons->addWidget( compareButton );
@@ -1832,7 +1784,6 @@ QWidget* AnalysisDialog::createComparePage()
 
     // Two columns, like a code review: the first tab on the left, the other on the right
     diffModel_ = new DiffModel( this );
-    followLevel( diffLevel_, diffModel_ );
     diffView_ = createDiffView( diffModel_, page );
     diffView_->setToolTip( tr( "Double click a side to show its line in its tab" ) );
     connect( diffView_, &QTreeView::activated, this, [ this ]( const QModelIndex& index ) {
@@ -2197,13 +2148,10 @@ QWidget* AnalysisDialog::createCompareTextPage()
     auto* buttons = new QHBoxLayout();
     buttons->addWidget( textTimes_ );
     buttons->addWidget( textNumbers_ );
-    textLevel_ = levelComboBox( TextLevelKey, page );
-    buttons->addWidget( textLevel_ );
     buttons->addStretch();
     buttons->addWidget( compareButton );
 
     textDiffModel_ = new DiffModel( this );
-    followLevel( textLevel_, textDiffModel_ );
     textDiffModel_->setNames( tr( "First text" ), tr( "Second text" ) );
     textDiffView_ = createDiffView( textDiffModel_, page );
     textDiffView_->setToolTip( tr( "Double click a side to go to its line in its text" ) );
@@ -2248,8 +2196,7 @@ QWidget* AnalysisDialog::createCompareTextPage()
                  "<b>Compare</b>.</p>"
                  "<p>The lines are compared as a text comparison tool does, in two columns like a "
                  "code review: the lines of one side only in red and green, in a line changed "
-                 "into another the characters that differ darker (<b>Character level</b>; <b>Line "
-                 "level</b> marks the whole lines only). The lines alike far from the "
+                 "into another the characters that differ darker. The lines alike far from the "
                  "changes are folded. Double click a line to go to it in its box.</p>"
                  "<p><b>Ignore time stamps</b> leaves out the time stamps at the start of the "
                  "lines, <b>Ignore numbers</b> the numbers (ids, counters, durations): what "

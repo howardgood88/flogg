@@ -10,8 +10,7 @@
   a window (always, or only when they fail), which can stop them
 - Compare file (was Compare), line by line: compares the text of the lines, like a text
   diff tool, instead of their templates; the characters that differ are marked in a changed
-  line (`Character level`, or `Line level` for the whole lines only). `Ignore time stamps`
-  and `Ignore numbers` leave out what always differs
+  line. `Ignore time stamps` and `Ignore numbers` leave out what always differs
 - Line by line takes the first 1 000 000 lines of each side (was 100 000) and no longer
   stops at 2 000 changes: parts too different to pair up in a few seconds are shown as
   removed and added blocks, and the message tells the lines left out

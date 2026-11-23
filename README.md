@@ -90,7 +90,7 @@ Emoji: highlights
     - **Rules** of known problems: check the log against rules to find known problems quickly.
         - Kinds: `match` (a line), `sequence` (lines in this order), `absence` (a line not followed by another within a time), `count` (a line repeated within a time).
     - **Compare file**: the differences between two files.
-        - **Line by line**: compares the text of the lines like a text diff tool (the first 1 000 000 lines of each side; the message tells when lines were left out), in two columns like a code review; in a changed line the characters that differ are marked (`Character level`; `Line level` marks the whole lines only). `Ignore time stamps` and `Ignore numbers` leave out what always differs between two runs.
+        - **Line by line**: compares the text of the lines like a text diff tool (the first 1 000 000 lines of each side; the message tells when lines were left out), in two columns like a code review; in a changed line the characters that differ are marked. `Ignore time stamps` and `Ignore numbers` leave out what always differs between two runs.
         - **Templates**: each line is turned into a template (time stamps out, numbers, ids, quoted text and `key=value` values replaced) and the templates are counted; best for files that differ a lot.
             - With `Group lines that differ by one word`, templates that were apart only because of one word (a user, a host) count as one.
         - Files larger than that: compare the templates. Parts too different to pair up in a few seconds are shown as a block removed and a block added, and the message tells how many lines.

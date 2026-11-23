@@ -146,13 +146,6 @@ class DiffModel : public QAbstractTableModel {
     {
         gapColor_ = color;
     }
-    // Character level: in a line changed into another the characters that differ are
-    // marked; line level: the whole lines only. Shown again at once, nothing compared again
-    void setCharacterLevel( bool characterLevel );
-    bool characterLevel() const
-    {
-        return characterLevel_;
-    }
     // The line of a side in a row, if it has one
     std::optional<LineNumber> lineAt( int row, int side ) const;
     const Row& row( int row ) const
@@ -180,7 +173,6 @@ class DiffModel : public QAbstractTableModel {
     QString firstName_;
     QString secondName_;
     QColor gapColor_;
-    bool characterLevel_ = true;
     mutable QCache<int, Texts> texts_{ 4000 };
 };
 
@@ -274,15 +266,6 @@ class AnalysisDialog : public QDialog {
     QCheckBox* textNumbers() const
     {
         return textNumbers_;
-    }
-    // Line or character level, of the files, of the texts
-    QComboBox* diffLevel() const
-    {
-        return diffLevel_;
-    }
-    QComboBox* textLevel() const
-    {
-        return textLevel_;
     }
     CompareModel* compareModel() const
     {
@@ -407,13 +390,11 @@ class AnalysisDialog : public QDialog {
     DiffModel* diffModel_ = nullptr;
     QCheckBox* diffTimes_ = nullptr;
     QCheckBox* diffNumbers_ = nullptr;
-    QComboBox* diffLevel_ = nullptr;
 
     QPlainTextEdit* firstText_ = nullptr;
     QPlainTextEdit* secondText_ = nullptr;
     QCheckBox* textTimes_ = nullptr;
     QCheckBox* textNumbers_ = nullptr;
-    QComboBox* textLevel_ = nullptr;
     QTreeView* textDiffView_ = nullptr;
     DiffModel* textDiffModel_ = nullptr;
     QPointer<CrawlerWidget> firstCrawler_;
