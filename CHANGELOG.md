@@ -1,5 +1,15 @@
 # flogg changes
 
+## 1.4.5 (2026-11-24)
+
+- Time columns: the times line up on their decimal points, with the same decimals on every
+  line; from a minute they read as a clock (`+2:03.250`), from a day with the days
+  (`+3d 01:02:03`)
+- The leading zeros of a time are dimmed, so the first digit that counts shows how long it is
+- **New: time bars**: behind each time a bar in proportion to it. The time that fills the
+  bar is set for each column in `View > Time columns in main view` (and `... in filter
+  view`): common times or `Custom...` (`250 ms`, `1.5 s`, `2 min`, `1 h`, `500 us`)
+
 ## 1.4.4 (2026-11-24)
 
 - `Tools > Analyze Log...` is now `Tools > Analyze Tools...`
