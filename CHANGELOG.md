@@ -1,6 +1,6 @@
 # flogg changes
 
-## Unreleased
+## 1.4.4 (2026-11-24)
 
 - `Tools > Analyze Log...` is now `Tools > Analyze Tools...`
 - **New: Run Command** in the right click menu of the file panel: commands of your own
