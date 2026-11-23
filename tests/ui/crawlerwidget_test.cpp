@@ -187,6 +187,11 @@ struct CrawlerWidget::access_by<CrawlerWidgetPrivate> {
         return crawler->logMainView_->grab().toImage();
     }
 
+    QImage grabFilteredView()
+    {
+        return crawler->filteredView_->grab().toImage();
+    }
+
     void setFilters( const std::vector<FilterNode>& filterNodes )
     {
         std::vector<const FilterNode*> pointers;
@@ -477,6 +482,73 @@ SCENARIO( "Crawler widget bookmarks rendering", "[.render]" )
 
     crawlerVisitor.showMainViewLine( 4_lnum );
     REQUIRE( crawlerVisitor.grabMainView().save( renderDir + "/selected_line.png" ) );
+}
+
+// Hidden, saves the time columns of both views, from microseconds to days:
+// FLOGG_RENDER_DIR=<dir> klogg_itests "[.render]"
+SCENARIO( "Crawler widget time columns rendering", "[.render]" )
+{
+    const auto renderDir = qEnvironmentVariable( "FLOGG_RENDER_DIR" );
+    if ( renderDir.isEmpty() ) {
+        WARN( "FLOGG_RENDER_DIR is not set" );
+        return;
+    }
+
+    QTemporaryFile file{ "crawler_time_XXXXXX" };
+    REQUIRE( file.open() );
+    file.write( "2026-11-22 14:00:00.000000 start\n"
+                "2026-11-22 14:00:00.000012 12 us\n"
+                "2026-11-22 14:00:00.000850 838 us\n"
+                "2026-11-22 14:00:00.003850 3 ms\n"
+                "2026-11-22 14:00:00.003850 same time\n"
+                "2026-11-22 14:00:00.753850 750 ms\n"
+                "    at com.example.Main.run(Main.java:12)\n"
+                "2026-11-22 14:00:02.003850 1.25 s\n"
+                "2026-11-22 14:00:14.003850 12 s\n"
+                "2026-11-22 14:00:13.903850 back 100 ms\n"
+                "2026-11-22 14:02:17.153850 2 min\n"
+                "2026-11-22 15:04:20.403850 1 h\n"
+                "2026-11-22 15:04:20.404850 1 ms\n"
+                "2026-11-25 16:05:21.404850 3 days\n" );
+    file.flush();
+
+    auto& config = Configuration::get();
+    const auto mainColumns = config.timeColumns( false );
+    const auto filteredColumns = config.timeColumns( true );
+    const auto both = Configuration::TimeFromReference | Configuration::TimeFromPrevious;
+    config.setTimeColumns( false, both );
+    config.setTimeColumns( true, both );
+    // Bars full from 20 s from the reference line, from 1 s from the line before
+    const auto referenceBarFull = config.timeBarFullUs( Configuration::TimeFromReference );
+    const auto previousBarFull = config.timeBarFullUs( Configuration::TimeFromPrevious );
+    config.setTimeBarFullUs( Configuration::TimeFromReference, 20 * 1000000 );
+    config.setTimeBarFullUs( Configuration::TimeFromPrevious, 1000000 );
+
+    Session session;
+    CrawlerWidgetVisitor crawlerVisitor;
+    crawlerVisitor.crawler.reset( static_cast<CrawlerWidget*>(
+        session.open( file.fileName(), []() { return new CrawlerWidget(); } ) ) );
+    waitUiState( [ & ]() { return crawlerVisitor.isLoadingFinished(); } );
+    auto& crawler = *crawlerVisitor.crawler;
+    crawler.resize( 1000, 700 );
+    crawler.show();
+    crawler.toggleTimeReference( 3_lnum );
+
+    crawlerVisitor.setFilters( { FilterNode::makeFilter( " s" ) } );
+    REQUIRE( waitUiState(
+        [ & ]() { return crawlerVisitor.getLogFilteredNbLines().get() > 0; } ) );
+    QTest::qWait( 300 );
+
+    // The first drawing finds the decimals, the second one has them on every line
+    crawlerVisitor.grabMainView();
+    crawlerVisitor.grabFilteredView();
+    CHECK( crawlerVisitor.grabMainView().save( renderDir + "/time_columns_main.png" ) );
+    CHECK( crawlerVisitor.grabFilteredView().save( renderDir + "/time_columns_filtered.png" ) );
+
+    config.setTimeColumns( false, mainColumns );
+    config.setTimeColumns( true, filteredColumns );
+    config.setTimeBarFullUs( Configuration::TimeFromReference, referenceBarFull );
+    config.setTimeBarFullUs( Configuration::TimeFromPrevious, previousBarFull );
 }
 
 // Hidden, saves the selected line among filter colours in both styles:

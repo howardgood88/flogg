@@ -417,6 +417,8 @@ class MainWindow : public QMainWindow {
     // Time columns, in the main views and in the filtered views: from the reference line,
     // from the line before
     std::array<std::array<QAction*, 2>, 2> timeColumnActions;
+    // The time filling the bars, from the reference line and from the line before
+    std::array<QMenu*, 2> timeBarFullMenus{};
     QAction* followAction;
     QAction* textWrapAction;
     QAction* reloadAction;

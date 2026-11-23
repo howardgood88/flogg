@@ -888,6 +888,60 @@ Difference difference( const LineTimes& first, const LineTimes& second,
     return result;
 }
 
+std::optional<int64_t> parseDuration( QStringView text )
+{
+    static const QRegularExpression pattern(
+        QStringLiteral( R"(^\s*(\d+(?:[.,]\d*)?|[.,]\d+)\s*([a-zµμ]*)\s*$)" ),
+        QRegularExpression::CaseInsensitiveOption );
+    const auto match = pattern.match( text );
+    if ( !match.hasMatch() ) {
+        return {};
+    }
+    bool isNumber = false;
+    const auto value = match.captured( 1 ).replace( QChar( ',' ), QChar( '.' ) ).toDouble( &isNumber );
+    const auto unit = match.captured( 2 ).toLower();
+    double usPerUnit = 0;
+    if ( unit.isEmpty() || unit == "ms" ) {
+        usPerUnit = 1e3;
+    }
+    else if ( unit == "us" || unit == QStringLiteral( "µs" ) || unit == QStringLiteral( "μs" ) ) {
+        usPerUnit = 1;
+    }
+    else if ( unit == "s" || unit == "sec" ) {
+        usPerUnit = 1e6;
+    }
+    else if ( unit == "m" || unit == "min" ) {
+        usPerUnit = 60e6;
+    }
+    else if ( unit == "h" ) {
+        usPerUnit = 3600e6;
+    }
+    const auto us = value * usPerUnit;
+    if ( !isNumber || usPerUnit == 0 || us < 1 || us > 365 * 86400e6 ) {
+        return {};
+    }
+    return static_cast<int64_t>( us + 0.5 );
+}
+
+QString durationText( int64_t us )
+{
+    const std::array<std::pair<int64_t, const char*>, 5> units{ {
+        { 3600 * UsPerSecond, "h" },
+        { 60 * UsPerSecond, "min" },
+        { UsPerSecond, "s" },
+        { 1000, "ms" },
+        { 1, "µs" },
+    } };
+    const auto absolute = std::llabs( us );
+    for ( const auto& [ size, name ] : units ) {
+        if ( absolute >= size || size == 1 ) {
+            return QString::number( static_cast<double>( us ) / static_cast<double>( size ), 'g', 6 )
+                   + " " + QString::fromUtf8( name );
+        }
+    }
+    return {};
+}
+
 QString formatDuration( int64_t us, int fractionDigits, bool withSign )
 {
     const auto sign = !withSign ? QString() : us < 0 ? QStringLiteral( "-" ) : QStringLiteral( "+" );

@@ -258,6 +258,14 @@ void Configuration::retrieveFromStorage( QSettings& settings )
     timeColumnsFiltered_
         = settings.value( "view.timeColumnsFiltered", DefaultConfiguration.timeColumnsFiltered_ )
               .toInt();
+    setTimeBarFullUs( TimeFromReference, settings
+                                             .value( "view.timeBarFullReferenceUs",
+                                                     DefaultConfiguration.timeBarFullReferenceUs_ )
+                                             .toLongLong() );
+    setTimeBarFullUs( TimeFromPrevious, settings
+                                            .value( "view.timeBarFullPreviousUs",
+                                                    DefaultConfiguration.timeBarFullPreviousUs_ )
+                                            .toLongLong() );
     lineNumbersVisibleInMain_ = settings
                                     .value( "view.lineNumbersVisibleInMain",
                                             DefaultConfiguration.lineNumbersVisibleInMain_ )
@@ -430,6 +438,10 @@ void Configuration::saveToStorage( QSettings& settings ) const
     settings.setValue( "view.lineNumbersVisibleInMain", lineNumbersVisibleInMain_ );
     settings.setValue( "view.timeColumnsMain", timeColumnsMain_ );
     settings.setValue( "view.timeColumnsFiltered", timeColumnsFiltered_ );
+    settings.setValue( "view.timeBarFullReferenceUs",
+                       static_cast<qlonglong>( timeBarFullReferenceUs_ ) );
+    settings.setValue( "view.timeBarFullPreviousUs",
+                       static_cast<qlonglong>( timeBarFullPreviousUs_ ) );
     settings.setValue( "view.lineNumbersVisibleInFiltered", lineNumbersVisibleInFiltered_ );
     settings.setValue( "view.minimizeToTray", minimizeToTray_ );
     settings.setValue( "view.style", style_ );

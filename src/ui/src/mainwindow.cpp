@@ -128,6 +128,15 @@
 
 namespace {
 
+// The menu entry of the time filling the bars of a time column
+QString timeBarFullText( Configuration::TimeColumn column )
+{
+    const auto time = timestamps::durationText( Configuration::get().timeBarFullUs( column ) );
+    return column == Configuration::TimeFromReference
+               ? MainWindow::tr( "Full bar from the reference line: %1" ).arg( time )
+               : MainWindow::tr( "Full bar from the line before: %1" ).arg( time );
+}
+
 void signalCrawlerToFollowFile( CrawlerWidget* crawler_widget )
 {
     dispatchToMainThread( [ crawler_widget ]() { crawler_widget->followSet( true ); } );
@@ -756,6 +765,78 @@ void MainWindow::createActions()
             timeColumnActions[ filtered ? 1 : 0 ][ i ] = action;
         }
     }
+    // The time that fills the bars of a column: common times or one typed by the user; the
+    // same in the main and the filtered views
+    const std::array<Configuration::TimeColumn, 2> barColumns{ Configuration::TimeFromReference,
+                                                               Configuration::TimeFromPrevious };
+    for ( auto i = 0u; i < barColumns.size(); ++i ) {
+        const auto column = barColumns[ i ];
+        auto* menu = new QMenu( timeBarFullText( column ), this );
+        auto* group = new QActionGroup( menu );
+        const auto apply = [ column ]( int64_t us ) {
+            auto& configuration = Configuration::get();
+            if ( us == configuration.timeBarFullUs( column ) ) {
+                return;
+            }
+            configuration.setTimeBarFullUs( column, us );
+            configuration.save();
+            for ( auto* widget : QApplication::allWidgets() ) {
+                if ( auto* view = qobject_cast<AbstractLogView*>( widget ) ) {
+                    view->refreshTimeColumns();
+                }
+            }
+        };
+        constexpr int64_t Ms = 1000;
+        for ( const auto us : { 10 * Ms, 100 * Ms, 1000 * Ms, 10 * 1000 * Ms, 60 * 1000 * Ms,
+                                10 * 60 * 1000 * Ms, 60 * 60 * 1000 * Ms } ) {
+            auto* action = menu->addAction( timestamps::durationText( us ) );
+            action->setCheckable( true );
+            action->setData( static_cast<qlonglong>( us ) );
+            group->addAction( action );
+            connect( action, &QAction::triggered, this, [ apply, us ] { apply( us ); } );
+        }
+        menu->addSeparator();
+        auto* custom = menu->addAction( tr( "Custom…" ) );
+        custom->setCheckable( true );
+        group->addAction( custom );
+        connect( custom, &QAction::triggered, this, [ this, column, apply ] {
+            const auto title = column == Configuration::TimeFromReference
+                                   ? tr( "Bars of the time from the reference line" )
+                                   : tr( "Bars of the time from the line before" );
+            const auto label = tr( "Time that fills the bar (250 ms, 1.5 s, 2 min, 1 h, 500 us):" );
+            auto value = timestamps::durationText( Configuration::get().timeBarFullUs( column ) );
+            auto error = QString{};
+            for ( ;; ) {
+                bool accepted = false;
+                value = QInputDialog::getText(
+                    this, title, error.isEmpty() ? label : error + "\n" + label, QLineEdit::Normal,
+                    value, &accepted );
+                if ( !accepted ) {
+                    return;
+                }
+                if ( const auto us = timestamps::parseDuration( value ) ) {
+                    apply( *us );
+                    return;
+                }
+                error = tr( "\"%1\" is not a time above zero up to a year." ).arg( value );
+            }
+        } );
+        // The time in use checked, under Custom when it is none of the common ones
+        connect( menu, &QMenu::aboutToShow, menu, [ column, group, custom ] {
+            const auto us = Configuration::get().timeBarFullUs( column );
+            bool common = false;
+            for ( auto* action : group->actions() ) {
+                if ( action != custom && action->data().toLongLong() == us ) {
+                    action->setChecked( true );
+                    common = true;
+                }
+            }
+            custom->setChecked( !common );
+            custom->setText( common ? tr( "Custom…" )
+                                    : tr( "Custom: %1…" ).arg( timestamps::durationText( us ) ) );
+        } );
+        timeBarFullMenus[ i ] = menu;
+    }
 
     followAction = new QAction( tr( action::followText ), this );
     followAction->setCheckable( true );
@@ -1036,14 +1117,21 @@ void MainWindow::createMenus()
         auto* timeColumnsMenu = viewMenu->addMenu( filtered ? tr( "Time columns in filter view" )
                                                             : tr( "Time columns in main view" ) );
         const auto& actions = timeColumnActions[ filtered ? 1 : 0 ];
-        for ( auto* action : actions ) {
-            timeColumnsMenu->addAction( action );
+        // Each column with the time filling its bars
+        for ( auto i = 0u; i < actions.size(); ++i ) {
+            if ( i > 0 ) {
+                timeColumnsMenu->addSeparator();
+            }
+            timeColumnsMenu->addAction( actions[ i ] );
+            timeColumnsMenu->addMenu( timeBarFullMenus[ i ] );
         }
         // Another window may have changed them
-        connect( timeColumnsMenu, &QMenu::aboutToShow, this, [ actions, filtered ] {
+        connect( timeColumnsMenu, &QMenu::aboutToShow, this, [ this, actions, filtered ] {
             const auto shown = Configuration::get().timeColumns( filtered );
             actions[ 0 ]->setChecked( shown & Configuration::TimeFromReference );
             actions[ 1 ]->setChecked( shown & Configuration::TimeFromPrevious );
+            timeBarFullMenus[ 0 ]->setTitle( timeBarFullText( Configuration::TimeFromReference ) );
+            timeBarFullMenus[ 1 ]->setTitle( timeBarFullText( Configuration::TimeFromPrevious ) );
         } );
     }
     viewMenu->addSeparator();

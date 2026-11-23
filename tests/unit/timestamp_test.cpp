@@ -178,6 +178,29 @@ TEST_CASE( "Time stamps of lines", "[timestamp]" )
         CHECK( formatDuration( 3000000, 0 ) == "+3 s" );
         CHECK( formatDuration( ( 2 * 3600 + 3 * 60 + 4 ) * 1000000LL + 500000 )
                == "+2 h 03 m 04.500 s" );
+
+        // Typed by the user, shown back
+        CHECK( parseDuration( u"250 ms" ) == 250000 );
+        CHECK( parseDuration( u"250" ) == 250000 );
+        CHECK( parseDuration( u" 1.5s " ) == 1500000 );
+        CHECK( parseDuration( u"1,5 S" ) == 1500000 );
+        CHECK( parseDuration( u"2 min" ) == 120000000 );
+        CHECK( parseDuration( u"2m" ) == 120000000 );
+        CHECK( parseDuration( u"1 h" ) == 3600000000LL );
+        CHECK( parseDuration( u"500 us" ) == 500 );
+        CHECK( parseDuration( u"500 µs" ) == 500 );
+        CHECK( parseDuration( u".5 s" ) == 500000 );
+        CHECK( !parseDuration( u"" ) );
+        CHECK( !parseDuration( u"0" ) );
+        CHECK( !parseDuration( u"-1 s" ) );
+        CHECK( !parseDuration( u"1 day" ) );
+        CHECK( !parseDuration( u"fast" ) );
+        CHECK( !parseDuration( u"2 years" ) );
+        CHECK( durationText( 250000 ) == "250 ms" );
+        CHECK( durationText( 1500000 ) == "1.5 s" );
+        CHECK( durationText( 120000000 ) == "2 min" );
+        CHECK( durationText( 3600000000LL ) == "1 h" );
+        CHECK( durationText( 500 ) == "500 µs" );
         CHECK( formatDuration( ( 86400 + 3600 ) * 1000000LL, 0 ) == "+1 d 01 h 00 m 00 s" );
         CHECK( formatDuration( 61 * 1000000LL, 0, false ) == "1 m 01 s" );
     }

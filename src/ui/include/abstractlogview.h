@@ -423,6 +423,9 @@ class AbstractLogView : public QAbstractScrollArea, public SearchableWidgetInter
     OptionalLineNumber timeReference_;
     std::optional<timestamps::LineTimes> referenceTimes_;
     std::optional<timestamps::Format> timeFormat_;
+    // Decimals of the time columns, the most seen on a drawn line, so that the decimal points
+    // line up on every line
+    int timeColumnDigits_ = 0;
 
     Selection selection_;
     RegularExpressionPattern searchPattern_;

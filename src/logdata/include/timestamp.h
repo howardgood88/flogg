@@ -151,6 +151,12 @@ std::optional<Timestamp> sameKind( const LineTimes& times, const Timestamp& refe
 // "+1.234 s", "-850 ms", "+2 h 03 m 04.500 s"; fractionDigits limits the precision shown
 QString formatDuration( int64_t us, int fractionDigits = 3, bool withSign = true );
 
+// A duration typed by the user: "250 ms", "1.5 s", "2 min", "1 h", "500 us" (or µs); a
+// number alone is in milliseconds. Empty unless a time above zero, up to a year.
+std::optional<int64_t> parseDuration( QStringView text );
+// The duration in the largest unit it fills: "250 ms", "1.5 s", "2 min"
+QString durationText( int64_t us );
+
 // "2026-11-22 14:32:05.120", "11-22 14:32:05.120", "12345.678901 s since boot"
 QString formatTimestamp( const Timestamp& timestamp );
 

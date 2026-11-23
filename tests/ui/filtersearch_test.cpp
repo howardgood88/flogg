@@ -2094,6 +2094,39 @@ SCENARIO( "Tabs using a filter file follow its saves", "[filters]" )
     settings.setValue( "filterPanel/currentFile", previousFile );
 }
 
+// Hidden, saves the time columns menu and its full bar menu:
+// FLOGG_RENDER_DIR=<dir> klogg_itests "[.render]"
+SCENARIO( "Time columns menu rendering", "[.render]" )
+{
+    const auto renderDir = qEnvironmentVariable( "FLOGG_RENDER_DIR" );
+    if ( renderDir.isEmpty() ) {
+        WARN( "FLOGG_RENDER_DIR is not set" );
+        return;
+    }
+    auto& config = Configuration::get();
+    const auto previousBarFull = config.timeBarFullUs( Configuration::TimeFromPrevious );
+    config.setTimeBarFullUs( Configuration::TimeFromPrevious, 250 * 1000 );
+
+    auto appSession = std::make_shared<Session>();
+    WindowSession windowSession{ appSession, "TimeMenu", 0 };
+    MainWindow mainWindow( windowSession );
+    const auto grabMenu = [ & ]( const QString& title, const QString& fileName ) {
+        for ( auto* menu : mainWindow.findChildren<QMenu*>() ) {
+            if ( menu->title().startsWith( title ) ) {
+                Q_EMIT menu->aboutToShow();
+                menu->adjustSize();
+                return menu->grab().save( renderDir + "/" + fileName );
+            }
+        }
+        return false;
+    };
+    CHECK( grabMenu( "Time columns in main view", "time_columns_menu.png" ) );
+    CHECK( grabMenu( "Full bar from the reference line", "time_bar_reference_menu.png" ) );
+    CHECK( grabMenu( "Full bar from the line before", "time_bar_previous_menu.png" ) );
+
+    config.setTimeBarFullUs( Configuration::TimeFromPrevious, previousBarFull );
+}
+
 // Hidden, saves a picture of the tab bar: FLOGG_RENDER_DIR=<dir> klogg_itests "[.render]"
 SCENARIO( "Main window tab bar rendering", "[.render]" )
 {

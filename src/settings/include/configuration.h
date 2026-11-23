@@ -303,6 +303,17 @@ class Configuration final : public Persistable<Configuration> {
     {
         ( filtered ? timeColumnsFiltered_ : timeColumnsMain_ ) = columns;
     }
+    // The time that fills the bar behind the times of a column, the bars being linear
+    // (microseconds); the same in the main and the filtered views
+    int64_t timeBarFullUs( TimeColumn column ) const
+    {
+        return column == TimeFromReference ? timeBarFullReferenceUs_ : timeBarFullPreviousUs_;
+    }
+    void setTimeBarFullUs( TimeColumn column, int64_t us )
+    {
+        ( column == TimeFromReference ? timeBarFullReferenceUs_ : timeBarFullPreviousUs_ )
+            = us > 0 ? us : 1000000;
+    }
     void setMainLineNumbersVisible( bool lineNumbersVisible )
     {
         lineNumbersVisibleInMain_ = lineNumbersVisible;
@@ -611,6 +622,8 @@ class Configuration final : public Persistable<Configuration> {
     bool lineNumbersVisibleInMain_ = false;
     int timeColumnsMain_ = 0;
     int timeColumnsFiltered_ = 0;
+    int64_t timeBarFullReferenceUs_ = 60 * 1000000LL;
+    int64_t timeBarFullPreviousUs_ = 1000000;
     bool lineNumbersVisibleInFiltered_ = false;
     bool minimizeToTray_ = false;
     QString style_;

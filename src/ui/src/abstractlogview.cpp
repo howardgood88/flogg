@@ -139,35 +139,49 @@ inline int countLeadingZeroes( uint64_t value )
 
 namespace {
 
-// A duration in a time column: as in the tool bar under a minute ("+1.250 s", "+750 ms"),
-// as a clock above ("+1:02:03.250")
-QString compactDuration( int64_t us, int digits )
+// A duration in a time column: in seconds with the same decimals on every line, so that the
+// decimal points line up and a longer number is a longer time ("+0.750", "+12.003"), as a
+// clock from a minute ("+2:03.250", "+1:02:03.250"), with the days from a day and without
+// the decimals there ("+3d 01:02:03")
+QString alignedDuration( int64_t us, int digits )
 {
     constexpr int64_t UsPerSecond = 1000000;
     const auto absolute = us < 0 ? -us : us;
-    if ( absolute < 60 * UsPerSecond ) {
-        return timestamps::formatDuration( us, digits );
-    }
-    digits = qBound( 0, digits, 6 );
     const auto seconds = absolute / UsPerSecond;
+    const auto sign = us < 0 ? QStringLiteral( "-" ) : QStringLiteral( "+" );
+    const auto two = []( int64_t value ) { return QString( "%1" ).arg( value, 2, 10, QChar( '0' ) ); };
+    const auto days = seconds / 86400;
+    const auto hours = ( seconds / 3600 ) % 24;
+    const auto minutes = ( seconds / 60 ) % 60;
+    if ( days > 0 ) {
+        return sign + QString( "%1d %2:%3:%4" ).arg( days ).arg( two( hours ), two( minutes ),
+                                                                 two( seconds % 60 ) );
+    }
     QString fraction;
     if ( digits > 0 ) {
         fraction = QStringLiteral( "." )
                    + QString( "%1" ).arg( absolute % UsPerSecond, 6, 10, QChar( '0' ) ).left( digits );
     }
-    const auto two = []( int64_t value ) { return QString( "%1" ).arg( value, 2, 10, QChar( '0' ) ); };
-    const auto days = seconds / 86400;
-    const auto hours = ( seconds / 3600 ) % 24;
-    const auto minutes = ( seconds / 60 ) % 60;
-    const auto sign = us < 0 ? QStringLiteral( "-" ) : QStringLiteral( "+" );
-    const auto clock = two( minutes ) + ":" + two( seconds % 60 ) + fraction;
-    if ( days > 0 ) {
-        return sign + QString( "%1d %2:" ).arg( days ).arg( two( hours ) ) + clock;
-    }
     if ( hours > 0 ) {
-        return sign + QString::number( hours ) + ":" + clock;
+        return sign + QString::number( hours ) + ":" + two( minutes ) + ":" + two( seconds % 60 )
+               + fraction;
     }
-    return sign + QString::number( minutes ) + ":" + two( seconds % 60 ) + fraction;
+    if ( minutes > 0 ) {
+        return sign + QString::number( minutes ) + ":" + two( seconds % 60 ) + fraction;
+    }
+    return sign + QString::number( seconds ) + fraction;
+}
+
+// The leading characters of a duration that are only zeros ("+0.00" of "+0.000750"), drawn
+// dimmed so that the first digit that counts shows the order of magnitude
+int insignificantPrefix( const QString& duration )
+{
+    int index = 1;
+    while ( index < duration.size()
+            && ( duration[ index ] == QChar( '0' ) || duration[ index ] == QChar( '.' ) ) ) {
+        ++index;
+    }
+    return index == 1 ? 0 : index;
 }
 
 int mapPullToFollowLength( int length );
@@ -1212,9 +1226,14 @@ void AbstractLogView::paintEvent( QPaintEvent* paintEvent )
 
     if ( deltaY != 0 ) {
         // Full or partial redraw
+        const auto timeColumnDigits = timeColumnDigits_;
         drawTextArea( &textAreaCache_.pixmap_ );
 
-        textAreaCache_.invalid_ = false;
+        // More decimals found in the time columns: drawn again with them on every line
+        textAreaCache_.invalid_ = timeColumnDigits_ != timeColumnDigits;
+        if ( textAreaCache_.invalid_ ) {
+            viewport()->update();
+        }
         textAreaCache_.first_line_ = firstLine_;
         textAreaCache_.first_column_ = firstCol_;
 
@@ -2601,11 +2620,18 @@ void AbstractLogView::drawTextArea( QPaintDevice* paintDevice )
     static constexpr int NbBookmarkSlots = static_cast<int>( LogFilteredData::NbBookmarks );
     static constexpr int NbBookmarkColumns = NbBookmarkSlots + 1;
     static const QBrush noteBrush = QBrush( QColor( 0xf5, 0xc5, 0x18 ) );
-    // Wide enough for "+12:34:56.789"
-    static constexpr int TimeColumnChars = 13;
+    // Wide enough for "+12:34:56" and the decimals, and for "+99d 12:34:56"
+    static constexpr int TimeColumnClockChars = 10;
+    static constexpr int TimeColumnMinChars = 13;
     // Lines looked at above the first one drawn for the time of the line before
     static constexpr uint64_t TimeLookBackLines = 200;
     static const QColor TimeReferenceTextColor( 0xff, 0xc0, 0x60 );
+    // Leading zeros, between the text and the dark gray of the column
+    static const QColor TimeDimColor( 0xb0, 0xb0, 0xb0 );
+    static const QColor TimeReferenceDimColor( 0xb8, 0x98, 0x70 );
+    // Dark enough for the text to stay readable on it
+    static const QColor TimeBarColor( 0x20, 0x40, 0x80, 0xb0 );
+    static const QColor TimeReferenceBarColor( 0x60, 0x38, 0x08, 0xb0 );
 
     // First check the lines to be drawn are within range (might not be the case if
     // the file has just changed)
@@ -2685,7 +2711,10 @@ void AbstractLogView::drawTextArea( QPaintDevice* paintDevice )
     const bool showFromReference
         = ( timeColumns & Configuration::TimeFromReference ) && referenceTimes_.has_value();
     const bool showFromPrevious = ( timeColumns & Configuration::TimeFromPrevious ) != 0;
-    const int timeTextWidth = charWidth_ * TimeColumnChars;
+    const int timeDigits = qBound( 0, timeColumnDigits_, 6 );
+    int timeDigitsSeen = timeDigits;
+    const int timeTextWidth
+        = charWidth_ * qMax( TimeColumnMinChars, TimeColumnClockChars + timeDigits );
     const int timeColumnWidth = 2 * LineNumberPadding + timeTextWidth;
     const auto addTimeColumn = [ & ]() {
         const auto x = contentStartPosX;
@@ -2700,6 +2729,14 @@ void AbstractLogView::drawTextArea( QPaintDevice* paintDevice )
     };
     const int referenceColumnX = showFromReference ? addTimeColumn() : 0;
     const int previousColumnX = showFromPrevious ? addTimeColumn() : 0;
+    // The bars of the time columns: linear, full from the time set by the user for each
+    const auto& configuration = Configuration::get();
+    const auto referenceBarFullUs = static_cast<double>(
+        configuration.timeBarFullUs( Configuration::TimeFromReference ) );
+    const auto previousBarFullUs = static_cast<double>(
+        configuration.timeBarFullUs( Configuration::TimeFromPrevious ) );
+    const int barMaxWidth = timeColumnWidth - SeparatorWidth;
+    const QFontMetrics timeMetrics = painter->fontMetrics();
     // The time stamps of the last line with one before the first line drawn
     std::optional<timestamps::LineTimes> previousTimes;
     if ( showFromPrevious && firstLine_ > 0_lnum ) {
@@ -3027,30 +3064,71 @@ void AbstractLogView::drawTextArea( QPaintDevice* paintDevice )
         if ( showFromReference || showFromPrevious ) {
             const auto& times = lineTimes;
             if ( !times.isEmpty() ) {
-                const auto drawTime = [ & ]( int x, const QString& text, const QColor& color ) {
-                    painter->setPen( color );
-                    painter->drawText( QRect( x + LineNumberPadding, yPos, timeTextWidth,
-                                              fontHeight ),
-                                       Qt::AlignRight | Qt::AlignVCenter, text );
-                };
-                const auto timeText = [ this ]( const timestamps::LineTimes& from,
-                                                const timestamps::LineTimes& to ) {
-                    const auto difference = timestamps::difference( from, to, timeFormat_ );
-                    if ( !difference.us ) {
-                        return QString{};
+                // Behind the text a bar in proportion to the time, full from the time set
+                // by the user, at least a pixel for a time that is not zero
+                const auto drawBar = [ & ]( int x, int64_t us, double barFullUs,
+                                            const QColor& color ) {
+                    const auto absolute = static_cast<double>( us < 0 ? -us : us );
+                    if ( absolute <= 0 ) {
+                        return;
                     }
-                    return compactDuration( *difference.us,
-                                            qMax( difference.first->fractionDigits,
-                                                  difference.second->fractionDigits ) );
+                    const auto ratio = std::min( absolute / barFullUs, 1.0 );
+                    const auto width = qMax( 1, static_cast<int>( ratio * barMaxWidth ) );
+                    painter->fillRect( x, yPos + 1, width, fontHeight - 2, color );
+                };
+                // Right aligned, the leading zeros dimmed; a minus sign stays bright
+                const auto drawTimeText = [ & ]( int x, const QString& text, int dimmed,
+                                                 const QColor& color, const QColor& dimColor ) {
+                    int right = x + LineNumberPadding + timeTextWidth;
+                    const auto drawPart = [ & ]( const QString& part, const QColor& partColor ) {
+                        right -= timeMetrics.horizontalAdvance( part );
+                        painter->setPen( partColor );
+                        painter->drawText( right, yPos + fontAscent, part );
+                    };
+                    if ( dimmed == 0 ) {
+                        drawPart( text, color );
+                        return;
+                    }
+                    drawPart( text.mid( dimmed ), color );
+                    if ( text[ 0 ] == QChar( '-' ) ) {
+                        drawPart( text.mid( 1, dimmed - 1 ), dimColor );
+                        drawPart( text.left( 1 ), color );
+                    }
+                    else {
+                        drawPart( text.left( dimmed ), dimColor );
+                    }
+                };
+                const auto drawTime = [ & ]( int x, const timestamps::LineTimes& from,
+                                             const QColor& color, const QColor& dimColor,
+                                             double barFullUs, const QColor& barColor ) {
+                    const auto difference = timestamps::difference( from, times, timeFormat_ );
+                    if ( !difference.us ) {
+                        return;
+                    }
+                    const auto digits = qBound( 0,
+                                                qMax( difference.first->fractionDigits,
+                                                      difference.second->fractionDigits ),
+                                                6 );
+                    timeDigitsSeen = qMax( timeDigitsSeen, digits );
+                    drawBar( x, *difference.us, barFullUs, barColor );
+                    const auto text = alignedDuration( *difference.us, timeDigits );
+                    drawTimeText( x, text, insignificantPrefix( text ), color, dimColor );
                 };
                 if ( showFromReference ) {
-                    drawTime( referenceColumnX,
-                              isTimeReference ? tr( "ref" ) : timeText( *referenceTimes_, times ),
-                              TimeReferenceTextColor );
+                    if ( isTimeReference ) {
+                        drawTimeText( referenceColumnX, tr( "ref" ), 0, TimeReferenceTextColor,
+                                  TimeReferenceTextColor );
+                    }
+                    else {
+                        drawTime( referenceColumnX, *referenceTimes_, TimeReferenceTextColor,
+                                  TimeReferenceDimColor, referenceBarFullUs,
+                                  TimeReferenceBarColor );
+                    }
                 }
                 if ( showFromPrevious ) {
                     if ( previousTimes ) {
-                        drawTime( previousColumnX, timeText( *previousTimes, times ), Qt::white );
+                        drawTime( previousColumnX, *previousTimes, Qt::white, TimeDimColor,
+                                  previousBarFullUs, TimeBarColor );
                     }
                     previousTimes = times;
                 }
@@ -3075,6 +3153,9 @@ void AbstractLogView::drawTextArea( QPaintDevice* paintDevice )
             break;
         }
     } // For each line
+
+    // More decimals than the columns had: drawn again with them on every line
+    timeColumnDigits_ = qMax( timeColumnDigits_, timeDigitsSeen );
 }
 
 // Draw the "pull to follow" bar and return a pixmap.
