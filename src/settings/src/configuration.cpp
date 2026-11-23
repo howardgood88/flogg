@@ -258,14 +258,18 @@ void Configuration::retrieveFromStorage( QSettings& settings )
     timeColumnsFiltered_
         = settings.value( "view.timeColumnsFiltered", DefaultConfiguration.timeColumnsFiltered_ )
               .toInt();
-    setTimeBarFullUs( TimeFromReference, settings
-                                             .value( "view.timeBarFullReferenceUs",
-                                                     DefaultConfiguration.timeBarFullReferenceUs_ )
-                                             .toLongLong() );
-    setTimeBarFullUs( TimeFromPrevious, settings
-                                            .value( "view.timeBarFullPreviousUs",
-                                                    DefaultConfiguration.timeBarFullPreviousUs_ )
-                                            .toLongLong() );
+    setTimeBarFullUs(
+        TimeFromReference,
+        settings
+            .value( "view.timeBarFullReferenceUs",
+                    static_cast<qlonglong>( DefaultConfiguration.timeBarFullReferenceUs_ ) )
+            .toLongLong() );
+    setTimeBarFullUs(
+        TimeFromPrevious,
+        settings
+            .value( "view.timeBarFullPreviousUs",
+                    static_cast<qlonglong>( DefaultConfiguration.timeBarFullPreviousUs_ ) )
+            .toLongLong() );
     lineNumbersVisibleInMain_ = settings
                                     .value( "view.lineNumbersVisibleInMain",
                                             DefaultConfiguration.lineNumbersVisibleInMain_ )
