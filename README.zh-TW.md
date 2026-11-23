@@ -41,6 +41,7 @@ Emoji：亮點功能
         - 取代：`\2:\1`
         - 結果：假設 id=12 name=alice → `alice:12`
 - 🧩 **合併檔案**：file panel 右鍵選單的 `Merge N Files...` 或 `File > Merge Files...`，把多個檔案依序接在一起寫成新檔並開啟。
+- ▶️ **執行指令**：file panel 右鍵選單的 `Run Command`，對選取的檔案或資料夾執行自訂指令（在 `Edit Commands...` 設定），不開 terminal，輸出顯示在視窗裡。Windows 用 PowerShell、macOS 用 zsh、Linux 用 `$SHELL`，也可以自己指定 shell；`$FLOGG_PATH`、`$FLOGG_NAME`、`$FLOGG_DIR`、`$FLOGG_ROOT` 是該項目的路徑、名稱、所在資料夾與 panel 的根資料夾。
 
 ### ✅ 主視窗 / 過濾視窗優化
 
@@ -82,7 +83,7 @@ Emoji：亮點功能
     - **時間基準行**：在某行按 `T`（或右鍵 `Set as time reference`）設為基準行，該行會以橘色框標示；之後只選取一行時，工具列顯示它與基準行的時間差（`Δ ref +1.234 s`），不論是用 bookmark、搜尋或點擊跳過去的。在基準行再按 `T` 清除，在其他行按則移到該行；`Shift+T`（`Clear time reference`）在任何地方都能清除。
         - 與基準行的時間差以基準行的橘色顯示，選取多行的時間差維持原本按鈕選取色。
         - `View > Time columns in main view` 與 `View > Time columns in filter view` 可加上兩欄：每行與基準行的時間差、與上一行的時間差（主視窗是檔案的上一行，過濾視窗是過濾結果的上一行）。沒有時間戳的行不顯示。主視窗與過濾視窗分開設定。
-- 🔬 **`Tools > Analyze Log...`** 或工具列 scratchpad 右邊的分析按鈕：
+- 🔬 **`Tools > Analyze Tools...`** 或工具列 scratchpad 右邊的分析按鈕：
     - **Durations（成對事件耗時）**：檢測開始與結束的 pattern 與費時，例如 `begin request id=(\d+)` / `end request id=(\d+)`。
         - 支援括號群組配對特定 id。結束會配對最近一次的開始。結果會統計平均、中位數、90 與 99 百分位、最慢的幾筆，以及沒有結束的開始。
         - 雙擊開始或結束行的欄位會跳到該行，雙擊其他欄位則選取首尾兩行中間的所有行。
@@ -156,7 +157,7 @@ Predefined filters、highlighter sets、常駐搜尋結果高亮(highlight match
 | 在 file panel 開啟資料夾 | 預設無 | `File > Open Folder...`、資料夾選單 |
 | Edit mode | `Ctrl+Shift+E` | View 選單、工具列的鉛筆 |
 | Render mode | `Ctrl+Shift+V` | View 選單、工具列的眼睛 |
-| 分析 log（耗時、規則、比較） | 預設無 | `Tools > Analyze Log...` |
+| 分析 log（耗時、規則、比較） | 預設無 | `Tools > Analyze Tools...` |
 
 ### File panel
 

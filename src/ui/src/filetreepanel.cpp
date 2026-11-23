@@ -63,6 +63,7 @@
 #include <QtConcurrent>
 
 #include "dirsearchpanel.h"
+#include "filecommands.h"
 #include "paneldock.h"
 #include "log.h"
 #include "openfilehelper.h"
@@ -1567,6 +1568,8 @@ void FileTreePanel::showContextMenu( QPoint pos )
     addCopy( tr( "Copy Path" ), FileTreeCopy::Path );
     addCopy( tr( "Copy Relative Path" ), FileTreeCopy::RelativePath );
     addCopy( tr( "Copy File Name" ), FileTreeCopy::Name );
+    menu.addSeparator();
+    addCommandActions( menu.addMenu( tr( "Run Command" ) ), isDir, targets );
 
     if ( index.isValid() ) {
         menu.addSeparator();
@@ -1594,6 +1597,53 @@ void FileTreePanel::showContextMenu( QPoint pos )
     addShowHiddenAction( &menu );
 
     menu.exec( tree_->viewport()->mapToGlobal( pos ) );
+}
+
+// The commands for this kind of item, read when the menu opens (other windows may have
+// changed them), then the way to edit them
+void FileTreePanel::addCommandActions( QMenu* menu, bool isDir, const QStringList& targets )
+{
+    menu->setToolTipsVisible( true );
+    auto any = false;
+    for ( const auto& command : filecommands::load() ) {
+        if ( !command.appliesTo( isDir ) ) {
+            continue;
+        }
+        // Of several selected items, those of the kind the command takes
+        QStringList paths;
+        for ( const auto& target : targets ) {
+            if ( command.appliesTo( QFileInfo( target ).isDir() ) ) {
+                paths.append( target );
+            }
+        }
+        auto* action = menu->addAction( command.name );
+        action->setToolTip( command.command );
+        action->setEnabled( !paths.isEmpty() );
+        connect( action, &QAction::triggered, this,
+                 [ this, command, paths ] { runCommand( command, paths ); } );
+        any = true;
+    }
+    if ( !any ) {
+        menu->addAction( tr( "No commands" ) )->setEnabled( false );
+    }
+    menu->addSeparator();
+    connect( menu->addAction( tr( "Edit Commands..." ) ), &QAction::triggered, this,
+             &FileTreePanel::editCommands );
+}
+
+CommandOutputWindow* FileTreePanel::runCommand( const FileCommand& command,
+                                                const QStringList& paths )
+{
+    auto* output
+        = new CommandOutputWindow( command, paths, rootFolder_, filecommands::shell(), window() );
+    output->start();
+    return output;
+}
+
+void FileTreePanel::editCommands()
+{
+    FileCommandsDialog dialog( this );
+    dialog.exec();
 }
 
 void FileTreePanel::dragEnterEvent( QDragEnterEvent* event )

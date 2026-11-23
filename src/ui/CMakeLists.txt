@@ -44,6 +44,7 @@ add_library(
   ${CMAKE_CURRENT_SOURCE_DIR}/include/filtertree.h
   ${CMAKE_CURRENT_SOURCE_DIR}/include/filterpanel.h
   ${CMAKE_CURRENT_SOURCE_DIR}/include/filetreepanel.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/include/filecommands.h
   ${CMAKE_CURRENT_SOURCE_DIR}/include/dirsearch.h
   ${CMAKE_CURRENT_SOURCE_DIR}/include/dirsearchpanel.h
   ${CMAKE_CURRENT_SOURCE_DIR}/include/tooltipplacement.h
@@ -108,6 +109,7 @@ add_library(
   ${CMAKE_CURRENT_SOURCE_DIR}/src/filtertree.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/src/filterpanel.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/src/filetreepanel.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/filecommands.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/src/dirsearch.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/src/dirsearchpanel.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/src/tooltipplacement.cpp

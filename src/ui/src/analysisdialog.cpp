@@ -855,7 +855,7 @@ AnalysisDialog::AnalysisDialog( Context context, QWidget* parent )
     : QDialog( parent )
     , context_( std::move( context ) )
 {
-    setWindowTitle( tr( "Analyze log" ) );
+    setWindowTitle( tr( "Analyze tools" ) );
     setSizeGripEnabled( true );
     // The lists open under them (not around their current item, as on macOS)
     setStyleSheet( "QComboBox { combobox-popup: 0; }" );

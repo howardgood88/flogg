@@ -47,6 +47,8 @@ class FileTreeIndex;
 class QFutureWatcherBase;
 class QSplitter;
 class DirSearchPanel;
+class CommandOutputWindow;
+struct FileCommand;
 
 // Order of the rows of the tree, the folders first
 enum class FileTreeSort {
@@ -156,6 +158,10 @@ class FileTreePanel : public QWidget {
     // The selected files in the order they are shown (the sort of the panel)
     QStringList selectedFilesInViewOrder() const;
 
+    // Runs a command of the menu on the paths, in a window of its own
+    CommandOutputWindow* runCommand( const FileCommand& command, const QStringList& paths );
+    void editCommands();
+
   Q_SIGNALS:
     void openFilesRequested( const QStringList& files );
     // The selected files, in the order of the tree
@@ -180,6 +186,7 @@ class FileTreePanel : public QWidget {
 
   private:
     void showContextMenu( QPoint pos );
+    void addCommandActions( QMenu* menu, bool isDir, const QStringList& targets );
     void openSelected();
     void applyNameFilter();
     void updateRecentMenu();

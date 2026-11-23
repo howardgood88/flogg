@@ -340,7 +340,7 @@ const ShortcutAction::ShortcutList& ShortcutAction::defaultShortcutList()
         {
             MainWindowAnalyze,
             {
-                QApplication::tr( "Analyze the log (durations, rules, compare)" ),
+                QApplication::tr( "Analyze tools (durations, rules, compare)" ),
                 QStringList{},
             },
         },

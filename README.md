@@ -41,6 +41,7 @@ Emoji: highlights
         - Replace: `\2:\1`
         - Result: id=12 name=alice → `alice:12`
 - 🧩 **Merge files**: `Merge N Files...` in the right click menu of the file panel, or `File > Merge Files...`, writes the files one after the other into a new file and opens it.
+- ▶️ **Run commands**: `Run Command` in the right click menu of the file panel runs a command of your own (set in `Edit Commands...`) on the selected files or folders, without a terminal, and shows what it prints. It runs in PowerShell on Windows, zsh on macOS and your `$SHELL` on Linux, or a shell you choose; `$FLOGG_PATH`, `$FLOGG_NAME`, `$FLOGG_DIR` and `$FLOGG_ROOT` hold the item.
 
 ### ✅ Main and filtered views
 
@@ -82,7 +83,7 @@ Emoji: highlights
     - **Time reference line**: `T` (or `Set as time reference` in the right click menu) on a line makes it the reference: it is framed in orange, and with one line selected the tool bar shows its time from the reference (`Δ ref +1.234 s`), wherever you go with bookmarks, searches or clicks. `T` on the reference clears it, on another line moves it; `Shift+T` (`Clear time reference`) clears it from anywhere.
         - The time from the reference is shown in its orange, the time between selected lines in the colours of the checked buttons.
         - `View > Time columns in main view` and `View > Time columns in filter view` add a column of each line's time from the reference line and one of its time from the line before (the line before in the file in the main view, in the view in a filtered view). Lines without a time stamp show none. Set apart for the main and the filtered views.
-- 🔬 **`Tools > Analyze Log...`** or the analysis button right of the scratchpad in the tool bar:
+- 🔬 **`Tools > Analyze Tools...`** or the analysis button right of the scratchpad in the tool bar:
     - **Durations**: finds a start and an end pattern and the time between them, e.g. `begin request id=(\d+)` / `end request id=(\d+)`.
         - Groups in parentheses pair the lines of one id. An end goes with the latest start. The results give the mean, median, 90 and 99 percentiles, the slowest pairs and the starts never ended.
         - A double click on the start or the end line column jumps to that line; elsewhere it selects every line from the start to the end.
@@ -156,7 +157,7 @@ Shortcuts added by flogg. All of them can be changed in File > Preferences > Sho
 | Open a folder in the file panel | none by default | `File > Open Folder...`, folder menu |
 | Edit mode | `Ctrl+Shift+E` | View menu, pencil in the tool bar |
 | Render mode | `Ctrl+Shift+V` | View menu, eye in the tool bar |
-| Analyze the log (durations, rules, compare) | none by default | `Tools > Analyze Log...` |
+| Analyze the log (durations, rules, compare) | none by default | `Tools > Analyze Tools...` |
 
 ### File panel
 

@@ -40,6 +40,11 @@
 #include <QSortFilterProxyModel>
 #include <QSignalSpy>
 #include <QStackedWidget>
+#include <QPlainTextEdit>
+#include <QPushButton>
+#include <QTableWidget>
+#include <QTextBrowser>
+#include <QPointer>
 #include <QTemporaryDir>
 #include <QTest>
 #include <QTreeView>
@@ -47,6 +52,7 @@
 
 #include "test_utils.h"
 
+#include "filecommands.h"
 #include "filetreepanel.h"
 #include "persistentinfo.h"
 #include "mainwindow.h"
@@ -589,6 +595,201 @@ SCENARIO( "File tree folder menu", "[ui]" )
     CHECK( texts.contains( QDir::toNativeSeparators( otherFolder ) ) );
 }
 
+TEST_CASE( "File commands are kept and run by the shell", "[ui]" )
+{
+    const auto saved = filecommands::load();
+    const auto savedShell = filecommands::configuredShell();
+
+    FileCommand grep{ "Count errors", "grep -c ERROR \"$FLOGG_PATH\"",
+                      FileCommand::Target::Files, FileCommand::Output::OnFailure };
+    FileCommand list{ "List", "ls", FileCommand::Target::Folders, FileCommand::Output::Always };
+    filecommands::save( { grep, list } );
+    const auto loaded = filecommands::load();
+    REQUIRE( loaded.size() == 2 );
+    CHECK( loaded.at( 0 ).name == grep.name );
+    CHECK( loaded.at( 0 ).command == grep.command );
+    CHECK( loaded.at( 0 ).target == FileCommand::Target::Files );
+    CHECK( loaded.at( 0 ).output == FileCommand::Output::OnFailure );
+    CHECK( loaded.at( 1 ).target == FileCommand::Target::Folders );
+    CHECK( loaded.at( 1 ).output == FileCommand::Output::Always );
+    CHECK( grep.appliesTo( false ) );
+    CHECK_FALSE( grep.appliesTo( true ) );
+    CHECK( FileCommand{}.appliesTo( true ) );
+
+    filecommands::setConfiguredShell( filecommands::defaultShell() );
+    CHECK( filecommands::configuredShell().isEmpty() );
+    filecommands::setConfiguredShell( "/usr/local/bin/fish" );
+    CHECK( filecommands::shell() == "/usr/local/bin/fish" );
+
+    filecommands::save( saved );
+    filecommands::setConfiguredShell( savedShell );
+
+    const auto posix = filecommands::invocation( "/bin/zsh", "echo \"$FLOGG_NAME\"" );
+    CHECK( posix.arguments == QStringList{ "-l", "-c", "echo \"$FLOGG_NAME\"" } );
+    const auto cmd = filecommands::invocation( "C:\\Windows\\System32\\cmd.exe", "echo \"a b\"" );
+    CHECK( cmd.arguments.isEmpty() );
+    CHECK( cmd.nativeArguments == "/D /S /C \"echo \"a b\"\"" );
+    const auto ps = filecommands::invocation( "powershell.exe", "Write-Output \"é\"" );
+    REQUIRE( ps.arguments.size() == 6 );
+    CHECK( ps.arguments.mid( 2, 2 ) == QStringList{ "-ExecutionPolicy", "Bypass" } );
+    CHECK( ps.arguments.at( 4 ) == "-EncodedCommand" );
+    const auto bytes = QByteArray::fromBase64( ps.arguments.at( 5 ).toLatin1() );
+    const auto script = QString::fromUtf16( reinterpret_cast<const char16_t*>( bytes.constData() ),
+                                            bytes.size() / 2 );
+    CHECK( script.endsWith( "\nWrite-Output \"é\"" ) );
+    CHECK( filecommands::invocation( "pwsh", "x" ).arguments.at( 4 ) == "-EncodedCommand" );
+
+    QTemporaryDir dir;
+    const auto folder = makeFolder( dir );
+    const auto env = filecommands::environment( folder + "/app/main.log", folder );
+    CHECK( env.value( "FLOGG_PATH" ) == QDir::toNativeSeparators( folder + "/app/main.log" ) );
+    CHECK( env.value( "FLOGG_NAME" ) == "main.log" );
+    CHECK( env.value( "FLOGG_DIR" ) == QDir::toNativeSeparators( folder + "/app" ) );
+    CHECK( env.value( "FLOGG_ROOT" ) == QDir::toNativeSeparators( folder ) );
+    CHECK( filecommands::workingDirectory( folder + "/app/main.log" ) == folder + "/app" );
+    CHECK( filecommands::workingDirectory( folder + "/app" ) == folder + "/app" );
+}
+
+namespace {
+// Prints the name and the folder it runs in, fails with 3 when asked
+QString printCommand( bool fail )
+{
+#ifdef Q_OS_WIN
+    return QString( "Write-Output \"$env:FLOGG_NAME in $(Split-Path -Leaf (Get-Location))\"" )
+           + ( fail ? "; exit 3" : "" );
+#else
+    return QString( "echo \"$FLOGG_NAME in $(basename \"$PWD\")\"" ) + ( fail ? "; exit 3" : "" );
+#endif
+}
+
+QString sleepCommand()
+{
+#ifdef Q_OS_WIN
+    return "Start-Sleep -Seconds 30";
+#else
+    return "sleep 30; echo late";
+#endif
+}
+} // namespace
+
+SCENARIO( "File tree runs a command on the selected items", "[ui]" )
+{
+    QTemporaryDir dir;
+    const auto folder = makeFolder( dir );
+    FileTreePanel panel;
+    panel.setRootFolder( folder );
+    const auto shell = filecommands::defaultShell();
+
+    GIVEN( "a command on a file and a folder" )
+    {
+        FileCommand command{ "Print", printCommand( false ), FileCommand::Target::FilesAndFolders,
+                             FileCommand::Output::Always };
+        QPointer<CommandOutputWindow> output = new CommandOutputWindow(
+            command, { folder + "/app/main.log", folder + "/app" }, folder, shell, &panel );
+        QSignalSpy finished( output.data(), &CommandOutputWindow::finished );
+        output->start();
+        REQUIRE( finished.wait( 20000 ) );
+        THEN( "each runs in its folder, the output stays shown" )
+        {
+            const auto text = output->outputText();
+            CHECK( text.contains( "main.log in app" ) );
+            CHECK( text.contains( "app in app" ) );
+            CHECK( text.contains( "== " + QDir::toNativeSeparators( folder + "/app" ) + " ==" ) );
+            CHECK( output->failures() == 0 );
+            CHECK( output->isVisible() );
+            output->close();
+        }
+    }
+
+    GIVEN( "a failing command shown on failure" )
+    {
+        FileCommand command{ "Fail", printCommand( true ), FileCommand::Target::Files,
+                             FileCommand::Output::OnFailure };
+        QPointer<CommandOutputWindow> output = new CommandOutputWindow(
+            command, { folder + "/notes.txt" }, folder, shell, &panel );
+        QSignalSpy finished( output.data(), &CommandOutputWindow::finished );
+        output->start();
+        CHECK_FALSE( output->isVisible() );
+        REQUIRE( finished.wait( 20000 ) );
+        THEN( "the window shows with the exit code" )
+        {
+            CHECK( output->failures() == 1 );
+            CHECK( output->outputText().contains( "notes.txt in " ) );
+            CHECK( output->outputText().contains( "[Exit code 3]" ) );
+            CHECK( output->isVisible() );
+            output->close();
+        }
+    }
+
+    GIVEN( "a succeeding command shown on failure" )
+    {
+        FileCommand command{ "Quiet", printCommand( false ), FileCommand::Target::Files,
+                             FileCommand::Output::OnFailure };
+        QPointer<CommandOutputWindow> output = panel.runCommand( command, { folder + "/notes.txt" } );
+        QSignalSpy finished( output.data(), &CommandOutputWindow::finished );
+        REQUIRE( finished.wait( 20000 ) );
+        QCoreApplication::sendPostedEvents( nullptr, QEvent::DeferredDelete );
+        THEN( "no window is left" )
+        {
+            CHECK( output.isNull() );
+        }
+    }
+
+    GIVEN( "a long command" )
+    {
+        FileCommand command{ "Sleep", sleepCommand(), FileCommand::Target::Files,
+                             FileCommand::Output::Always };
+        QPointer<CommandOutputWindow> output = new CommandOutputWindow(
+            command, { folder + "/notes.txt", folder + "/sys.log.gz" }, folder, shell, &panel );
+        QSignalSpy finished( output.data(), &CommandOutputWindow::finished );
+        output->start();
+        QTest::qWait( 500 );
+        QElapsedTimer timer;
+        timer.start();
+        output->stop();
+        REQUIRE( finished.wait( 5000 ) );
+        THEN( "stop ends it and skips the next items" )
+        {
+            CHECK( timer.elapsed() < 5000 );
+            CHECK( output->outputText().contains( "[Stopped]" ) );
+            CHECK_FALSE( output->outputText().contains( "late" ) );
+            CHECK_FALSE( output->outputText().contains( "sys.log.gz" ) );
+            output->close();
+        }
+    }
+}
+
+SCENARIO( "File commands dialog", "[ui]" )
+{
+    const auto saved = filecommands::load();
+    filecommands::save( { FileCommand{ "One", "echo 1" }, FileCommand{ "Two", "echo 2" } } );
+    FileCommandsDialog dialog;
+    REQUIRE( dialog.table()->rowCount() == 2 );
+    dialog.table()->setCurrentCell( 0, 0 );
+    auto* down = [ & ]() -> QPushButton* {
+        for ( auto* button : dialog.findChildren<QPushButton*>() ) {
+            if ( button->text() == "Move Down" ) {
+                return button;
+            }
+        }
+        return nullptr;
+    }();
+    REQUIRE( down );
+    down->click();
+    // An empty row is left out
+    dialog.table()->insertRow( 2 );
+    const auto commands = dialog.commands();
+    REQUIRE( commands.size() == 2 );
+    CHECK( commands.at( 0 ).name == "Two" );
+    CHECK( commands.at( 1 ).command == "echo 1" );
+    dialog.showHelp();
+    REQUIRE( dialog.helpWindow() );
+    CHECK( dialog.helpWindow()->findChild<QTextBrowser*>()->toPlainText().contains( "FLOGG_DIR" ) );
+    dialog.accept();
+    CHECK( filecommands::load().at( 0 ).name == "Two" );
+    filecommands::save( saved );
+}
+
 SCENARIO( "File tree panel drop", "[ui]" )
 {
     QTemporaryDir dir;
@@ -743,6 +944,56 @@ SCENARIO( "Side panels moved in a window open there in the next one", "[ui]" )
 }
 
 // Hidden, saves a picture of the panel: FLOGG_RENDER_DIR=<dir> klogg_itests "[.render]"
+// Hidden: FLOGG_RENDER_DIR=<dir> klogg_itests "Scenario: File commands rendering"
+SCENARIO( "File commands rendering", "[.render]" )
+{
+    const auto renderDir = qEnvironmentVariable( "FLOGG_RENDER_DIR" );
+    if ( renderDir.isEmpty() ) {
+        WARN( "FLOGG_RENDER_DIR is not set" );
+        return;
+    }
+    const auto saved = filecommands::load();
+    filecommands::save( { FileCommand{ "Count errors", "grep -c ERROR \"$FLOGG_PATH\"",
+                                       FileCommand::Target::Files,
+                                       FileCommand::Output::Always },
+                          FileCommand{ "Disk usage", "du -sh .", FileCommand::Target::Folders,
+                                       FileCommand::Output::OnFailure } } );
+    {
+        FileCommandsDialog dialog;
+        dialog.show();
+        QTest::qWait( 100 );
+        REQUIRE( dialog.grab().save( renderDir + "/file_commands.png" ) );
+        dialog.showHelp();
+        REQUIRE( dialog.helpWindow() );
+        QTest::qWait( 100 );
+        REQUIRE( dialog.helpWindow()->grab().save( renderDir + "/file_commands_help.png" ) );
+    }
+    filecommands::save( {} );
+    {
+        FileCommandsDialog dialog;
+        dialog.show();
+        for ( auto* button : dialog.findChildren<QPushButton*>() ) {
+            if ( button->text() == "Add" ) {
+                button->click();
+            }
+        }
+        QTest::qWait( 100 );
+        REQUIRE( dialog.grab().save( renderDir + "/file_commands_first.png" ) );
+    }
+    filecommands::save( saved );
+
+    QTemporaryDir dir;
+    const auto folder = makeFolder( dir );
+    FileCommand command{ "Print", printCommand( true ) };
+    auto* output = new CommandOutputWindow( command, { folder + "/app/main.log", folder + "/notes.txt" },
+                                            folder, filecommands::defaultShell(), nullptr );
+    QSignalSpy finished( output, &CommandOutputWindow::finished );
+    output->start();
+    REQUIRE( finished.wait( 20000 ) );
+    REQUIRE( output->grab().save( renderDir + "/command_output.png" ) );
+    output->close();
+}
+
 SCENARIO( "File tree panel rendering", "[.render]" )
 {
     const auto renderDir = qEnvironmentVariable( "FLOGG_RENDER_DIR" );

@@ -592,10 +592,10 @@ void MainWindow::createActions()
     openFolderAction->setStatusTip( tr( "Browse the files of a folder in the file tree panel" ) );
     connect( openFolderAction, &QAction::triggered, this, &MainWindow::openFolder );
 
-    analyzeAction = new QAction( tr( "&Analyze Log..." ), this );
+    analyzeAction = new QAction( tr( "&Analyze Tools..." ), this );
     analyzeAction->setStatusTip(
         tr( "Durations between events, rules of known problems, comparison with another tab" ) );
-    analyzeAction->setToolTip( tr( "Analyze the log: durations, rules, compare" ) );
+    analyzeAction->setToolTip( tr( "Analyze tools: durations, rules, compare" ) );
     connect( analyzeAction, &QAction::triggered, this, [ this ] { openAnalysis( -1 ); } );
 
     timeFormatsAction = new QAction( tr( "&Time Formats..." ), this );

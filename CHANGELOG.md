@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- `Tools > Analyze Log...` is now `Tools > Analyze Tools...`
+- **New: Run Command** in the right click menu of the file panel: commands of your own
+  (`Edit Commands...`) run on the selected files or folders without a terminal, in
+  PowerShell on Windows, zsh on macOS, `$SHELL` on Linux or a shell you choose, with
+  `$FLOGG_PATH`, `$FLOGG_NAME`, `$FLOGG_DIR` and `$FLOGG_ROOT`; what they print is shown in
+  a window (always, or only when they fail), which can stop them
 - Compare file (was Compare), line by line: compares the text of the lines, like a text
   diff tool, instead of their templates; the characters that differ are marked in a changed
   line (`Character level`, or `Line level` for the whole lines only). `Ignore time stamps`
