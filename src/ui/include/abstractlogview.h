@@ -66,6 +66,7 @@
 #include "quickfindmux.h"
 #include "regularexpressionpattern.h"
 #include "selection.h"
+#include "timestamp.h"
 #include "viewtools.h"
 #include "wrappedstring.h"
 
@@ -110,6 +111,10 @@ class AbstractLogView : public QAbstractScrollArea, public SearchableWidgetInter
     Q_OBJECT
 
   public:
+    // The line of the file the times are measured from (marked in the view), its time
+    // stamps and the format compared (the first one of the lines when none)
+    void setTimeContext( OptionalLineNumber line, std::optional<timestamps::LineTimes> times,
+                         std::optional<timestamps::Format> format );
     // Constructor of the widget, the data set is passed.
     // The caller retains ownership of the data set.
     // The pointer to the QFP is used for colouring and QuickFind searches
@@ -213,6 +218,11 @@ class AbstractLogView : public QAbstractScrollArea, public SearchableWidgetInter
     // Line number to display for line at the given index
     virtual LineNumber displayLineNumber( LineNumber lineNumber ) const;
     virtual LineNumber lineIndex( LineNumber lineNumber ) const;
+    // The time columns are set apart for the main and the filtered views
+    virtual bool isFiltered() const
+    {
+        return false;
+    }
     virtual LineNumber maxDisplayLineNumber() const;
 
     // Get the overview associated with this view, or NULL if there is none
@@ -256,6 +266,10 @@ class AbstractLogView : public QAbstractScrollArea, public SearchableWidgetInter
     void editNoteRequested( LineNumber line );
     void removeNoteRequested( LineNumber line );
     void exportNotesRequested();
+    void copyNotesRequested();
+    // Sets the line of the file as the time reference, or clears it when it is already
+    void timeReferenceRequested( LineNumber line );
+    void clearTimeReferenceRequested();
     // Sent up when the mouse is hovered over a line's margin
     void mouseHoveredOverLine( LineNumber line );
     // Sent up when the mouse leaves a line's margin
@@ -326,6 +340,8 @@ class AbstractLogView : public QAbstractScrollArea, public SearchableWidgetInter
 
     // Configure the setting of whether to show line number margin
     void setLineNumbersVisible( bool lineNumbersVisible );
+    // Draws again after the time columns were changed
+    void refreshTimeColumns();
 
     // Force the next refresh to fully redraw the view by invalidating the cache.
     // To be used if the data might have changed.
@@ -404,6 +420,9 @@ class AbstractLogView : public QAbstractScrollArea, public SearchableWidgetInter
 
     // Line the context menu was opened on, while it is shown
     OptionalLineNumber popupLine_;
+    OptionalLineNumber timeReference_;
+    std::optional<timestamps::LineTimes> referenceTimes_;
+    std::optional<timestamps::Format> timeFormat_;
 
     Selection selection_;
     RegularExpressionPattern searchPattern_;
@@ -458,6 +477,9 @@ class AbstractLogView : public QAbstractScrollArea, public SearchableWidgetInter
     QAction* editNoteAction_;
     QAction* removeNoteAction_;
     QAction* exportNotesAction_;
+    QAction* copyNotesAction_;
+    QAction* timeReferenceAction_;
+    QAction* clearTimeReferenceAction_;
     // Line of the file the menu was opened on, or the first selected one
     OptionalLineNumber noteLine() const;
     QAction* setSearchStartAction_;

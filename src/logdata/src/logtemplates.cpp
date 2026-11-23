@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <climits>
 #include <cmath>
 #include <iterator>
 #include <numeric>
@@ -668,76 +669,79 @@ std::vector<Compared> compare( const Table& first, const Table* second, bool mer
 
 namespace {
 
-// Templates of the lines of the scope as ids, and the line of each
-bool templateIds( const LogData& logData, const Scope& scope, AtomicFlag& cancel,
-                  std::unordered_map<QString, uint32_t>& ids, std::vector<uint32_t>& lineIds,
-                  std::vector<LineNumber>& lineNumbers )
+// Stands for a run of digits when the numbers are left out: a character of the private use
+// area, so that it is never equal to a character of the line
+constexpr char16_t NumberKey = 0xE000;
+
+// Calls `visit( key, start, length )` for each part of the line compared: a character, or a
+// run of digits when the numbers are left out; the time stamps left out are skipped
+template <typename Visit>
+void forParts( QStringView line, const DiffOptions& options, Visit&& visit )
 {
-    ReaderAttached reader( logData );
-    const auto bounds = boundsOf( logData, scope );
-    forRuns( scope, bounds.begin, bounds.end, [ & ]( uint64_t start, uint64_t count ) {
-        if ( cancel ) {
-            return;
+    std::array<std::pair<int, int>, 2> skipped{ { { -1, -1 }, { -1, -1 } } };
+    if ( options.ignoreTimes ) {
+        const auto times = timestamps::parseLine( line );
+        if ( times.wall ) {
+            skipped[ 0 ] = { times.wall->start, times.wall->start + times.wall->length };
         }
-        const auto lines = logData.getLines( LineNumber( start ), LinesCount( count ) );
-        for ( size_t i = 0; i < lines.size(); ++i ) {
-            const auto id = ids.emplace( maskLine( lines[ i ] ),
-                                         static_cast<uint32_t>( ids.size() ) )
-                                .first->second;
-            lineIds.push_back( id );
-            lineNumbers.emplace_back( start + i );
+        if ( times.monotonic ) {
+            skipped[ 1 ] = { times.monotonic->start,
+                             times.monotonic->start + times.monotonic->length };
         }
-    } );
-    return !cancel;
+    }
+    const int n = static_cast<int>( line.size() );
+    int i = 0;
+    while ( i < n ) {
+        bool skip = false;
+        for ( const auto& [ from, to ] : skipped ) {
+            if ( i == from ) {
+                i = to;
+                skip = true;
+            }
+        }
+        if ( skip ) {
+            continue;
+        }
+        if ( options.ignoreNumbers && line[ i ].isDigit() ) {
+            int end = i + 1;
+            while ( end < n && line[ end ].isDigit() ) {
+                ++end;
+            }
+            visit( QChar( NumberKey ), i, end - i );
+            i = end;
+            continue;
+        }
+        visit( line[ i ], i, 1 );
+        ++i;
+    }
 }
 
-} // namespace
+enum class Step { Same, Removed, Added };
 
-Diff diff( const LogData& first, const Scope& firstScope, const LogData& second,
-           const Scope& secondScope, AtomicFlag& cancel )
+// The steps from the first sequence (n items) to the second (m items), `equal( x, y )`
+// telling whether their items x and y are alike; nothing when there are more than `maxD`
+// changes or the comparison is cancelled
+template <typename Equal>
+std::optional<std::vector<Step>> myers( int n, int m, Equal&& equal, int maxD,
+                                        const AtomicFlag* cancel )
 {
-    Diff result;
-    if ( firstScope.size( first ) > MaxDiffLines || secondScope.size( second ) > MaxDiffLines ) {
-        result.error = translate( "Line by line comparison is limited to %L1 lines on each side: "
-                                  "select fewer lines or use the filtered view" )
-                           .arg( MaxDiffLines );
-        return result;
-    }
-
-    std::unordered_map<QString, uint32_t> ids;
-    std::vector<uint32_t> a;
-    std::vector<uint32_t> b;
-    std::vector<LineNumber> aLines;
-    std::vector<LineNumber> bLines;
-    if ( !templateIds( first, firstScope, cancel, ids, a, aLines )
-         || !templateIds( second, secondScope, cancel, ids, b, bLines ) ) {
-        result.cancelled = true;
-        return result;
-    }
-
     // Same start and end are taken out of the comparison
-    size_t prefix = 0;
-    while ( prefix < a.size() && prefix < b.size() && a[ prefix ] == b[ prefix ] ) {
+    int prefix = 0;
+    while ( prefix < n && prefix < m && equal( prefix, prefix ) ) {
         ++prefix;
     }
-    size_t suffix = 0;
-    while ( suffix < a.size() - prefix && suffix < b.size() - prefix
-            && a[ a.size() - 1 - suffix ] == b[ b.size() - 1 - suffix ] ) {
+    int suffix = 0;
+    while ( suffix < n - prefix && suffix < m - prefix
+            && equal( n - 1 - suffix, m - 1 - suffix ) ) {
         ++suffix;
     }
+    const int innerN = n - prefix - suffix;
+    const int innerM = m - prefix - suffix;
+    const auto at = [ &equal, prefix ]( int x, int y ) { return equal( prefix + x, prefix + y ); };
 
-    const auto n = static_cast<int>( a.size() - prefix - suffix );
-    const auto m = static_cast<int>( b.size() - prefix - suffix );
-    const auto at = [ prefix ]( const std::vector<uint32_t>& ids, int i ) {
-        return ids[ prefix + static_cast<size_t>( i ) ];
-    };
-    const auto lineOf = [ prefix ]( const std::vector<LineNumber>& lines, int i ) {
-        return lines[ prefix + static_cast<size_t>( i ) ];
-    };
-
-    // Myers: the furthest x on each diagonal for each number of changes d, only the
-    // diagonals reached kept (memory in d squared)
-    const auto maxD = qMin( n + m, MaxDiffDistance );
+    // The furthest x on each diagonal for each number of changes d, only the diagonals
+    // reached kept (memory in d squared)
+    maxD = std::min( innerN + innerM, maxD );
     const auto offset = maxD + 1;
     std::vector<int> furthest( static_cast<size_t>( 2 * maxD + 3 ), 0 );
     const auto v = [ &furthest, offset ]( int k ) -> int& {
@@ -746,36 +750,32 @@ Diff diff( const LogData& first, const Scope& firstScope, const LogData& second,
     std::vector<std::vector<int>> trace;
     int distance = -1;
     for ( int d = 0; d <= maxD && distance < 0; ++d ) {
-        if ( cancel ) {
-            result.cancelled = true;
-            return result;
+        if ( cancel && *cancel ) {
+            return {};
         }
         for ( int k = -d; k <= d; k += 2 ) {
             int x = ( k == -d || ( k != d && v( k - 1 ) < v( k + 1 ) ) ) ? v( k + 1 )
                                                                           : v( k - 1 ) + 1;
             int y = x - k;
-            while ( x < n && y < m && at( a, x ) == at( b, y ) ) {
+            while ( x < innerN && y < innerM && at( x, y ) ) {
                 ++x;
                 ++y;
             }
             v( k ) = x;
-            if ( x >= n && y >= m ) {
+            if ( x >= innerN && y >= innerM ) {
                 distance = d;
             }
         }
         trace.emplace_back( furthest.begin() + offset - d, furthest.begin() + offset + d + 1 );
     }
     if ( distance < 0 ) {
-        result.error = translate( "The lines differ too much to be compared line by line "
-                                  "(more than %L1 changes)" )
-                           .arg( MaxDiffDistance );
-        return result;
+        return {};
     }
 
     // Back from the end
-    std::vector<DiffLine> middle;
-    int x = n;
-    int y = m;
+    std::vector<Step> middle;
+    int x = innerN;
+    int y = innerM;
     for ( int d = distance; d > 0; --d ) {
         const auto& previous = trace[ static_cast<size_t>( d - 1 ) ];
         const auto value = [ &previous, d ]( int k ) {
@@ -789,34 +789,589 @@ Diff diff( const LogData& first, const Scope& firstScope, const LogData& second,
         while ( x > previousX && y > previousY ) {
             --x;
             --y;
-            middle.push_back( { DiffLine::Op::Same, lineOf( aLines, x ), lineOf( bLines, y ) } );
+            middle.push_back( Step::Same );
         }
         if ( x == previousX ) {
             --y;
-            middle.push_back( { DiffLine::Op::Added, {}, lineOf( bLines, y ) } );
+            middle.push_back( Step::Added );
         }
         else {
             --x;
-            middle.push_back( { DiffLine::Op::Removed, lineOf( aLines, x ), {} } );
+            middle.push_back( Step::Removed );
         }
     }
     while ( x > 0 && y > 0 ) {
         --x;
         --y;
-        middle.push_back( { DiffLine::Op::Same, lineOf( aLines, x ), lineOf( bLines, y ) } );
+        middle.push_back( Step::Same );
     }
-    std::reverse( middle.begin(), middle.end() );
 
-    result.lines.reserve( prefix + middle.size() + suffix );
-    for ( size_t i = 0; i < prefix; ++i ) {
-        result.lines.push_back( { DiffLine::Op::Same, aLines[ i ], bLines[ i ] } );
+    std::vector<Step> steps( static_cast<size_t>( prefix ), Step::Same );
+    steps.reserve( static_cast<size_t>( prefix ) + middle.size() + static_cast<size_t>( suffix ) );
+    steps.insert( steps.end(), middle.rbegin(), middle.rend() );
+    steps.insert( steps.end(), static_cast<size_t>( suffix ), Step::Same );
+    return steps;
+}
+
+// The lines of both sides as hashes of their keys, and the line number of each
+struct Keyed {
+    std::vector<uint64_t> a;
+    std::vector<uint64_t> b;
+    std::vector<LineNumber> aLines;
+    std::vector<LineNumber> bLines;
+    QString key;
+
+    void add( bool first, QStringView line, LineNumber number, const DiffOptions& options )
+    {
+        uint64_t hash = 0;
+        if ( !options.ignoreTimes && !options.ignoreNumbers ) {
+            hash = qHash( line, 0x9e3779b9u );
+        }
+        else {
+            key.clear();
+            forParts( line, options, [ this ]( QChar part, int, int ) { key += part; } );
+            hash = qHash( key, 0x9e3779b9u );
+        }
+        ( first ? a : b ).push_back( hash );
+        ( first ? aLines : bLines ).push_back( number );
     }
-    result.lines.insert( result.lines.end(), middle.begin(), middle.end() );
-    for ( size_t i = 0; i < suffix; ++i ) {
-        result.lines.push_back( { DiffLine::Op::Same, aLines[ a.size() - suffix + i ],
-                                  bLines[ b.size() - suffix + i ] } );
+};
+
+// Patience diff: the lines found once on each side pair up in order (the longest such
+// sequence), the parts between are compared again the same way; a part without such lines
+// goes to Myers within the limits of the work, else it is removed and added.
+class Differ {
+  public:
+    Differ( const std::vector<uint64_t>& a, const std::vector<uint64_t>& b, AtomicFlag& cancel )
+        : a_( a )
+        , b_( b )
+        , cancel_( cancel )
+    {
     }
+
+    void run( size_t a0, size_t a1, size_t b0, size_t b1, int depth )
+    {
+        if ( cancel_ ) {
+            return;
+        }
+        size_t prefix = 0;
+        while ( a0 + prefix < a1 && b0 + prefix < b1 && a_[ a0 + prefix ] == b_[ b0 + prefix ] ) {
+            ++prefix;
+        }
+        add( DiffStep::Same, prefix );
+        a0 += prefix;
+        b0 += prefix;
+        size_t suffix = 0;
+        while ( suffix < a1 - a0 && suffix < b1 - b0
+                && a_[ a1 - 1 - suffix ] == b_[ b1 - 1 - suffix ] ) {
+            ++suffix;
+        }
+        a1 -= suffix;
+        b1 -= suffix;
+
+        if ( a0 == a1 || b0 == b1 ) {
+            add( DiffStep::Removed, a1 - a0 );
+            add( DiffStep::Added, b1 - b0 );
+        }
+        else {
+            bool common = true;
+            const auto anchors = depth < MaxDepth ? uniqueAnchors( a0, a1, b0, b1, common )
+                                                  : std::vector<std::pair<size_t, size_t>>{};
+            if ( !common ) {
+                // Nothing alike: removed and added
+                add( DiffStep::Removed, a1 - a0 );
+                add( DiffStep::Added, b1 - b0 );
+            }
+            else if ( anchors.empty() ) {
+                myersOrBlock( a0, a1, b0, b1 );
+            }
+            else {
+                auto x = a0;
+                auto y = b0;
+                for ( const auto& [ ia, ib ] : anchors ) {
+                    run( x, ia, y, ib, depth + 1 );
+                    add( DiffStep::Same, 1 );
+                    x = ia + 1;
+                    y = ib + 1;
+                }
+                run( x, a1, y, b1, depth + 1 );
+            }
+        }
+        add( DiffStep::Same, suffix );
+    }
+
+    std::vector<DiffStep> steps;
+    uint64_t unpaired = 0;
+
+  private:
+    static constexpr int MaxDepth = 48;
+
+    void add( DiffStep step, size_t count )
+    {
+        steps.insert( steps.end(), count, step );
+    }
+
+    // The lines once in each part, paired: the longest sequence in the order of both.
+    // `common` tells whether any line is in both.
+    std::vector<std::pair<size_t, size_t>> uniqueAnchors( size_t a0, size_t a1, size_t b0,
+                                                          size_t b1, bool& common ) const
+    {
+        common = false;
+        // The hash and the place of each line (its side in the lowest bit), by hash
+        std::vector<std::pair<uint64_t, uint64_t>> lines;
+        lines.reserve( ( a1 - a0 ) + ( b1 - b0 ) );
+        for ( auto i = a0; i < a1; ++i ) {
+            lines.emplace_back( a_[ i ], static_cast<uint64_t>( i ) << 1 );
+        }
+        for ( auto i = b0; i < b1; ++i ) {
+            lines.emplace_back( b_[ i ], ( static_cast<uint64_t>( i ) << 1 ) | 1 );
+        }
+        std::sort( lines.begin(), lines.end() );
+
+        std::vector<std::pair<size_t, size_t>> pairs;
+        for ( size_t i = 0; i < lines.size(); ) {
+            auto j = i;
+            size_t inA = 0;
+            size_t inB = 0;
+            while ( j < lines.size() && lines[ j ].first == lines[ i ].first ) {
+                ( lines[ j ].second & 1 ? inB : inA ) += 1;
+                ++j;
+            }
+            common = common || ( inA > 0 && inB > 0 );
+            if ( inA == 1 && inB == 1 ) {
+                const auto& one = lines[ i ];
+                const auto& other = lines[ i + 1 ];
+                const auto& inFirst = ( one.second & 1 ) == 0 ? one : other;
+                const auto& inSecond = ( one.second & 1 ) == 0 ? other : one;
+                pairs.emplace_back( static_cast<size_t>( inFirst.second >> 1 ),
+                                    static_cast<size_t>( inSecond.second >> 1 ) );
+            }
+            i = j;
+        }
+        if ( pairs.empty() ) {
+            return pairs;
+        }
+        std::sort( pairs.begin(), pairs.end() );
+
+        // Longest increasing sequence of the second places (patience sorting)
+        std::vector<size_t> tails;
+        std::vector<size_t> previous( pairs.size(), SIZE_MAX );
+        for ( size_t i = 0; i < pairs.size(); ++i ) {
+            const auto it = std::lower_bound(
+                tails.begin(), tails.end(), pairs[ i ].second,
+                [ &pairs ]( size_t index, size_t value ) { return pairs[ index ].second < value; } );
+            if ( it != tails.begin() ) {
+                previous[ i ] = *( it - 1 );
+            }
+            if ( it == tails.end() ) {
+                tails.push_back( i );
+            }
+            else {
+                *it = i;
+            }
+        }
+        std::vector<std::pair<size_t, size_t>> anchors;
+        for ( auto i = tails.back(); i != SIZE_MAX; i = previous[ i ] ) {
+            anchors.push_back( pairs[ i ] );
+        }
+        std::reverse( anchors.begin(), anchors.end() );
+        return anchors;
+    }
+
+    // Myers in linear space (the bisection of diff-match-patch): the middle of the shortest
+    // path splits the part in two, compared the same way. The work (diagonals and lines
+    // followed) is counted; once there is none left, the parts not done yet are removed and
+    // added.
+    void myersOrBlock( size_t a0, size_t a1, size_t b0, size_t b1 )
+    {
+        // Same start and end
+        while ( a0 < a1 && b0 < b1 && a_[ a0 ] == b_[ b0 ] ) {
+            add( DiffStep::Same, 1 );
+            ++a0;
+            ++b0;
+        }
+        size_t suffix = 0;
+        while ( a1 > a0 && b1 > b0 && a_[ a1 - 1 ] == b_[ b1 - 1 ] ) {
+            --a1;
+            --b1;
+            ++suffix;
+        }
+        if ( a0 == a1 || b0 == b1 ) {
+            add( DiffStep::Removed, a1 - a0 );
+            add( DiffStep::Added, b1 - b0 );
+        }
+        else {
+            bool outOfWork = false;
+            if ( const auto split = bisect( a0, a1, b0, b1, outOfWork ) ) {
+                myersOrBlock( a0, split->first, b0, split->second );
+                myersOrBlock( split->first, a1, split->second, b1 );
+            }
+            else {
+                // Nothing alike, or no work left to find it
+                add( DiffStep::Removed, a1 - a0 );
+                add( DiffStep::Added, b1 - b0 );
+                if ( outOfWork ) {
+                    unpaired += ( a1 - a0 ) + ( b1 - b0 );
+                }
+            }
+        }
+        add( DiffStep::Same, suffix );
+    }
+
+    // Where the shortest path crosses its middle; nothing when the parts have nothing alike,
+    // or (`outOfWork` set) when the work runs out or the comparison is cancelled
+    std::optional<std::pair<size_t, size_t>> bisect( size_t a0, size_t a1, size_t b0, size_t b1,
+                                                     bool& outOfWork )
+    {
+        const auto n = static_cast<int64_t>( a1 - a0 );
+        const auto m = static_cast<int64_t>( b1 - b0 );
+        const auto maxD = ( n + m + 1 ) / 2;
+        const auto offset = maxD;
+        const auto length = 2 * maxD + 2;
+        std::vector<int64_t> v1( static_cast<size_t>( length ), -1 );
+        std::vector<int64_t> v2( static_cast<size_t>( length ), -1 );
+        v1[ static_cast<size_t>( offset + 1 ) ] = 0;
+        v2[ static_cast<size_t>( offset + 1 ) ] = 0;
+        const auto delta = n - m;
+        const bool front = ( delta % 2 ) != 0;
+        int64_t k1start = 0;
+        int64_t k1end = 0;
+        int64_t k2start = 0;
+        int64_t k2end = 0;
+        const auto at = []( std::vector<int64_t>& v, int64_t i ) -> int64_t& {
+            return v[ static_cast<size_t>( i ) ];
+        };
+        const auto equal = [ this, a0, b0 ]( int64_t x, int64_t y ) {
+            return a_[ a0 + static_cast<size_t>( x ) ] == b_[ b0 + static_cast<size_t>( y ) ];
+        };
+        for ( int64_t d = 0; d < maxD; ++d ) {
+            if ( cancel_ || workLeft_ == 0 ) {
+                outOfWork = true;
+                return {};
+            }
+            // Forward
+            for ( auto k1 = -d + k1start; k1 <= d - k1end; k1 += 2 ) {
+                const auto k1Offset = offset + k1;
+                int64_t x1 = ( k1 == -d || ( k1 != d && at( v1, k1Offset - 1 ) < at( v1, k1Offset + 1 ) ) )
+                                 ? at( v1, k1Offset + 1 )
+                                 : at( v1, k1Offset - 1 ) + 1;
+                int64_t y1 = x1 - k1;
+                const auto from = x1;
+                while ( x1 < n && y1 < m && equal( x1, y1 ) ) {
+                    ++x1;
+                    ++y1;
+                }
+                spend( static_cast<uint64_t>( x1 - from ) + 1 );
+                at( v1, k1Offset ) = x1;
+                if ( x1 > n ) {
+                    k1end += 2;
+                }
+                else if ( y1 > m ) {
+                    k1start += 2;
+                }
+                else if ( front ) {
+                    const auto k2Offset = offset + delta - k1;
+                    if ( k2Offset >= 0 && k2Offset < length && at( v2, k2Offset ) != -1 ) {
+                        if ( x1 >= n - at( v2, k2Offset ) ) {
+                            return std::make_pair( a0 + static_cast<size_t>( x1 ),
+                                                   b0 + static_cast<size_t>( y1 ) );
+                        }
+                    }
+                }
+            }
+            // Backward
+            for ( auto k2 = -d + k2start; k2 <= d - k2end; k2 += 2 ) {
+                const auto k2Offset = offset + k2;
+                int64_t x2 = ( k2 == -d || ( k2 != d && at( v2, k2Offset - 1 ) < at( v2, k2Offset + 1 ) ) )
+                                 ? at( v2, k2Offset + 1 )
+                                 : at( v2, k2Offset - 1 ) + 1;
+                int64_t y2 = x2 - k2;
+                const auto from = x2;
+                while ( x2 < n && y2 < m && equal( n - x2 - 1, m - y2 - 1 ) ) {
+                    ++x2;
+                    ++y2;
+                }
+                spend( static_cast<uint64_t>( x2 - from ) + 1 );
+                at( v2, k2Offset ) = x2;
+                if ( x2 > n ) {
+                    k2end += 2;
+                }
+                else if ( y2 > m ) {
+                    k2start += 2;
+                }
+                else if ( !front ) {
+                    const auto k1Offset = offset + delta - k2;
+                    if ( k1Offset >= 0 && k1Offset < length && at( v1, k1Offset ) != -1 ) {
+                        const auto x1 = at( v1, k1Offset );
+                        const auto y1 = offset + x1 - k1Offset;
+                        if ( x1 >= n - x2 ) {
+                            return std::make_pair( a0 + static_cast<size_t>( x1 ),
+                                                   b0 + static_cast<size_t>( y1 ) );
+                        }
+                    }
+                }
+            }
+        }
+        return {};
+    }
+
+    void spend( uint64_t work )
+    {
+        workLeft_ -= std::min( workLeft_, work );
+    }
+
+    const std::vector<uint64_t>& a_;
+    const std::vector<uint64_t>& b_;
+    AtomicFlag& cancel_;
+    uint64_t workLeft_ = MaxDiffWork;
+};
+
+Diff diffKeyed( Keyed& keyed, AtomicFlag& cancel )
+{
+    Diff result;
+    Differ differ( keyed.a, keyed.b, cancel );
+    differ.steps.reserve( std::max( keyed.a.size(), keyed.b.size() ) );
+    differ.run( 0, keyed.a.size(), 0, keyed.b.size(), 0 );
+    if ( cancel ) {
+        result.cancelled = true;
+        return result;
+    }
+    // The hashes are no longer needed
+    keyed.a = {};
+    keyed.b = {};
+    result.steps = std::move( differ.steps );
+    result.unpairedLines = differ.unpaired;
+    result.firstLines = std::move( keyed.aLines );
+    result.secondLines = std::move( keyed.bLines );
     return result;
+}
+
+// The lines of the scope added to one side, up to MaxDiffLines; the number left out
+uint64_t addLines( const LogData& logData, const Scope& scope, bool first,
+                   const DiffOptions& options, AtomicFlag& cancel, Keyed& keyed )
+{
+    ReaderAttached reader( logData );
+    const auto bounds = boundsOf( logData, scope );
+    uint64_t added = 0;
+    uint64_t leftOut = 0;
+    forRuns( scope, bounds.begin, bounds.end, [ & ]( uint64_t start, uint64_t count ) {
+        if ( cancel ) {
+            return;
+        }
+        if ( added >= MaxDiffLines ) {
+            leftOut += count;
+            return;
+        }
+        const auto kept = std::min( count, MaxDiffLines - added );
+        leftOut += count - kept;
+        const auto lines = logData.getLines( LineNumber( start ), LinesCount( kept ) );
+        for ( size_t i = 0; i < lines.size(); ++i ) {
+            keyed.add( first, lines[ i ], LineNumber( start + i ), options );
+        }
+        added += lines.size();
+    } );
+    return leftOut;
+}
+
+} // namespace
+
+QString diffKey( QStringView line, const DiffOptions& options )
+{
+    if ( !options.ignoreTimes && !options.ignoreNumbers ) {
+        return line.toString();
+    }
+    QString key;
+    key.reserve( line.size() );
+    forParts( line, options, [ &key ]( QChar part, int, int ) { key += part; } );
+    return key;
+}
+
+std::vector<DiffLine> Diff::lines() const
+{
+    std::vector<DiffLine> lines;
+    lines.reserve( steps.size() );
+    size_t x = 0;
+    size_t y = 0;
+    for ( const auto step : steps ) {
+        switch ( step ) {
+        case DiffStep::Same:
+            lines.push_back( { DiffLine::Op::Same, firstLines[ x++ ], secondLines[ y++ ] } );
+            break;
+        case DiffStep::Removed:
+            lines.push_back( { DiffLine::Op::Removed, firstLines[ x++ ], {} } );
+            break;
+        case DiffStep::Added:
+            lines.push_back( { DiffLine::Op::Added, {}, secondLines[ y++ ] } );
+            break;
+        }
+    }
+    return lines;
+}
+
+Diff diff( const LogData& first, const Scope& firstScope, const LogData& second,
+           const Scope& secondScope, const DiffOptions& options, AtomicFlag& cancel )
+{
+    Keyed keyed;
+    const auto firstLeftOut = addLines( first, firstScope, true, options, cancel, keyed );
+    const auto secondLeftOut = addLines( second, secondScope, false, options, cancel, keyed );
+    if ( cancel ) {
+        Diff result;
+        result.cancelled = true;
+        return result;
+    }
+    auto result = diffKeyed( keyed, cancel );
+    result.firstLeftOut = firstLeftOut;
+    result.secondLeftOut = secondLeftOut;
+    return result;
+}
+
+Diff diff( const std::vector<QString>& first, const std::vector<QString>& second,
+           const DiffOptions& options, AtomicFlag& cancel )
+{
+    Keyed keyed;
+    const auto firstKept = std::min<size_t>( first.size(), MaxDiffLines );
+    const auto secondKept = std::min<size_t>( second.size(), MaxDiffLines );
+    for ( size_t i = 0; i < firstKept; ++i ) {
+        keyed.add( true, first[ i ], LineNumber( i ), options );
+    }
+    for ( size_t i = 0; i < secondKept; ++i ) {
+        keyed.add( false, second[ i ], LineNumber( i ), options );
+    }
+    auto result = diffKeyed( keyed, cancel );
+    result.firstLeftOut = first.size() - firstKept;
+    result.secondLeftOut = second.size() - secondKept;
+    return result;
+}
+
+LineChanges changedParts( QStringView first, QStringView second, const DiffOptions& options )
+{
+    struct Part {
+        QChar key;
+        int start;
+        int length;
+    };
+    const auto partsOf = [ &options ]( QStringView line ) {
+        std::vector<Part> parts;
+        parts.reserve( static_cast<size_t>( line.size() ) );
+        forParts( line, options,
+                  [ &parts ]( QChar key, int start, int length ) {
+                      parts.push_back( { key, start, length } );
+                  } );
+        return parts;
+    };
+    const auto a = partsOf( first );
+    const auto b = partsOf( second );
+
+    // Whole parts of a line changed: from its first part compared to its last one
+    const auto whole = []( const std::vector<Part>& parts ) {
+        std::vector<std::pair<int, int>> ranges;
+        if ( !parts.empty() ) {
+            const auto from = parts.front().start;
+            ranges.emplace_back( from, parts.back().start + parts.back().length - from );
+        }
+        return ranges;
+    };
+    // Bounds the time, as it runs for the rows shown: about a millisecond a pair of lines
+    // at most
+    constexpr size_t MaxParts = 2000;
+    constexpr int MaxChanges = 200;
+    LineChanges changes;
+    std::optional<std::vector<Step>> steps;
+    if ( a.size() <= MaxParts && b.size() <= MaxParts ) {
+        steps = myers(
+            static_cast<int>( a.size() ), static_cast<int>( b.size() ),
+            [ &a, &b ]( int x, int y ) {
+                return a[ static_cast<size_t>( x ) ].key == b[ static_cast<size_t>( y ) ].key;
+            },
+            MaxChanges, nullptr );
+    }
+    if ( !steps ) {
+        changes.first = whole( a );
+        changes.second = whole( b );
+        return changes;
+    }
+
+    // Short runs alike between changes are changes too, as in the semantic clean up of
+    // diff-match-patch: "auth timeout" against "retry request" is one change, not letters
+    // scattered over both. A run alike goes when it is no longer than the changes on each
+    // side of it.
+    {
+        auto& all = *steps;
+        // The runs of steps: [begin, end) and whether they are alike
+        struct Run {
+            size_t begin;
+            size_t end;
+            bool same;
+        };
+        bool absorbed = true;
+        while ( absorbed ) {
+            absorbed = false;
+            std::vector<Run> runs;
+            for ( size_t i = 0; i < all.size(); ) {
+                const auto same = all[ i ] == Step::Same;
+                auto j = i;
+                while ( j < all.size() && ( all[ j ] == Step::Same ) == same ) {
+                    ++j;
+                }
+                runs.push_back( { i, j, same } );
+                i = j;
+            }
+            // The larger side of a run of changes: what is removed or what is added
+            const auto changeSize = [ &all ]( const Run& run ) {
+                size_t removed = 0;
+                size_t added = 0;
+                for ( auto i = run.begin; i < run.end; ++i ) {
+                    ( all[ i ] == Step::Removed ? removed : added ) += 1;
+                }
+                return std::max( removed, added );
+            };
+            for ( size_t r = 1; r + 1 < runs.size(); ++r ) {
+                const auto& run = runs[ r ];
+                const auto length = run.end - run.begin;
+                if ( run.same && length <= changeSize( runs[ r - 1 ] )
+                     && length <= changeSize( runs[ r + 1 ] ) ) {
+                    // Each step alike becomes a removed and an added one
+                    std::vector<Step> replaced( length, Step::Removed );
+                    replaced.insert( replaced.end(), length, Step::Added );
+                    all.erase( all.begin() + static_cast<std::ptrdiff_t>( run.begin ),
+                               all.begin() + static_cast<std::ptrdiff_t>( run.end ) );
+                    all.insert( all.begin() + static_cast<std::ptrdiff_t>( run.begin ),
+                                replaced.begin(), replaced.end() );
+                    absorbed = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    // The parts changed, the ones next to each other in the line in one range
+    const auto addPart = []( std::vector<std::pair<int, int>>& ranges, const Part& part ) {
+        if ( !ranges.empty() && ranges.back().first + ranges.back().second == part.start ) {
+            ranges.back().second = part.start + part.length - ranges.back().first;
+        }
+        else {
+            ranges.emplace_back( part.start, part.length );
+        }
+    };
+    size_t x = 0;
+    size_t y = 0;
+    for ( const auto step : *steps ) {
+        switch ( step ) {
+        case Step::Same:
+            ++x;
+            ++y;
+            break;
+        case Step::Removed:
+            addPart( changes.first, a[ x ] );
+            ++x;
+            break;
+        case Step::Added:
+            addPart( changes.second, b[ y ] );
+            ++y;
+            break;
+        }
+    }
+    return changes;
 }
 
 } // namespace templates

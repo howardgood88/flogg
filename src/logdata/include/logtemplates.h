@@ -113,17 +113,60 @@ struct DiffLine {
     std::optional<LineNumber> second;
 };
 
+// A step from the first side to the second: a line of each alike, a line of the first only,
+// a line of the second only
+enum class DiffStep : uint8_t { Same, Removed, Added };
+
 struct Diff {
-    std::vector<DiffLine> lines;
+    std::vector<DiffStep> steps;
+    // The line of each item of a side, in order (8 bytes a line)
+    std::vector<LineNumber> firstLines;
+    std::vector<LineNumber> secondLines;
+    // Lines of the scopes past MaxDiffLines, not compared
+    uint64_t firstLeftOut = 0;
+    uint64_t secondLeftOut = 0;
+    // Lines of parts too different to be paired in the time given, shown as removed then
+    // added
+    uint64_t unpairedLines = 0;
     QString error;
     bool cancelled = false;
+
+    // The steps with their lines, for the tests
+    std::vector<DiffLine> lines() const;
 };
 
-// Line by line, on the templates of the lines, for scopes up to MaxDiffLines lines
-constexpr uint64_t MaxDiffLines = 100000;
-constexpr int MaxDiffDistance = 2000;
+// What a line by line comparison leaves out of the lines: the time stamps found at the
+// start (as for the durations), the runs of digits (pids, counters, ids)
+struct DiffOptions {
+    bool ignoreTimes = false;
+    bool ignoreNumbers = false;
+};
+
+// The text of a line that is compared: the line itself without options
+QString diffKey( QStringView line, const DiffOptions& options );
+
+// Line by line on the text of the lines. Up to MaxDiffLines lines of each side, the others
+// left out (told in the result). The lines are kept as 64 bit hashes of their text with
+// their numbers: 16 bytes a line, twice that for a while, about 64 MB at most.
+constexpr uint64_t MaxDiffLines = 1000000;
+// Myers on the parts without lines found once on each side, in linear space: up to this
+// much work (diagonals and lines followed, about a second) in all; past it the parts left
+// are shown removed and added
+constexpr uint64_t MaxDiffWork = 1000000000;
 Diff diff( const LogData& first, const Scope& firstScope, const LogData& second,
-           const Scope& secondScope, AtomicFlag& cancel );
+           const Scope& secondScope, const DiffOptions& options, AtomicFlag& cancel );
+// The same on lines of text (pasted ones); the line numbers are the indexes of the lines
+Diff diff( const std::vector<QString>& first, const std::vector<QString>& second,
+           const DiffOptions& options, AtomicFlag& cancel );
+
+// The parts of two lines that differ, by characters, as (start, length) in each line; the
+// parts left out by the options never differ. Long or very different lines are changed
+// as a whole.
+struct LineChanges {
+    std::vector<std::pair<int, int>> first;
+    std::vector<std::pair<int, int>> second;
+};
+LineChanges changedParts( QStringView first, QStringView second, const DiffOptions& options );
 
 } // namespace templates
 

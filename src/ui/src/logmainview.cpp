@@ -94,13 +94,13 @@ void LogMainView::doRegisterShortcuts()
     LOG_INFO << "Registering shortcuts for main view";
     AbstractLogView::doRegisterShortcuts();
     registerShortcut( ShortcutAction::LogViewNextMark, [ this ] {
-        const auto line = filteredData_->getMarkAfter( getViewPosition() );
+        const auto line = filteredData_->findMarkOrNote( getViewPosition(), false, false );
         if ( line.has_value() ) {
             selectAndDisplayLine( *line );
         }
     } );
     registerShortcut( ShortcutAction::LogViewPrevMark, [ this ] {
-        const auto line = filteredData_->getMarkBefore( getViewPosition() );
+        const auto line = filteredData_->findMarkOrNote( getViewPosition(), true, false );
         if ( line.has_value() ) {
             selectAndDisplayLine( *line );
         }

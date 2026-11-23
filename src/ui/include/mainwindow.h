@@ -235,7 +235,7 @@ class MainWindow : public QMainWindow {
 
     // Update the selection information displayed in the status bar.
     // Must be passed as the internal (starts at 0) line number.
-    void updateSelectionTime( const QString& text, const QString& toolTip );
+    void updateSelectionTime( const QString& text, const QString& toolTip, bool fromReference );
     void lineNumberHandler( LineNumber startLine, LinesCount nLines, LineColumn startCol,
                             LineLength nSymbols );
 
@@ -414,6 +414,9 @@ class MainWindow : public QMainWindow {
     QAction* mainViewVisibleAction;
     QAction* lineNumbersVisibleInMainAction;
     QAction* lineNumbersVisibleInFilteredAction;
+    // Time columns, in the main views and in the filtered views: from the reference line,
+    // from the line before
+    std::array<std::array<QAction*, 2>, 2> timeColumnActions;
     QAction* followAction;
     QAction* textWrapAction;
     QAction* reloadAction;

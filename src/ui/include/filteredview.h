@@ -66,6 +66,10 @@ class FilteredView : public AbstractLogView
 
     // Number of the filtered line relative to the unfiltered source
     LineNumber displayLineNumber(LineNumber lineNumber ) const override;
+    bool isFiltered() const override
+    {
+        return true;
+    }
     LineNumber lineIndex( LineNumber lineNumber ) const override;
     LineNumber maxDisplayLineNumber() const override;
 

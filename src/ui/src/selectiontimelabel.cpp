@@ -61,10 +61,11 @@ SelectionTimeLabel::SelectionTimeLabel( QWidget* parent )
     setSizePolicy( QSizePolicy::Fixed, QSizePolicy::Preferred );
 }
 
-void SelectionTimeLabel::setTime( const QString& text, const QString& details )
+void SelectionTimeLabel::setTime( const QString& text, const QString& details, bool fromReference )
 {
     text_ = text;
     details_ = details;
+    fromReference_ = fromReference;
 
     auto tip = details;
     if ( !text.isEmpty() ) {
@@ -82,11 +83,16 @@ void SelectionTimeLabel::setTime( const QString& text, const QString& details )
 QString SelectionTimeLabel::durationText() const
 {
     auto text = text_;
-    if ( text.startsWith( "Δ:" ) ) {
-        return text.mid( 2 ).trimmed();
+    for ( const auto* prefix : { "Δ ref:", "Δ:" } ) {
+        if ( text.startsWith( QString::fromUtf8( prefix ) ) ) {
+            return text.mid( QString::fromUtf8( prefix ).size() ).trimmed();
+        }
     }
-    if ( text.startsWith( "Δ" ) ) {
-        text = text.mid( 1 );
+    for ( const auto* prefix : { "Δ ref", "Δ" } ) {
+        if ( text.startsWith( QString::fromUtf8( prefix ) ) ) {
+            text = text.mid( QString::fromUtf8( prefix ).size() );
+            break;
+        }
     }
     if ( text.endsWith( "⚠" ) ) {
         text.chop( 1 );
@@ -96,7 +102,8 @@ QString SelectionTimeLabel::durationText() const
 
 SelectionTimeLabel::Kind SelectionTimeLabel::kind() const
 {
-    if ( text_.startsWith( "Δ:" ) ) {
+    if ( text_.startsWith( QString::fromUtf8( "Δ:" ) )
+         || text_.startsWith( QString::fromUtf8( "Δ ref:" ) ) ) {
         return Kind::NoTime;
     }
     return text_.endsWith( "⚠" ) ? Kind::Warning : Kind::Time;
@@ -138,9 +145,14 @@ void SelectionTimeLabel::paintEvent( QPaintEvent* )
     }
     // A time at rest looks like the checked tool buttons next to it, the other kinds (and
     // styles without such buttons) a light tint of their accent.
-    const auto likeChecked = kind() == Kind::Time && checkedFill_.isValid();
+    // From the time reference line: in the orange of its frame in the views
+    const auto reference = fromReference_ && kind() != Kind::NoTime;
+    if ( reference ) {
+        accent = QColor( 0xff, 0x98, 0x00 );
+    }
+    const auto likeChecked = kind() == Kind::Time && !reference && checkedFill_.isValid();
     auto rest = accent;
-    rest.setAlphaF( 0.18f );
+    rest.setAlphaF( reference ? 0.3f : 0.18f );
     if ( likeChecked ) {
         rest = checkedFill_;
     }
@@ -152,7 +164,7 @@ void SelectionTimeLabel::paintEvent( QPaintEvent* )
     path.addRoundedRect( box, box.height() / 2, box.height() / 2 );
     painter.fillPath( path, background );
     auto border = accent;
-    border.setAlphaF( 0.55f );
+    border.setAlphaF( reference ? 1.0f : 0.55f );
     if ( likeChecked && checkedBorder_.isValid() ) {
         border = checkedBorder_;
     }

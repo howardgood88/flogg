@@ -253,6 +253,11 @@ void Configuration::retrieveFromStorage( QSettings& settings )
     // View settings
     overviewVisible_
         = settings.value( "view.overviewVisible", DefaultConfiguration.overviewVisible_ ).toBool();
+    timeColumnsMain_
+        = settings.value( "view.timeColumnsMain", DefaultConfiguration.timeColumnsMain_ ).toInt();
+    timeColumnsFiltered_
+        = settings.value( "view.timeColumnsFiltered", DefaultConfiguration.timeColumnsFiltered_ )
+              .toInt();
     lineNumbersVisibleInMain_ = settings
                                     .value( "view.lineNumbersVisibleInMain",
                                             DefaultConfiguration.lineNumbersVisibleInMain_ )
@@ -423,6 +428,8 @@ void Configuration::saveToStorage( QSettings& settings ) const
 
     settings.setValue( "view.overviewVisible", overviewVisible_ );
     settings.setValue( "view.lineNumbersVisibleInMain", lineNumbersVisibleInMain_ );
+    settings.setValue( "view.timeColumnsMain", timeColumnsMain_ );
+    settings.setValue( "view.timeColumnsFiltered", timeColumnsFiltered_ );
     settings.setValue( "view.lineNumbersVisibleInFiltered", lineNumbersVisibleInFiltered_ );
     settings.setValue( "view.minimizeToTray", minimizeToTray_ );
     settings.setValue( "view.style", style_ );

@@ -350,6 +350,54 @@ OptionalLineNumber LogFilteredData::getMarkBefore( LineNumber line ) const
     return marked_line;
 }
 
+OptionalLineNumber LogFilteredData::findMarkOrNote( LineNumber from, bool backward,
+                                                    bool inView ) const
+{
+    const auto& shown = currentResultArray();
+    auto line = from.get();
+    for ( ;; ) {
+        OptionalLineNumber mark;
+        OptionalLineNumber note;
+        if ( backward ) {
+            const auto rank = line > 0 ? marks_.rank( line - 1 ) : 0;
+            LineNumber::UnderlyingType found;
+            if ( rank > 0 && marks_.select( rank - 1, &found ) ) {
+                mark = LineNumber( found );
+            }
+            for ( auto it = std::make_reverse_iterator( bookmarks_.lower_bound( LineNumber( line ) ) );
+                  it != bookmarks_.rend(); ++it ) {
+                if ( !it->second.note.isEmpty() ) {
+                    note = it->first;
+                    break;
+                }
+            }
+        }
+        else {
+            LineNumber::UnderlyingType found;
+            if ( marks_.select( marks_.rank( line ), &found ) ) {
+                mark = LineNumber( found );
+            }
+            for ( auto it = bookmarks_.upper_bound( LineNumber( line ) ); it != bookmarks_.end();
+                  ++it ) {
+                if ( !it->second.note.isEmpty() ) {
+                    note = it->first;
+                    break;
+                }
+            }
+        }
+
+        OptionalLineNumber next = mark;
+        if ( note && ( !next || ( backward ? *note > *next : *note < *next ) ) ) {
+            next = note;
+        }
+        if ( !next || !inView || shown.contains( next->get() ) ) {
+            return next;
+        }
+        // Not shown (a note without its mark, or a mark that does not match): try the next
+        line = next->get();
+    }
+}
+
 void LogFilteredData::deleteMark( LineNumber line )
 {
     marks_.remove( line.get() );

@@ -27,6 +27,7 @@
 #include <vector>
 
 #include <QAbstractItemModel>
+#include <QCache>
 #include <QHash>
 #include <QDialog>
 #include <QFutureWatcher>
@@ -43,6 +44,7 @@ class QCheckBox;
 class QComboBox;
 class QLabel;
 class QLineEdit;
+class QPlainTextEdit;
 class QProgressBar;
 class QPushButton;
 class QStackedWidget;
@@ -112,6 +114,76 @@ class CompareModel : public QAbstractItemModel {
     mutable QHash<quint64, QString> texts_;
 };
 
+// The two columns of a line by line comparison. The rows keep their line numbers only (32
+// bytes a row); the texts and the characters that differ are read and worked out for the
+// rows shown, the last few thousand kept.
+class DiffModel : public QAbstractTableModel {
+  public:
+    enum Column { FirstLine, FirstText, SecondLine, SecondText, NbColumns };
+    // The parts that differ of a text, as QPoint( start, length )
+    static constexpr int ChangesRole = Qt::UserRole + 20;
+    // The line of the side of the column (0 based), for a double click
+    static constexpr int LineRole = Qt::UserRole;
+
+    // A line of each side (alike or changed one into the other), a line of one side only,
+    // or lines alike folded
+    struct Row {
+        static constexpr uint64_t None = UINT64_MAX;
+        uint64_t first = None;
+        uint64_t second = None;
+        uint64_t gap = 0;
+        bool changed = false;
+    };
+    // Reads a whole line of a side (0 the first one)
+    using TextReader = std::function<QString( int side, LineNumber line )>;
+
+    using QAbstractTableModel::QAbstractTableModel;
+
+    void setRows( std::vector<Row> rows, TextReader reader, templates::DiffOptions options );
+    void clear();
+    void setNames( const QString& first, const QString& second );
+    void setGapColor( const QColor& color )
+    {
+        gapColor_ = color;
+    }
+    // Character level: in a line changed into another the characters that differ are
+    // marked; line level: the whole lines only. Shown again at once, nothing compared again
+    void setCharacterLevel( bool characterLevel );
+    bool characterLevel() const
+    {
+        return characterLevel_;
+    }
+    // The line of a side in a row, if it has one
+    std::optional<LineNumber> lineAt( int row, int side ) const;
+    const Row& row( int row ) const
+    {
+        return rows_[ static_cast<size_t>( row ) ];
+    }
+
+    int rowCount( const QModelIndex& parent = {} ) const override;
+    int columnCount( const QModelIndex& parent = {} ) const override;
+    QVariant data( const QModelIndex& index, int role ) const override;
+    QVariant headerData( int section, Qt::Orientation orientation, int role ) const override;
+
+  private:
+    struct Texts {
+        QString first;
+        QString second;
+        QVariantList firstChanges;
+        QVariantList secondChanges;
+    };
+    const Texts& textsOf( int row ) const;
+
+    std::vector<Row> rows_;
+    TextReader reader_;
+    templates::DiffOptions options_;
+    QString firstName_;
+    QString secondName_;
+    QColor gapColor_;
+    bool characterLevel_ = true;
+    mutable QCache<int, Texts> texts_{ 4000 };
+};
+
 // Analyses of the log of the current tab, in the background: the time between pairs of
 // events, the rules of known problems, the comparison with another tab. One runs at a time;
 // the window keeps the log data of the tabs it reads until it is done, so closing a tab
@@ -132,7 +204,8 @@ class AnalysisDialog : public QDialog {
         std::function<void( CrawlerWidget* )> activate;
     };
 
-    enum Page { Durations, Rules, Compare };
+    // Compare: two tabs, CompareText: two pasted texts
+    enum Page { Durations, Rules, Compare, CompareText };
 
     AnalysisDialog( Context context, QWidget* parent = nullptr );
     ~AnalysisDialog() override;
@@ -149,6 +222,8 @@ class AnalysisDialog : public QDialog {
     // The rules of the file in the editor, with a new rule matching the text when given
     void editRules( const QString& textOfNewRule = {} );
     void runCompare( bool lineByLine );
+    // Line by line on the texts of the two boxes of the Compare by text page
+    void runCompareText();
 
     // For the tests
     QTreeWidget* durationTable() const
@@ -159,9 +234,55 @@ class AnalysisDialog : public QDialog {
     {
         return rulesTree_;
     }
-    QTreeWidget* diffTree() const
+    QTreeView* diffView() const
     {
-        return diffTree_;
+        return diffView_;
+    }
+    DiffModel* diffModel() const
+    {
+        return diffModel_;
+    }
+    QTreeView* textDiffView() const
+    {
+        return textDiffView_;
+    }
+    DiffModel* textDiffModel() const
+    {
+        return textDiffModel_;
+    }
+    QPlainTextEdit* firstText() const
+    {
+        return firstText_;
+    }
+    QPlainTextEdit* secondText() const
+    {
+        return secondText_;
+    }
+    // Leave out the time stamps, the numbers: of the files, of the texts
+    QCheckBox* diffTimes() const
+    {
+        return diffTimes_;
+    }
+    QCheckBox* diffNumbers() const
+    {
+        return diffNumbers_;
+    }
+    QCheckBox* textTimes() const
+    {
+        return textTimes_;
+    }
+    QCheckBox* textNumbers() const
+    {
+        return textNumbers_;
+    }
+    // Line or character level, of the files, of the texts
+    QComboBox* diffLevel() const
+    {
+        return diffLevel_;
+    }
+    QComboBox* textLevel() const
+    {
+        return textLevel_;
     }
     CompareModel* compareModel() const
     {
@@ -211,6 +332,12 @@ class AnalysisDialog : public QDialog {
     QWidget* createDurationsPage();
     QWidget* createRulesPage();
     QWidget* createComparePage();
+    QWidget* createCompareTextPage();
+    // The two columns of a line by line comparison
+    QTreeView* createDiffView( DiffModel* model, QWidget* parent );
+    // The rows given to the model, the columns sized
+    void showDiff( QTreeView* view, DiffModel* model, std::vector<DiffModel::Row> rows,
+                   DiffModel::TextReader reader, const templates::DiffOptions& options );
 
     // Runs `work` in the background, then `done` here unless the window is gone
     template <typename Result>
@@ -242,7 +369,7 @@ class AnalysisDialog : public QDialog {
     QProgressBar* progress_ = nullptr;
     QPushButton* stop_ = nullptr;
     QToolButton* helpButton_ = nullptr;
-    std::array<std::pair<QString, QString>, 3> helps_;
+    std::array<std::pair<QString, QString>, 4> helps_;
     QPointer<QDialog> help_;
     QTextBrowser* helpText_ = nullptr;
     QLabel* message_ = nullptr;
@@ -276,11 +403,23 @@ class AnalysisDialog : public QDialog {
     QStackedWidget* compareResults_ = nullptr;
     QTreeView* compareView_ = nullptr;
     CompareModel* compareModel_ = nullptr;
-    QTreeWidget* diffTree_ = nullptr;
+    QTreeView* diffView_ = nullptr;
+    DiffModel* diffModel_ = nullptr;
+    QCheckBox* diffTimes_ = nullptr;
+    QCheckBox* diffNumbers_ = nullptr;
+    QComboBox* diffLevel_ = nullptr;
+
+    QPlainTextEdit* firstText_ = nullptr;
+    QPlainTextEdit* secondText_ = nullptr;
+    QCheckBox* textTimes_ = nullptr;
+    QCheckBox* textNumbers_ = nullptr;
+    QComboBox* textLevel_ = nullptr;
+    QTreeView* textDiffView_ = nullptr;
+    DiffModel* textDiffModel_ = nullptr;
     QPointer<CrawlerWidget> firstCrawler_;
     QPointer<CrawlerWidget> secondCrawler_;
 
-    std::array<std::pair<QString, bool>, 3> messages_;
+    std::array<std::pair<QString, bool>, 4> messages_;
     int messagePage_ = 0;
 
     std::shared_ptr<AtomicFlag> cancel_;

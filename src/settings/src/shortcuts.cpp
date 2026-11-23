@@ -236,12 +236,7 @@ const ShortcutAction::ShortcutList& ShortcutAction::defaultShortcutList()
             MainWindowOpenFromClipboard,
             {
                 QApplication::tr( "Paste text from clipboard" ),
-#ifdef Q_OS_MAC
-                // The Control key itself next to Cmd+V
-                QStringList{ "Ctrl+V", "Meta+Y" },
-#else
-                QStringList{ "Ctrl+V", "Ctrl+Y" },
-#endif
+                QStringList{ "Ctrl+V" },
             },
         },
         {
@@ -270,7 +265,7 @@ const ShortcutAction::ShortcutList& ShortcutAction::defaultShortcutList()
             MainWindowReload,
             {
                 QApplication::tr( "Reload file" ),
-                QStringList{ "Ctrl+R", QKeySequence( Qt::Key_Refresh ).toString() },
+                QStringList{ QKeySequence( Qt::Key_F5 ).toString() },
             },
         },
         {
@@ -389,12 +384,7 @@ const ShortcutAction::ShortcutList& ShortcutAction::defaultShortcutList()
             FilterPanelDelete,
             {
                 QApplication::tr( "Filter panel: delete selection" ),
-#ifdef Q_OS_MAC
-                // The Control key itself: Cmd+D adds the next color label
-                QStringList{ QKeySequence( Qt::Key_Delete ).toString(), "Meta+D" },
-#else
-                QStringList{ QKeySequence( Qt::Key_Delete ).toString(), "Ctrl+D" },
-#endif
+                QStringList{ QKeySequence( Qt::Key_Delete ).toString() },
             },
         },
         {
@@ -875,6 +865,20 @@ const ShortcutAction::ShortcutList& ShortcutAction::defaultShortcutList()
             {
                 QApplication::tr( "Add or edit the note of the line" ),
                 QStringList{ "Shift+M" },
+            },
+        },
+        {
+            LogViewTimeReference,
+            {
+                QApplication::tr( "Set the time reference line (on it: clear it)" ),
+                QStringList{ "T" },
+            },
+        },
+        {
+            LogViewClearTimeReference,
+            {
+                QApplication::tr( "Clear the time reference line" ),
+                QStringList{ "Shift+T" },
             },
         },
         {

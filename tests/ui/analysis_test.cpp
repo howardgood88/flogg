@@ -434,20 +434,94 @@ SCENARIO( "Templates of logs compared", "[templates]" )
     const auto alone = templates::compare( a, nullptr, false );
     CHECK( alone.front().text == "shutdown clean" );
 
-    // Line by line
-    const auto lineDiff = templates::diff( first.data(), {}, second.data(), {}, cancel );
-    REQUIRE( lineDiff.error.isEmpty() );
-    size_t added = 0;
-    size_t removed = 0;
-    for ( const auto& line : lineDiff.lines ) {
-        added += line.op == templates::DiffLine::Op::Added ? 1 : 0;
-        removed += line.op == templates::DiffLine::Op::Removed ? 1 : 0;
+    // Line by line: the text of the lines, the time stamps left out when asked
+    const auto count = []( const templates::Diff& diff, templates::DiffLine::Op op ) {
+        size_t n = 0;
+        for ( const auto& line : diff.lines() ) {
+            n += line.op == op ? 1 : 0;
+        }
+        return n;
+    };
+    using Op = templates::DiffLine::Op;
+    {
+        const auto text = templates::diff( first.data(), {}, second.data(), {}, {}, cancel );
+        REQUIRE( text.error.isEmpty() );
+        CHECK( count( text, Op::Added ) == 121 );
+        CHECK( count( text, Op::Removed ) == 111 );
     }
-    CHECK( added == 11 );
-    CHECK( removed == 1 );
-    CHECK( lineDiff.lines.size() == 122 );
-    CHECK( lineDiff.lines.back().op == templates::DiffLine::Op::Added );
-    CHECK( *lineDiff.lines.back().second == 120_lnum );
+    templates::DiffOptions noTimes;
+    noTimes.ignoreTimes = true;
+    const auto lineDiff = templates::diff( first.data(), {}, second.data(), {}, noTimes, cancel );
+    REQUIRE( lineDiff.error.isEmpty() );
+    CHECK( count( lineDiff, Op::Added ) == 11 );
+    CHECK( count( lineDiff, Op::Removed ) == 1 );
+    const auto lineDiffLines = lineDiff.lines();
+    CHECK( lineDiffLines.size() == 122 );
+    CHECK( lineDiffLines.back().op == Op::Added );
+    CHECK( *lineDiffLines.back().second == 120_lnum );
+}
+
+TEST_CASE( "Texts compared line by line", "[templates]" )
+{
+    using Op = templates::DiffLine::Op;
+    AtomicFlag cancel;
+    const std::vector<QString> first{ "2026-11-22 09:00:58.261 start", "same",
+                                      "2026-11-22 09:00:59.000 retry id=77", "gone" };
+    const std::vector<QString> second{ "2026-11-23 10:00:00.000 start", "same",
+                                       "2026-11-23 10:00:01.000 retry id=78", "new" };
+
+    // Pure text: only "same" is alike
+    const auto textDiff = templates::diff( first, second, {}, cancel );
+    REQUIRE( textDiff.error.isEmpty() );
+    const auto text = textDiff.lines();
+    REQUIRE( text.size() == 7 );
+    CHECK( text[ 0 ].op == Op::Removed );
+    CHECK( text[ 1 ].op == Op::Added );
+    CHECK( text[ 2 ].op == Op::Same );
+    CHECK( *text[ 2 ].first == 1_lnum );
+    CHECK( *text[ 2 ].second == 1_lnum );
+
+    templates::DiffOptions noTimes;
+    noTimes.ignoreTimes = true;
+    CHECK( templates::diffKey( first[ 0 ], noTimes ) == templates::diffKey( second[ 0 ], noTimes ) );
+    CHECK( templates::diffKey( u"plain 12", {} ) == "plain 12" );
+    const auto withoutTimes = templates::diff( first, second, noTimes, cancel ).lines();
+    CHECK( withoutTimes[ 0 ].op == Op::Same );
+    CHECK( withoutTimes[ 1 ].op == Op::Same );
+    CHECK( withoutTimes[ 2 ].op != Op::Same );
+
+    auto noNumbers = noTimes;
+    noNumbers.ignoreNumbers = true;
+    const auto alike = templates::diff( first, second, noNumbers, cancel ).lines();
+    REQUIRE( alike.size() == 5 );
+    CHECK( alike[ 2 ].op == Op::Same );
+    CHECK( alike[ 3 ].op == Op::Removed );
+    CHECK( alike[ 4 ].op == Op::Added );
+
+    // The characters that differ in a changed line
+    {
+        const auto parts = templates::changedParts( u"retry id=77 now", u"retry id=78 now", {} );
+        REQUIRE( parts.first.size() == 1 );
+        CHECK( parts.first[ 0 ] == std::make_pair( 10, 1 ) );
+        REQUIRE( parts.second.size() == 1 );
+        CHECK( parts.second[ 0 ] == std::make_pair( 10, 1 ) );
+    }
+    {
+        // Added characters on one side only, next to each other in one range
+        const auto parts = templates::changedParts( u"connect", u"reconnected", {} );
+        CHECK( parts.first.empty() );
+        REQUIRE( parts.second.size() == 2 );
+        CHECK( parts.second[ 0 ] == std::make_pair( 0, 2 ) );
+        CHECK( parts.second[ 1 ] == std::make_pair( 9, 2 ) );
+    }
+    {
+        // The time stamps left out never differ
+        const auto parts = templates::changedParts( first[ 2 ], second[ 2 ], noTimes );
+        REQUIRE( parts.first.size() == 1 );
+        CHECK( parts.first[ 0 ].first == 34 );
+        REQUIRE( parts.second.size() == 1 );
+        CHECK( parts.second[ 0 ].first == 34 );
+    }
 }
 
 TEST_CASE( "Similar templates merged", "[templates]" )
@@ -463,6 +537,178 @@ TEST_CASE( "Similar templates merged", "[templates]" )
     CHECK( merged[ 2 ] == "Connection opened" );
     CHECK( merged[ 3 ] == "Connection closed" );
     CHECK( merged[ 4 ] == "something else entirely here" );
+}
+
+#include <QTreeView>
+
+#include "analysisdialog.h"
+#include "configuration.h"
+
+TEST_CASE( "Time of each line drawn", "[templates][.benchmark]" )
+{
+    // FLOGG_BENCH_FILE=<log> klogg_itests "Time of each line drawn": the cost of a column of
+    // the time from a reference line and from the line before, per line drawn
+    const auto fileName = qEnvironmentVariable( "FLOGG_BENCH_FILE" );
+    if ( fileName.isEmpty() ) {
+        WARN( "FLOGG_BENCH_FILE is not set" );
+        return;
+    }
+    LogData logData;
+    SafeQSignalSpy loadEndSpy( &logData, SIGNAL( loadingFinished( LoadingStatus ) ) );
+    logData.attachFile( fileName );
+    REQUIRE( loadEndSpy.safeWait( 600000 ) );
+    constexpr uint64_t Count = 200000;
+    const auto lines = logData.getLines( 0_lnum, LinesCount( Count ) );
+    REQUIRE( lines.size() == Count );
+
+    QElapsedTimer timer;
+    timer.start();
+    const auto reference = timestamps::parseLine( lines[ 0 ] );
+    auto previous = reference;
+    int64_t total = 0;
+    QString text;
+    for ( const auto& line : lines ) {
+        const auto times = timestamps::parseLine( line );
+        const auto fromReference = timestamps::difference( reference, times, {} );
+        const auto fromPrevious = timestamps::difference( previous, times, {} );
+        if ( fromReference.us && fromPrevious.us ) {
+            total += *fromReference.us + *fromPrevious.us;
+            text = timestamps::formatDuration( *fromPrevious.us, 3 );
+        }
+        previous = times;
+    }
+    const auto ns = static_cast<double>( timer.nsecsElapsed() ) / Count;
+    WARN( "parse, two differences and the text: " << ns << " ns a line, " << ns * 60 / 1000
+                                                    << " us for a screen of 60 lines ("
+                                                    << total % 7 << ")" );
+}
+
+TEST_CASE( "Line by line of a large file", "[templates][.benchmark]" )
+{
+    // FLOGG_BENCH_FILE=<log> klogg_itests "Line by line of a large file"
+    const auto fileName = qEnvironmentVariable( "FLOGG_BENCH_FILE" );
+    if ( fileName.isEmpty() ) {
+        WARN( "FLOGG_BENCH_FILE is not set" );
+        return;
+    }
+    LogData logData;
+    SafeQSignalSpy loadEndSpy( &logData, SIGNAL( loadingFinished( LoadingStatus ) ) );
+    logData.attachFile( fileName );
+    REQUIRE( loadEndSpy.safeWait( 600000 ) );
+    const auto n = templates::MaxDiffLines;
+    REQUIRE( logData.getNbLine().get() >= 2 * n + 1000 );
+
+    AtomicFlag cancel;
+    QElapsedTimer timer;
+    const auto range = []( uint64_t first, uint64_t count ) {
+        templates::Scope scope;
+        scope.range = std::make_pair( LineNumber( first ), LineNumber( first + count - 1 ) );
+        return scope;
+    };
+    const auto report = [ & ]( const char* name, const templates::Diff& diff ) {
+        uint64_t changed = 0;
+        for ( const auto step : diff.steps ) {
+            changed += step == templates::DiffStep::Same ? 0 : 1;
+        }
+        WARN( name << ": " << timer.elapsed() << " ms, " << changed << " lines changed, "
+                   << diff.unpairedLines << " unpaired" );
+    };
+
+    timer.start();
+    report( "same 1M lines", templates::diff( logData, range( 0, n ), logData, range( 0, n ), {},
+                                              cancel ) );
+    timer.restart();
+    report( "1M lines shifted by 1000",
+            templates::diff( logData, range( 0, n ), logData, range( 1000, n ), {}, cancel ) );
+
+    // A copy with every 50th line changed and every 1000th left out
+    std::vector<QString> first;
+    std::vector<QString> second;
+    first.reserve( n );
+    second.reserve( n );
+    for ( uint64_t i = 0; i < n; ++i ) {
+        auto line = logData.getLineString( LineNumber( i ) );
+        first.push_back( line );
+        if ( i % 1000 == 999 ) {
+            continue;
+        }
+        second.push_back( i % 50 == 0 ? line + " changed" : line );
+    }
+    timer.restart();
+    report( "1M lines, 2% changed", templates::diff( first, second, {}, cancel ) );
+
+    // Every third line changed: many small parts between the lines alike
+    for ( size_t i = 0; i < second.size(); i += 3 ) {
+        second[ i ] += " again";
+    }
+    timer.restart();
+    report( "1M lines, a third changed", templates::diff( first, second, {}, cancel ) );
+
+    // Nothing alike: every line changed
+    for ( auto& line : second ) {
+        line += "#";
+    }
+    timer.restart();
+    report( "1M lines, all changed", templates::diff( first, second, {}, cancel ) );
+
+    // Half of the file moved to the end
+    timer.restart();
+    report( "1M lines, halves swapped",
+            templates::diff( logData, range( 0, n ), logData, range( n / 2 + 137, n ), {},
+                             cancel ) );
+
+    // The same lines, times and numbers left out
+    templates::DiffOptions noTimes;
+    noTimes.ignoreTimes = true;
+    noTimes.ignoreNumbers = true;
+    timer.restart();
+    report( "1M lines shifted by 1000, times and numbers left out",
+            templates::diff( logData, range( 0, n ), logData, range( 1000, n ), noTimes, cancel ) );
+
+    // The worst: no line once on each side and the halves swapped, the work runs out
+    timer.restart();
+    report( "1M lines, halves swapped, times and numbers left out",
+            templates::diff( logData, range( 0, n ), logData, range( n / 2 + 137, n ), noTimes,
+                             cancel ) );
+
+    // A million rows in the two columns: given to the view, shown, scrolled to the end
+    {
+        std::vector<DiffModel::Row> rows( n );
+        for ( uint64_t i = 0; i < n; ++i ) {
+            rows[ i ].first = i;
+            rows[ i ].second = i;
+            rows[ i ].changed = true;
+        }
+        DiffModel model;
+        QTreeView view;
+        view.setUniformRowHeights( true );
+        view.setRootIsDecorated( false );
+        view.setModel( &model );
+        view.resize( 900, 500 );
+        view.show();
+        timer.restart();
+        model.setRows( std::move( rows ),
+                       [ &first ]( int, LineNumber line ) { return first[ line.get() ]; }, {} );
+        view.grab();
+        WARN( "1M rows set and shown: " << timer.elapsed() << " ms" );
+        timer.restart();
+        view.scrollToBottom();
+        view.grab();
+        WARN( "scrolled to the end and shown: " << timer.elapsed() << " ms" );
+    }
+
+    // The characters of the rows shown: a screen of long lines
+    QString longA;
+    QString longB;
+    for ( int i = 0; i < 100; ++i ) {
+        longA += QString( "word%1 " ).arg( i );
+        longB += QString( "word%1 " ).arg( i % 3 == 0 ? i + 1 : i );
+    }
+    timer.restart();
+    for ( int i = 0; i < 50; ++i ) {
+        templates::changedParts( longA, longB, {} );
+    }
+    WARN( "50 long changed lines: " << timer.elapsed() << " ms" );
 }
 
 TEST_CASE( "Templates of a large file in the background", "[templates][.benchmark]" )
@@ -526,8 +772,11 @@ TEST_CASE( "Templates of a large file in the background", "[templates][.benchmar
 }
 
 #include <QAbstractItemView>
+#include <QCheckBox>
 #include <QComboBox>
+#include <QPlainTextEdit>
 #include <QToolButton>
+#include <QTreeView>
 #include <QTreeWidget>
 
 #include "analysisdialog.h"
@@ -751,24 +1000,116 @@ SCENARIO( "Analysis window", "[ui][analysis]" )
         CHECK( second->selectedLineBounds() == std::make_pair( 99_lnum, 99_lnum ) );
     }
 
-    // Line by line
+    // Line by line: the text of the lines, every line differs by its time
+    dialog.diffTimes()->setChecked( false );
+    dialog.diffNumbers()->setChecked( false );
+    dialog.runCompare( true );
+    REQUIRE( waitUiState( [ & ]() { return !dialog.isRunning(); } ) );
+    CHECK( dialog.message() == "Lines only in bad.log: 100, only in good.log: 100" );
+    const auto cell = []( DiffModel* model, int row, int column, int role = Qt::DisplayRole ) {
+        return model->data( model->index( row, column ), role );
+    };
+    {
+        // The line changed into another: the characters that differ marked
+        auto* lines = dialog.diffModel();
+        REQUIRE( lines->rowCount() == 100 );
+        CHECK( cell( lines, 0, 1 ).toString().contains( "11:00:00.000 begin request id=0" ) );
+        CHECK( cell( lines, 0, 3 ).toString().contains( "10:00:00.000 begin request id=0" ) );
+        CHECK( !cell( lines, 0, 1, DiffModel::ChangesRole ).toList().isEmpty() );
+    }
+    // The time stamps left out
+    dialog.diffTimes()->setChecked( true );
     dialog.runCompare( true );
     REQUIRE( waitUiState( [ & ]() { return !dialog.isRunning(); } ) );
     CHECK( dialog.message() == "Lines only in bad.log: 1, only in good.log: 1" );
-    CHECK( dialog.diffTree()->headerItem()->text( 1 ) == "bad.log" );
-    CHECK( dialog.diffTree()->headerItem()->text( 3 ) == "good.log" );
-    auto* diff = dialog.diffTree();
-    REQUIRE( diff->topLevelItemCount() > 3 );
+    auto* diff = dialog.diffModel();
+    CHECK( diff->headerData( 1, Qt::Horizontal, Qt::DisplayRole ) == "bad.log" );
+    CHECK( diff->headerData( 3, Qt::Horizontal, Qt::DisplayRole ) == "good.log" );
+    REQUIRE( diff->rowCount() > 3 );
     // Side by side: a line missing on the left next to the line of the right
     bool onlyRight = false;
     bool onlyLeft = false;
-    for ( int i = 0; i < diff->topLevelItemCount(); ++i ) {
-        const auto* row = diff->topLevelItem( i );
-        onlyRight |= row->text( 0 ).isEmpty() && row->text( 3 ).contains( "end request id=7" );
-        onlyLeft |= row->text( 2 ).isEmpty() && row->text( 1 ).contains( "FATAL" );
+    bool folded = false;
+    for ( int i = 0; i < diff->rowCount(); ++i ) {
+        onlyRight |= cell( diff, i, 0 ).toString().isEmpty()
+                     && cell( diff, i, 3 ).toString().contains( "end request id=7" );
+        onlyLeft |= cell( diff, i, 2 ).toString().isEmpty()
+                    && cell( diff, i, 1 ).toString().contains( "FATAL" );
+        folded |= cell( diff, i, 1 ).toString().endsWith( "lines alike" );
     }
     CHECK( onlyRight );
     CHECK( onlyLeft );
+    CHECK( folded );
+
+    // Two pasted texts
+    dialog.showPage( AnalysisDialog::CompareText );
+    dialog.textTimes()->setChecked( false );
+    dialog.textNumbers()->setChecked( false );
+    dialog.firstText()->setPlainText( "10:00:00.000 start\nsame\nretry id=7\n" );
+    dialog.secondText()->setPlainText( "11:00:00.000 start\nsame\nretry id=8\nextra" );
+    dialog.runCompareText();
+    REQUIRE( waitUiState( [ & ]() { return !dialog.isRunning(); } ) );
+    CHECK( dialog.message() == "Lines only in the first text: 2, only in the second: 3" );
+    CHECK( dialog.textDiffModel()->rowCount() == 4 );
+    dialog.textTimes()->setChecked( true );
+    dialog.textNumbers()->setChecked( true );
+    dialog.runCompareText();
+    REQUIRE( waitUiState( [ & ]() { return !dialog.isRunning(); } ) );
+    CHECK( dialog.message() == "Lines only in the first text: 0, only in the second: 1" );
+    // A double click goes to the line in its box
+    {
+        auto* texts = dialog.textDiffModel();
+        REQUIRE( texts->rowCount() == 4 );
+        CHECK( cell( texts, 3, 3 ).toString() == "extra" );
+        Q_EMIT dialog.textDiffView()->activated( texts->index( 3, 3 ) );
+        CHECK( dialog.secondText()->textCursor().blockNumber() == 3 );
+        CHECK( dialog.secondText()->textCursor().selectedText() == "extra" );
+    }
+    // Line level: the changed lines without the characters that differ, shown at once
+    {
+        dialog.textNumbers()->setChecked( false );
+        dialog.firstText()->setPlainText( "retry id=7\n" );
+        dialog.secondText()->setPlainText( "retry id=8\n" );
+        CHECK( dialog.textLevel()->itemText( 0 ) == "Character level" );
+        dialog.textLevel()->setCurrentIndex( 0 );
+        dialog.runCompareText();
+        REQUIRE( waitUiState( [ & ]() { return !dialog.isRunning(); } ) );
+        auto* texts = dialog.textDiffModel();
+        REQUIRE( texts->rowCount() == 1 );
+        CHECK( !texts->index( 0, 1 ).data( DiffModel::ChangesRole ).toList().isEmpty() );
+        dialog.textLevel()->setCurrentIndex( 1 );
+        CHECK( !texts->characterLevel() );
+        CHECK( texts->index( 0, 1 ).data( DiffModel::ChangesRole ).toList().isEmpty() );
+        CHECK( texts->index( 0, 1 ).data( Qt::BackgroundRole ).isValid() );
+        dialog.textLevel()->setCurrentIndex( 0 );
+    }
+    // Lines alike far from the changes are folded, as when comparing files
+    {
+        QString lines;
+        for ( auto i = 0; i < 20; ++i ) {
+            lines += QString( "same %1\n" ).arg( i );
+        }
+        dialog.firstText()->setPlainText( lines );
+        dialog.secondText()->setPlainText( lines + "extra\n" );
+        dialog.runCompareText();
+        REQUIRE( waitUiState( [ & ]() { return !dialog.isRunning(); } ) );
+        auto* texts = dialog.textDiffModel();
+        REQUIRE( texts->rowCount() == 5 );
+        CHECK( cell( texts, 0, 1 ).toString().endsWith( "lines alike" ) );
+        CHECK( cell( texts, 4, 3 ).toString() == "extra" );
+    }
+    // Past the limit, the first lines compared and the others told
+    {
+        std::vector<QString> many( templates::MaxDiffLines + 5, "line" );
+        AtomicFlag cancel;
+        const auto cut = templates::diff( many, { "line" }, {}, cancel );
+        CHECK( cut.firstLeftOut == 5 );
+        CHECK( cut.secondLeftOut == 0 );
+        CHECK( cut.steps.size() == templates::MaxDiffLines );
+    }
+    dialog.textTimes()->setChecked( false );
+    dialog.textNumbers()->setChecked( false );
+    dialog.showPage( AnalysisDialog::Compare );
 
     // The first side can be another tab
     REQUIRE( dialog.firstTab()->count() == 2 );
@@ -783,9 +1124,27 @@ SCENARIO( "Analysis window", "[ui][analysis]" )
 
     const auto renderDir = qEnvironmentVariable( "FLOGG_RENDER_DIR" );
     if ( !renderDir.isEmpty() ) {
+        dialog.diffTimes()->setChecked( false );
         dialog.runCompare( true );
         waitUiState( [ & ]() { return !dialog.isRunning(); } );
         dialog.grab().save( renderDir + "/analysis_diff.png" );
+        dialog.showPage( AnalysisDialog::CompareText );
+        dialog.firstText()->setPlainText(
+            "2026-11-22 09:00:58.261 INFO wlan0: connected to ap-office (ch 36)\n"
+            "2026-11-22 09:00:58.300 INFO dhcp: lease 10.0.0.12 for 3600 s\n"
+            "2026-11-22 09:01:02.010 WARN retry request=77 attempt=2\n"
+            "2026-11-22 09:01:05.000 INFO ready\n" );
+        dialog.secondText()->setPlainText(
+            "2026-11-23 14:12:01.004 INFO wlan0: connected to ap-lobby (ch 149)\n"
+            "2026-11-23 14:12:01.050 INFO dhcp: lease 10.0.0.57 for 3600 s\n"
+            "2026-11-23 14:12:03.512 ERROR auth timeout\n"
+            "2026-11-23 14:12:09.000 INFO ready\n" );
+        dialog.textTimes()->setChecked( true );
+        dialog.runCompareText();
+        waitUiState( [ & ]() { return !dialog.isRunning(); } );
+        dialog.grab().save( renderDir + "/analysis_text_diff.png" );
+        dialog.textTimes()->setChecked( false );
+        dialog.showPage( AnalysisDialog::Compare );
         dialog.runCompare( false );
         waitUiState( [ & ]() { return !dialog.isRunning(); } );
         dialog.compareView()->expand( dialog.compareModel()->index( 0, 0 ) );
@@ -814,7 +1173,7 @@ SCENARIO( "Analysis window", "[ui][analysis]" )
         dialog.showPage( AnalysisDialog::Durations );
         dialog.grab().save( renderDir + "/analysis_durations.png" );
         // The help of each page, from the "?" next to Stop
-        for ( int page = 0; page < 3; ++page ) {
+        for ( int page = 0; page < 4; ++page ) {
             dialog.showPage( static_cast<AnalysisDialog::Page>( page ) );
             dialog.helpButton()->click();
             REQUIRE( dialog.helpWindow() );
@@ -923,82 +1282,6 @@ SCENARIO( "Demo files", "[.demo]" )
     const auto logcatRules = runRules( *logcat->logData(), set.rules, cancel, {} );
     CHECK( logcatRules.totalFindings[ 7 ] == 1 );
 
-    // Wi-Fi logs in the formats of real captures
-    auto wifiLogcat = open( demo + "/wifi-logcat.txt" );
-    auto wifiDriver = open( demo + "/wifi-driver.log" );
-    auto wifiFw = open( demo + "/wifi-fw.log" );
-    const auto midnight = delta( *wifiLogcat, 1602, 1634 );
-    REQUIRE( midnight.us );
-    CHECK( midnight.first->fractionDigits == 6 );
-    WARN( "wifi logcat 1602-1634: " << timestamps::formatDuration( *midnight.us, 6 ).toStdString() );
-    // Across the wall clock set back 2 hours: the time since boot is used
-    CHECK( line( *wifiDriver, 1562 ).contains( "wall clock adjusted" ) );
-    // By default the first time stamp of the line (the wall clock), set back 2 hours
-    const auto byWallClock = delta( *wifiDriver, 1560, 1566 );
-    REQUIRE( byWallClock.us );
-    CHECK( timestamps::formatDuration( *byWallClock.us, 6 ) == "-2 h 00 m 10.323152 s" );
-    const auto clockSet = timestamps::difference(
-        timestamps::parseLine( line( *wifiDriver, 1560 ) ),
-        timestamps::parseLine( line( *wifiDriver, 1566 ) ), timestamps::Format::Kernel );
-    REQUIRE( clockSet.us );
-    CHECK( clockSet.first->isMonotonic() );
-    CHECK( *clockSet.us > 0 );
-    CHECK( *clockSet.us < 10000000 );
-    WARN( "wifi driver 1560-1566: " << timestamps::formatDuration( *clockSet.us, 6 ).toStdString() );
-    const auto fwDelta = delta( *wifiFw, 1, 2 );
-    REQUIRE( fwDelta.us );
-    CHECK( *fwDelta.us == 200 );
-
-    const auto connects = measureDurations( *wifiLogcat->logData(),
-                                            { "CMD_START_CONNECT netId=(\\d+)",
-                                              "CTRL-EVENT-CONNECTED .*\\[id=(\\d+)", false, {} },
-                                            cancel, {} );
-    WARN( "connects: " << connects.pairs << " pairs, open " << connects.openStarts << ", slowest "
-                       << timestamps::formatDuration( connects.slowest.front().us, 6 ).toStdString()
-                       << " at line " << connects.slowest.front().start.get() + 1 );
-    CHECK( connects.openStarts == 2 );
-    const auto scans = measureDurations( *wifiDriver->logData(),
-                                         { "\\[SCAN\\]TRANSITION: \\[IDLE\\] -> \\[SCANNING\\]",
-                                           "\\[SCAN\\]TRANSITION: \\[SCANNING\\] -> \\[IDLE\\]",
-                                           false, {} },
-                                         cancel, {} );
-    WARN( "scans: " << scans.pairs << " pairs, open " << scans.openStarts << ", negative "
-                    << scans.negative << ", slowest "
-                    << timestamps::formatDuration( scans.slowest.front().us, 6 ).toStdString()
-                    << " at line " << scans.slowest.front().start.get() + 1 << ", median "
-                    << timestamps::formatDuration( scans.p50Us, 6 ).toStdString() );
-    CHECK( scans.negative == 0 );
-    CHECK( scans.openStarts == 0 );
-    const auto sleeps = measureDurations( *wifiFw->logData(),
-                                          { "may enter deep sleep", "WAKE UP FROM DSLP", false, {} },
-                                          cancel, {} );
-    WARN( "sleeps: " << sleeps.pairs << " pairs, open " << sleeps.openStarts << " at line "
-                     << ( sleeps.openStartLines.empty() ? 0 : sleeps.openStartLines[ 0 ].get() + 1 )
-                     << ", slowest "
-                     << timestamps::formatDuration( sleeps.slowest.front().us, 6 ).toStdString()
-                     << ", median " << timestamps::formatDuration( sleeps.p50Us, 6 ).toStdString() );
-    CHECK( sleeps.openStarts == 1 );
-    CHECK( sleeps.slowest.front().us < 5000000 );
-
-    QFile wifiRulesFile( demo + "/wifi-rules.json" );
-    REQUIRE( wifiRulesFile.open( QIODevice::ReadOnly ) );
-    const auto wifiSet = parseRules( wifiRulesFile.readAll() );
-    REQUIRE( wifiSet.error.isEmpty() );
-    for ( auto* crawler : { wifiLogcat.get(), wifiDriver.get(), wifiFw.get() } ) {
-        const auto found = runRules( *crawler->logData(), wifiSet.rules, cancel, {} );
-        for ( size_t r = 0; r < wifiSet.rules.size(); ++r ) {
-            if ( found.totalFindings[ r ] > 0 ) {
-                WARN( crawler->logData()->attachedFileName().section( '/', -1 ).toStdString()
-                      << ": " << wifiSet.rules[ r ].name.toStdString() << " "
-                      << found.totalFindings[ r ] );
-            }
-        }
-        for ( const auto& finding : found.findings ) {
-            WARN( "  " << wifiSet.rules[ finding.rule ].name.toStdString() << " line "
-                       << finding.line.get() + 1 << " " << finding.detail.toStdString() );
-        }
-    }
-
     // 5. Compare
     const auto badTable = templates::build( *bad->logData(), {}, cancel, {} );
     const auto goodTable = templates::build( *good->logData(), {}, cancel, {} );
@@ -1008,4 +1291,49 @@ SCENARIO( "Demo files", "[.demo]" )
               << " " << compared[ i ].firstCount << "/" << compared[ i ].secondCount << " "
               << compared[ i ].text.toStdString() );
     }
+}
+
+TEST_CASE( "Main view painting of a large file", "[ui][.benchmark]" )
+{
+    // FLOGG_BENCH_FILE=<log> klogg_itests "Main view painting of a large file"
+    const auto fileName = qEnvironmentVariable( "FLOGG_BENCH_FILE" );
+    if ( fileName.isEmpty() ) {
+        WARN( "FLOGG_BENCH_FILE is not set" );
+        return;
+    }
+    Session session;
+    std::unique_ptr<CrawlerWidget> crawler( static_cast<CrawlerWidget*>(
+        session.open( fileName, []() { return new CrawlerWidget(); } ) ) );
+    for ( int i = 0; i < 600 && crawler->isLoading(); ++i ) {
+        QTest::qWait( 100 );
+    }
+    REQUIRE( !crawler->isLoading() );
+    crawler->resize( 1400, 1100 );
+    crawler->show();
+    crawler->grab();
+    auto* view = crawler->findChild<AbstractLogView*>();
+    REQUIRE( view );
+    // FLOGG_BENCH_TIME_COLUMNS=1: with the time columns, from a reference line
+    auto& config = Configuration::get();
+    const auto previousColumns = config.timeColumns( false );
+    const auto timeColumns = !qEnvironmentVariableIsEmpty( "FLOGG_BENCH_TIME_COLUMNS" );
+    if ( timeColumns ) {
+        config.setTimeColumns( false, Configuration::TimeFromReference
+                                          | Configuration::TimeFromPrevious );
+        crawler->toggleTimeReference( 0_lnum );
+    }
+    QElapsedTimer timer;
+    timer.start();
+    constexpr int Paints = 100;
+    for ( int i = 0; i < Paints; ++i ) {
+        // A new screen each time: the text area is drawn again
+        view->selectAndDisplayLine( LineNumber( static_cast<uint64_t>( i ) * 1000 ) );
+        view->viewport()->grab();
+    }
+    WARN( "a screen of the main view drawn" << ( timeColumns ? " with the time columns" : "" )
+                                             << ": "
+                                             << static_cast<double>( timer.nsecsElapsed() ) / Paints
+                                                    / 1000
+                                             << " us" );
+    config.setTimeColumns( false, previousColumns );
 }

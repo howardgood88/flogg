@@ -31,7 +31,12 @@ class SelectionTimeLabel : public QWidget {
   public:
     explicit SelectionTimeLabel( QWidget* parent = nullptr );
 
-    void setTime( const QString& text, const QString& details );
+    // From the time reference line: in its orange, else like the checked tool buttons
+    void setTime( const QString& text, const QString& details, bool fromReference = false );
+    bool isFromReference() const
+    {
+        return fromReference_;
+    }
     QString text() const
     {
         return text_;
@@ -66,6 +71,7 @@ class SelectionTimeLabel : public QWidget {
     bool checkedColorsValid_ = false;
 
     QString text_;
+    bool fromReference_ = false;
     QString details_;
 };
 

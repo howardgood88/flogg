@@ -23,6 +23,7 @@
 
 #include <QApplication>
 #include <QCheckBox>
+#include <QClipboard>
 #include <QCloseEvent>
 #include <QComboBox>
 #include <QDesktopServices>
@@ -35,14 +36,19 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QLocale>
+#include <QPainter>
+#include <QPlainTextEdit>
 #include <QMenu>
 #include <QProgressBar>
 #include <QPushButton>
 #include <QSaveFile>
 #include <QSettings>
 #include <QSignalBlocker>
+#include <QSplitter>
 #include <QStackedWidget>
+#include <QStyledItemDelegate>
 #include <QTabWidget>
+#include <QTextBlock>
 #include <QTextBrowser>
 #include <QToolButton>
 #include <QTreeView>
@@ -66,6 +72,12 @@ constexpr auto RegexKey = "analysis/durationRegex";
 constexpr auto RulesKey = "analysis/rulesFile";
 constexpr auto GeometryKey = "analysis/geometry";
 constexpr auto RulesHiddenColumnsKey = "analysis/rulesHiddenColumns";
+constexpr auto DiffTimesKey = "analysis/diffIgnoreTimes";
+constexpr auto DiffNumbersKey = "analysis/diffIgnoreNumbers";
+constexpr auto TextTimesKey = "analysis/textIgnoreTimes";
+constexpr auto TextNumbersKey = "analysis/textIgnoreNumbers";
+constexpr auto DiffLevelKey = "analysis/diffCharacterLevel";
+constexpr auto TextLevelKey = "analysis/textCharacterLevel";
 // Set on a list of tabs once the user chose one
 constexpr auto ChosenProperty = "floggTabChosen";
 
@@ -152,25 +164,252 @@ struct CompareRows {
     bool cancelled = false;
 };
 
-// A row of the two columns: a line of each side (alike), a line on one side only (the other
-// side empty), or lines changed side by side; or a fold of lines alike
-struct DiffRow {
-    std::optional<LineNumber> first;
-    std::optional<LineNumber> second;
-    QString firstText;
-    QString secondText;
-    bool changed = false;
-    // Lines alike left out here
-    uint64_t gap = 0;
-};
-
 struct DiffRows {
     QString error;
     bool cancelled = false;
-    std::vector<DiffRow> rows;
+    std::vector<DiffModel::Row> rows;
     uint64_t added = 0;
     uint64_t removed = 0;
+    uint64_t firstLeftOut = 0;
+    uint64_t secondLeftOut = 0;
+    uint64_t unpaired = 0;
 };
+
+// Longer lines are cut in the two columns
+constexpr int MaxDiffText = 1000;
+
+// The text of a line in the columns: tabs as one space each (the parts that differ keep
+// their place), cut when long
+QString diffText( QString text )
+{
+    text.replace( QChar::Tabulation, QChar::Space );
+    if ( text.size() > MaxDiffText ) {
+        text = text.left( MaxDiffText ) + QChar( 0x2026 );
+    }
+    return text;
+}
+
+QVariantList rangesData( const std::vector<std::pair<int, int>>& ranges )
+{
+    QVariantList list;
+    for ( auto [ start, length ] : ranges ) {
+        if ( start >= MaxDiffText ) {
+            break;
+        }
+        list.append( QPoint( start, qMin( length, MaxDiffText - start ) ) );
+    }
+    return list;
+}
+
+// The rows of the two columns, with their line numbers only: the changes and a few lines
+// around them, the other lines folded unless `fold` is false
+DiffRows diffRows( const templates::Diff& diff, bool fold )
+{
+    using Step = templates::DiffStep;
+    using Row = DiffModel::Row;
+    DiffRows rows;
+    rows.error = diff.error;
+    rows.cancelled = diff.cancelled;
+    rows.firstLeftOut = diff.firstLeftOut;
+    rows.secondLeftOut = diff.secondLeftOut;
+    rows.unpaired = diff.unpairedLines;
+    if ( !diff.error.isEmpty() || diff.cancelled ) {
+        return rows;
+    }
+    const auto& steps = diff.steps;
+
+    std::vector<bool> shown( steps.size(), !fold );
+    for ( size_t i = 0; fold && i < steps.size(); ++i ) {
+        if ( steps[ i ] == Step::Same ) {
+            continue;
+        }
+        const auto from = i > DiffContext ? i - DiffContext : 0;
+        const auto to = qMin( steps.size(), i + DiffContext + 1 );
+        for ( auto j = from; j < to; ++j ) {
+            shown[ j ] = true;
+        }
+    }
+    uint64_t gap = 0;
+    const auto flushGap = [ &rows, &gap ]() {
+        if ( gap > 0 ) {
+            Row foldRow;
+            foldRow.gap = gap;
+            rows.rows.push_back( foldRow );
+            gap = 0;
+        }
+    };
+    size_t x = 0;
+    size_t y = 0;
+    std::vector<uint64_t> removed;
+    std::vector<uint64_t> added;
+    for ( size_t i = 0; i < steps.size(); ) {
+        if ( steps[ i ] == Step::Same ) {
+            if ( !shown[ i ] ) {
+                ++gap;
+            }
+            else {
+                flushGap();
+                Row row;
+                row.first = diff.firstLines[ x ].get();
+                row.second = diff.secondLines[ y ].get();
+                rows.rows.push_back( row );
+            }
+            ++x;
+            ++y;
+            ++i;
+            continue;
+        }
+        // A block of changes: the lines of each side next to each other
+        flushGap();
+        removed.clear();
+        added.clear();
+        while ( i < steps.size() && steps[ i ] != Step::Same ) {
+            if ( steps[ i ] == Step::Removed ) {
+                removed.push_back( diff.firstLines[ x++ ].get() );
+            }
+            else {
+                added.push_back( diff.secondLines[ y++ ].get() );
+            }
+            ++i;
+        }
+        rows.removed += removed.size();
+        rows.added += added.size();
+        for ( size_t k = 0; k < qMax( removed.size(), added.size() ); ++k ) {
+            Row row;
+            row.changed = true;
+            if ( k < removed.size() ) {
+                row.first = removed[ k ];
+            }
+            if ( k < added.size() ) {
+                row.second = added[ k ];
+            }
+            rows.rows.push_back( row );
+        }
+    }
+    flushGap();
+    rows.rows.shrink_to_fit();
+    return rows;
+}
+
+// A text with some of its parts on a stronger background
+class DiffDelegate : public QStyledItemDelegate {
+  public:
+    DiffDelegate( QColor color, QObject* parent )
+        : QStyledItemDelegate( parent )
+        , color_( color )
+    {
+    }
+
+    void paint( QPainter* painter, const QStyleOptionViewItem& option,
+                const QModelIndex& index ) const override
+    {
+        const auto ranges = index.data( DiffModel::ChangesRole ).toList();
+        if ( ranges.isEmpty() ) {
+            QStyledItemDelegate::paint( painter, option, index );
+            return;
+        }
+        QStyleOptionViewItem opt = option;
+        initStyleOption( &opt, index );
+        const auto text = opt.text;
+        opt.text.clear();
+        const auto* widget = opt.widget;
+        auto* style = widget ? widget->style() : QApplication::style();
+        // The background and the selection, without the text
+        style->drawControl( QStyle::CE_ItemViewItem, &opt, painter, widget );
+
+        const auto margin = style->pixelMetric( QStyle::PM_FocusFrameHMargin, nullptr, widget ) + 1;
+        const auto rect = style->subElementRect( QStyle::SE_ItemViewItemText, &opt, widget )
+                              .adjusted( margin, 0, -margin, 0 );
+        const QFontMetrics metrics( opt.font );
+        painter->save();
+        painter->setClipRect( rect );
+        painter->setFont( opt.font );
+        for ( const auto& range : ranges ) {
+            const auto part = range.toPoint();
+            const auto left = rect.left() + metrics.horizontalAdvance( text.left( part.x() ) );
+            const auto width
+                = qMax( 2, metrics.horizontalAdvance( text.mid( part.x(), part.y() ) ) );
+            painter->fillRect( QRect( left, rect.top() + 1, width, rect.height() - 2 ), color_ );
+        }
+        const auto selected = opt.state.testFlag( QStyle::State_Selected );
+        painter->setPen( opt.palette.color( selected ? QPalette::HighlightedText : QPalette::Text ) );
+        painter->drawText( rect, Qt::AlignLeft | Qt::AlignVCenter | Qt::TextSingleLine, text );
+        painter->restore();
+    }
+
+  private:
+    QColor color_;
+};
+
+// Light tints, readable in the light and the dark styles; the parts that differ stronger
+const QColor RemovedColor( 0xe0, 0x40, 0x40, 0x48 );
+const QColor AddedColor( 0x30, 0xb0, 0x50, 0x48 );
+const QColor EmptyColor( 0x80, 0x80, 0x80, 0x24 );
+const QColor RemovedPartColor( 0xe0, 0x40, 0x40, 0xa0 );
+const QColor AddedPartColor( 0x30, 0xb0, 0x50, 0xa0 );
+
+// The message of a line by line comparison
+QString diffMessage( const DiffRows& rows, const QString& alike, const QString& counts )
+{
+    auto text = rows.added + rows.removed == 0 ? alike : counts;
+    if ( rows.firstLeftOut > 0 || rows.secondLeftOut > 0 ) {
+        text += QCoreApplication::translate(
+                    "AnalysisDialog", ". Only the first %L1 lines of each side were compared "
+                                      "(%L2 and %L3 lines left out): select fewer lines or "
+                                      "compare the templates" )
+                    .arg( templates::MaxDiffLines )
+                    .arg( rows.firstLeftOut )
+                    .arg( rows.secondLeftOut );
+    }
+    if ( rows.unpaired > 0 ) {
+        text += QCoreApplication::translate(
+                    "AnalysisDialog", ". %L1 lines of parts too different to pair up are shown "
+                                      "as removed and added blocks" )
+                    .arg( rows.unpaired );
+    }
+    return text;
+}
+
+// A check box remembered in the settings
+QCheckBox* rememberedCheckBox( const QString& text, const char* key, QWidget* parent )
+{
+    auto* box = new QCheckBox( text, parent );
+    box->setChecked( settings().value( key, false ).toBool() );
+    QObject::connect( box, &QCheckBox::toggled, box,
+                      [ key ]( bool checked ) { settings().setValue( key, checked ); } );
+    return box;
+}
+
+// The level of the differences of a line by line comparison, remembered in the settings:
+// character level (index 0, the default) or line level (index 1)
+constexpr int CharacterLevelIndex = 0;
+QComboBox* levelComboBox( const char* key, QWidget* parent )
+{
+    auto* box = new QComboBox( parent );
+    box->addItem( QObject::tr( "Character level" ) );
+    box->setItemData(
+        0, QObject::tr( "In a changed line the characters that differ are marked darker" ),
+        Qt::ToolTipRole );
+    box->addItem( QObject::tr( "Line level" ) );
+    box->setItemData( 1, QObject::tr( "A changed line is marked as a whole" ), Qt::ToolTipRole );
+    box->setToolTip( QObject::tr( "How the differences of a changed line are shown" ) );
+    box->setCurrentIndex( settings().value( key, true ).toBool() ? CharacterLevelIndex : 1 );
+    QObject::connect( box, QOverload<int>::of( &QComboBox::currentIndexChanged ), box,
+                      [ key ]( int index ) {
+                          settings().setValue( key, index == CharacterLevelIndex );
+                      } );
+    return box;
+}
+
+// The model shown at the level chosen
+void followLevel( QComboBox* box, DiffModel* model )
+{
+    model->setCharacterLevel( box->currentIndex() == CharacterLevelIndex );
+    QObject::connect( box, QOverload<int>::of( &QComboBox::currentIndexChanged ), model,
+                      [ model ]( int index ) {
+                          model->setCharacterLevel( index == CharacterLevelIndex );
+                      } );
+}
 
 } // namespace
 
@@ -451,6 +690,164 @@ QVariant CompareModel::headerData( int section, Qt::Orientation orientation, int
 }
 
 //
+// DiffModel
+//
+
+void DiffModel::setRows( std::vector<Row> rows, TextReader reader, templates::DiffOptions options )
+{
+    beginResetModel();
+    rows_ = std::move( rows );
+    reader_ = std::move( reader );
+    options_ = options;
+    texts_.clear();
+    endResetModel();
+}
+
+void DiffModel::setCharacterLevel( bool characterLevel )
+{
+    if ( characterLevel == characterLevel_ ) {
+        return;
+    }
+    characterLevel_ = characterLevel;
+    texts_.clear();
+    if ( !rows_.empty() ) {
+        Q_EMIT dataChanged( index( 0, 0 ), index( rowCount() - 1, NbColumns - 1 ) );
+    }
+}
+
+void DiffModel::clear()
+{
+    setRows( {}, {}, {} );
+}
+
+void DiffModel::setNames( const QString& first, const QString& second )
+{
+    firstName_ = first;
+    secondName_ = second;
+    Q_EMIT headerDataChanged( Qt::Horizontal, 0, NbColumns - 1 );
+}
+
+std::optional<LineNumber> DiffModel::lineAt( int row, int side ) const
+{
+    if ( row < 0 || static_cast<size_t>( row ) >= rows_.size() ) {
+        return {};
+    }
+    const auto line = side == 0 ? rows_[ static_cast<size_t>( row ) ].first
+                                : rows_[ static_cast<size_t>( row ) ].second;
+    return line == Row::None ? std::optional<LineNumber>{} : LineNumber( line );
+}
+
+const DiffModel::Texts& DiffModel::textsOf( int row ) const
+{
+    if ( auto* cached = texts_.object( row ) ) {
+        return *cached;
+    }
+    const auto& r = rows_[ static_cast<size_t>( row ) ];
+    auto* texts = new Texts;
+    const auto read = [ this ]( int side, uint64_t line ) {
+        return line != Row::None && reader_ ? reader_( side, LineNumber( line ) ) : QString{};
+    };
+    const auto first = read( 0, r.first );
+    const auto second = read( 1, r.second );
+    // The characters that differ of a line changed into another one, on the whole lines
+    if ( characterLevel_ && r.changed && r.first != Row::None && r.second != Row::None ) {
+        const auto changes = templates::changedParts( first, second, options_ );
+        texts->firstChanges = rangesData( changes.first );
+        texts->secondChanges = rangesData( changes.second );
+    }
+    texts->first = diffText( first );
+    texts->second = diffText( second );
+    texts_.insert( row, texts );
+    return *texts;
+}
+
+int DiffModel::rowCount( const QModelIndex& parent ) const
+{
+    return parent.isValid() ? 0 : static_cast<int>( rows_.size() );
+}
+
+int DiffModel::columnCount( const QModelIndex& ) const
+{
+    return NbColumns;
+}
+
+QVariant DiffModel::data( const QModelIndex& index, int role ) const
+{
+    if ( !index.isValid() || static_cast<size_t>( index.row() ) >= rows_.size() ) {
+        return {};
+    }
+    const auto& r = rows_[ static_cast<size_t>( index.row() ) ];
+    const auto column = index.column();
+    const auto isText = column == FirstText || column == SecondText;
+    const auto side = column < SecondLine ? 0 : 1;
+    const auto line = side == 0 ? r.first : r.second;
+
+    if ( r.gap > 0 ) {
+        switch ( role ) {
+        case Qt::DisplayRole:
+            return isText ? QVariant( tr( "%L1 lines alike" ).arg( r.gap ) ) : QVariant{};
+        case Qt::ForegroundRole:
+            return gapColor_.isValid() ? QVariant( gapColor_ ) : QVariant{};
+        case Qt::TextAlignmentRole:
+            return QVariant::fromValue( Qt::Alignment( Qt::AlignCenter ) );
+        default:
+            return {};
+        }
+    }
+
+    switch ( role ) {
+    case Qt::DisplayRole:
+    case Qt::ToolTipRole:
+        if ( line == Row::None ) {
+            return {};
+        }
+        if ( !isText ) {
+            return role == Qt::DisplayRole ? QVariant( QString::number( line + 1 ) ) : QVariant{};
+        }
+        return side == 0 ? textsOf( index.row() ).first : textsOf( index.row() ).second;
+    case ChangesRole:
+        if ( !isText || !r.changed || line == Row::None ) {
+            return {};
+        }
+        return side == 0 ? textsOf( index.row() ).firstChanges
+                         : textsOf( index.row() ).secondChanges;
+    case LineRole:
+        return line == Row::None ? QVariant{} : QVariant::fromValue<qulonglong>( line );
+    case Qt::BackgroundRole:
+        if ( !r.changed ) {
+            return {};
+        }
+        if ( line == Row::None ) {
+            return EmptyColor;
+        }
+        return side == 0 ? RemovedColor : AddedColor;
+    case Qt::TextAlignmentRole:
+        return isText ? QVariant{}
+                      : QVariant::fromValue( Qt::Alignment( Qt::AlignRight | Qt::AlignVCenter ) );
+    default:
+        return {};
+    }
+}
+
+QVariant DiffModel::headerData( int section, Qt::Orientation orientation, int role ) const
+{
+    if ( orientation != Qt::Horizontal || role != Qt::DisplayRole ) {
+        return {};
+    }
+    switch ( section ) {
+    case FirstLine:
+    case SecondLine:
+        return tr( "Line" );
+    case FirstText:
+        return firstName_;
+    case SecondText:
+        return secondName_;
+    default:
+        return {};
+    }
+}
+
+//
 // AnalysisDialog
 //
 
@@ -466,7 +863,8 @@ AnalysisDialog::AnalysisDialog( Context context, QWidget* parent )
     pages_ = new QTabWidget( this );
     pages_->addTab( createDurationsPage(), tr( "Durations" ) );
     pages_->addTab( createRulesPage(), tr( "Rules" ) );
-    pages_->addTab( createComparePage(), tr( "Compare" ) );
+    pages_->addTab( createComparePage(), tr( "Compare file" ) );
+    pages_->addTab( createCompareTextPage(), tr( "Compare text" ) );
 
     progress_ = new QProgressBar( this );
     progress_->setRange( 0, 100 );
@@ -1308,7 +1706,7 @@ QWidget* AnalysisDialog::createComparePage()
     compareMode_->addItem( tr( "Templates" ) );
     compareMode_->setItemData(
         LineByLineMode,
-        tr( "Up to %L1 lines on each side, times and numbers left out, in two columns" )
+        tr( "The text of the lines, in two columns; the first %L1 lines of each side" )
             .arg( templates::MaxDiffLines ),
         Qt::ToolTipRole );
     compareMode_->setItemData( TemplatesMode,
@@ -1319,10 +1717,22 @@ QWidget* AnalysisDialog::createComparePage()
     runButtons_.push_back( compareButton );
     connect( compareButton, &QPushButton::clicked, this,
              [ this ] { runCompare( compareMode_->currentIndex() == LineByLineMode ); } );
-    // Grouping by one word is about templates only
+    diffTimes_ = rememberedCheckBox( tr( "Ignore time stamps" ), DiffTimesKey, page );
+    diffTimes_->setToolTip( tr( "Lines that differ only by their time stamps are alike" ) );
+    diffNumbers_ = rememberedCheckBox( tr( "Ignore numbers" ), DiffNumbersKey, page );
+    diffNumbers_->setToolTip(
+        tr( "Lines that differ only by their numbers (ids, counters, durations) are alike" ) );
+    diffLevel_ = levelComboBox( DiffLevelKey, page );
+    // Grouping by one word is about templates only, what is left out about line by line
+    const auto showOptions = [ this ]( int mode ) {
+        merge_->setVisible( mode == TemplatesMode );
+        diffTimes_->setVisible( mode == LineByLineMode );
+        diffNumbers_->setVisible( mode == LineByLineMode );
+        diffLevel_->setVisible( mode == LineByLineMode );
+    };
     connect( compareMode_, QOverload<int>::of( &QComboBox::currentIndexChanged ), this,
-             [ this ]( int mode ) { merge_->setEnabled( mode == TemplatesMode ); } );
-    merge_->setEnabled( compareMode_->currentIndex() == TemplatesMode );
+             showOptions );
+    showOptions( compareMode_->currentIndex() );
 
     statusFilter_ = new QComboBox( page );
     statusFilter_->addItems( { tr( "All templates" ), tr( "Changed" ), tr( "Only in the first" ),
@@ -1333,11 +1743,19 @@ QWidget* AnalysisDialog::createComparePage()
     auto* firstRow = new QHBoxLayout();
     firstRow->addWidget( firstTab_, 1 );
     firstRow->addWidget( firstScope_ );
-    setHelp( Compare, tr( "Compare" ),
+    setHelp( Compare, tr( "Compare file" ),
         tr( "<p>What differs between two logs, such as a good day and a bad day, or before and "
             "after a change. Choose the tab of each side and its lines: the whole file, the "
-            "lines of the filtered view or the selected lines. Pasted text can be compared too: "
-            "paste it as a tab (<i>File &gt; Paste from clipboard</i>).</p>"
+            "lines of the filtered view or the selected lines. To compare pasted text, use the "
+            "<i>Compare text</i> page.</p>"
+            "<p><b>Line by line</b> compares the text of the lines, as a text comparison tool "
+            "does, in two columns like a code review: the lines of one side only in red and "
+            "green, in a line changed into another the characters that differ darker (<b>Character "
+            "level</b>; <b>Line level</b> marks the whole lines only), the lines alike folded. <b>Ignore time stamps</b> and <b>Ignore numbers</b> leave out what "
+            "always differs between two runs. The first %L2 lines of each side are compared "
+            "(the message tells how many were left out): for larger files compare the "
+            "<b>Templates</b>. Parts too different to pair up line by line in a few seconds "
+            "are shown as a block removed and a block added.</p>"
             "<p><b>Templates</b> turns each line into its kind: the time stamp left out, the "
             "numbers, ids, quoted text and the values of <code>key=value</code> replaced. The "
             "lines</p>"
@@ -1356,10 +1774,7 @@ QWidget* AnalysisDialog::createComparePage()
             "words or more that differ by one word, e.g. <code>login user alice ok</code> and "
             "<code>login user bob ok</code>.</p>"
             "<p>With <b>(nothing)</b> as the other side, the templates of the first one, the "
-            "rarest first: the unusual lines of a log.</p>"
-            "<p><b>Line by line</b> puts both sides in two columns like a code review, up to "
-            "%L2 lines a side, the times and numbers left out: the lines of one side only in "
-            "red and green, the lines alike folded.</p>" )
+            "rarest first: the unusual lines of a log.</p>" )
             .arg( templates::MaxTemplateLines )
             .arg( templates::MaxDiffLines ) );
     form->addRow( tr( "Compare:" ), firstRow );
@@ -1369,6 +1784,9 @@ QWidget* AnalysisDialog::createComparePage()
     form->addRow( tr( "With:" ), other );
     auto* buttons = new QHBoxLayout();
     buttons->addWidget( merge_ );
+    buttons->addWidget( diffTimes_ );
+    buttons->addWidget( diffNumbers_ );
+    buttons->addWidget( diffLevel_ );
     buttons->addStretch();
     buttons->addWidget( compareMode_ );
     buttons->addWidget( compareButton );
@@ -1413,29 +1831,25 @@ QWidget* AnalysisDialog::createComparePage()
     } );
 
     // Two columns, like a code review: the first tab on the left, the other on the right
-    diffTree_ = new QTreeWidget( page );
-    diffTree_->setRootIsDecorated( false );
-    diffTree_->setUniformRowHeights( true );
-    diffTree_->setHeaderLabels( { tr( "Line" ), {}, tr( "Line" ), {} } );
-    diffTree_->setToolTip( tr( "Double click a side to show its line in its tab" ) );
-    connect( diffTree_, &QTreeWidget::itemActivated, this,
-             [ this ]( QTreeWidgetItem* item, int column ) {
-                 const auto first = item->data( 0, Qt::UserRole );
-                 const auto second = item->data( 2, Qt::UserRole );
-                 const auto right = column >= 2;
-                 if ( ( right && second.isValid() ) || ( !first.isValid() && second.isValid() ) ) {
-                     const LineNumber line( second.toULongLong() );
-                     showLinesOf( secondCrawler_, line, line );
-                 }
-                 else if ( first.isValid() ) {
-                     const LineNumber line( first.toULongLong() );
-                     showLinesOf( firstCrawler_, line, line );
-                 }
-             } );
+    diffModel_ = new DiffModel( this );
+    followLevel( diffLevel_, diffModel_ );
+    diffView_ = createDiffView( diffModel_, page );
+    diffView_->setToolTip( tr( "Double click a side to show its line in its tab" ) );
+    connect( diffView_, &QTreeView::activated, this, [ this ]( const QModelIndex& index ) {
+        const auto first = diffModel_->lineAt( index.row(), 0 );
+        const auto second = diffModel_->lineAt( index.row(), 1 );
+        const auto right = index.column() >= DiffModel::SecondLine;
+        if ( second && ( right || !first ) ) {
+            showLinesOf( secondCrawler_, *second, *second );
+        }
+        else if ( first ) {
+            showLinesOf( firstCrawler_, *first, *first );
+        }
+    } );
 
     compareResults_ = new QStackedWidget( page );
     compareResults_->addWidget( compareView_ );
-    compareResults_->addWidget( diffTree_ );
+    compareResults_->addWidget( diffView_ );
 
     // Above the results, on the right: which templates to show, for the templates only
     filterRow_ = new QWidget( page );
@@ -1650,90 +2064,19 @@ void AnalysisDialog::runCompare( bool lineByLine )
         return;
     }
 
-    compareResults_->setCurrentWidget( diffTree_ );
+    compareResults_->setCurrentWidget( diffView_ );
     filterRow_->hide();
-    diffTree_->setHeaderLabels( { tr( "Line" ), firstName, tr( "Line" ), secondName } );
-    diffTree_->clear();
+    diffModel_->setNames( firstName, secondName );
+    diffModel_->clear();
+    templates::DiffOptions options;
+    options.ignoreTimes = diffTimes_->isChecked();
+    options.ignoreNumbers = diffNumbers_->isChecked();
     start<DiffRows>(
-        [ a, b, scopeA = *firstScope, scopeB = *secondScope ]( AtomicFlag& cancel,
-                                                               const analysis::Progress& ) {
-            DiffRows rows;
-            const auto diff = templates::diff( *a, scopeA, *b, scopeB, cancel );
-            rows.error = diff.error;
-            rows.cancelled = diff.cancelled;
-            if ( !diff.error.isEmpty() || diff.cancelled ) {
-                return rows;
-            }
-
-            // The changes and a few lines around them, the other lines folded
-            std::vector<bool> shown( diff.lines.size(), false );
-            for ( size_t i = 0; i < diff.lines.size(); ++i ) {
-                if ( diff.lines[ i ].op == templates::DiffLine::Op::Same ) {
-                    continue;
-                }
-                const auto from = i > DiffContext ? i - DiffContext : 0;
-                const auto to = qMin( diff.lines.size(), i + DiffContext + 1 );
-                for ( auto j = from; j < to; ++j ) {
-                    shown[ j ] = true;
-                }
-            }
-            using Op = templates::DiffLine::Op;
-            uint64_t gap = 0;
-            const auto flushGap = [ &rows, &gap ]() {
-                if ( gap > 0 ) {
-                    DiffRow fold;
-                    fold.gap = gap;
-                    rows.rows.push_back( fold );
-                    gap = 0;
-                }
-            };
-            for ( size_t i = 0; i < diff.lines.size(); ) {
-                const auto& line = diff.lines[ i ];
-                if ( line.op == Op::Same ) {
-                    if ( !shown[ i ] ) {
-                        ++gap;
-                    }
-                    else {
-                        flushGap();
-                        rows.rows.push_back( { line.first, line.second, lineText( *a, *line.first ),
-                                               lineText( *b, *line.second ), false, 0 } );
-                    }
-                    ++i;
-                    continue;
-                }
-                // A block of changes: the lines of each side next to each other
-                flushGap();
-                std::vector<LineNumber> removed;
-                std::vector<LineNumber> added;
-                while ( i < diff.lines.size() && diff.lines[ i ].op != Op::Same ) {
-                    if ( diff.lines[ i ].op == Op::Removed ) {
-                        removed.push_back( *diff.lines[ i ].first );
-                    }
-                    else {
-                        added.push_back( *diff.lines[ i ].second );
-                    }
-                    ++i;
-                }
-                rows.removed += removed.size();
-                rows.added += added.size();
-                for ( size_t k = 0; k < qMax( removed.size(), added.size() ); ++k ) {
-                    DiffRow row;
-                    row.changed = true;
-                    if ( k < removed.size() ) {
-                        row.first = removed[ k ];
-                        row.firstText = lineText( *a, removed[ k ] );
-                    }
-                    if ( k < added.size() ) {
-                        row.second = added[ k ];
-                        row.secondText = lineText( *b, added[ k ] );
-                    }
-                    rows.rows.push_back( row );
-                }
-            }
-            flushGap();
-            return rows;
+        [ a, b, scopeA = *firstScope, scopeB = *secondScope,
+          options ]( AtomicFlag& cancel, const analysis::Progress& ) {
+            return diffRows( templates::diff( *a, scopeA, *b, scopeB, options, cancel ), true );
         },
-        [ this ]( const DiffRows& rows ) {
+        [ this, firstName, secondName, options ]( const DiffRows& rows ) {
             if ( !rows.error.isEmpty() ) {
                 setMessage( rows.error, true );
                 return;
@@ -1742,59 +2085,238 @@ void AnalysisDialog::runCompare( bool lineByLine )
                 setMessage( tr( "Stopped" ) );
                 return;
             }
-            // Light tints, readable in the light and the dark styles
-            const QColor removed( 0xe0, 0x40, 0x40, 0x48 );
-            const QColor added( 0x30, 0xb0, 0x50, 0x48 );
-            const QColor empty( 0x80, 0x80, 0x80, 0x24 );
-            for ( const auto& row : rows.rows ) {
-                auto* item = new QTreeWidgetItem();
-                if ( row.gap > 0 ) {
-                    const auto text = tr( "%L1 lines alike" ).arg( row.gap );
-                    item->setText( 1, text );
-                    item->setText( 3, text );
-                    item->setForeground( 1, palette().color( QPalette::PlaceholderText ) );
-                    item->setForeground( 3, palette().color( QPalette::PlaceholderText ) );
-                    item->setTextAlignment( 1, Qt::AlignCenter );
-                    item->setTextAlignment( 3, Qt::AlignCenter );
-                    diffTree_->addTopLevelItem( item );
-                    continue;
-                }
-                if ( row.first ) {
-                    item->setText( 0, QString::number( row.first->get() + 1 ) );
-                    item->setData( 0, Qt::UserRole, QVariant::fromValue<qulonglong>( row.first->get() ) );
-                    item->setText( 1, row.firstText );
-                }
-                if ( row.second ) {
-                    item->setText( 2, QString::number( row.second->get() + 1 ) );
-                    item->setData( 2, Qt::UserRole, QVariant::fromValue<qulonglong>( row.second->get() ) );
-                    item->setText( 3, row.secondText );
-                }
-                if ( row.changed ) {
-                    const auto left = row.first ? removed : empty;
-                    const auto right = row.second ? added : empty;
-                    item->setBackground( 0, left );
-                    item->setBackground( 1, left );
-                    item->setBackground( 2, right );
-                    item->setBackground( 3, right );
-                }
-                item->setTextAlignment( 0, Qt::AlignRight | Qt::AlignVCenter );
-                item->setTextAlignment( 2, Qt::AlignRight | Qt::AlignVCenter );
-                diffTree_->addTopLevelItem( item );
-            }
-            diffTree_->resizeColumnToContents( 0 );
-            diffTree_->resizeColumnToContents( 2 );
-            // The two sides share the width
-            const auto textWidth = qMax( 200, ( diffTree_->viewport()->width()
-                                                - diffTree_->columnWidth( 0 )
-                                                - diffTree_->columnWidth( 2 ) ) / 2 );
-            diffTree_->setColumnWidth( 1, textWidth );
-            setMessage( rows.added + rows.removed == 0
-                            ? tr( "The lines are alike (times and numbers left out)" )
-                            : tr( "Lines only in %1: %L2, only in %3: %L4" )
-                                  .arg( diffTree_->headerItem()->text( 1 ) )
-                                  .arg( rows.removed )
-                                  .arg( diffTree_->headerItem()->text( 3 ) )
-                                  .arg( rows.added ) );
+            // The texts read from the tabs for the rows shown
+            QPointer<CrawlerWidget> first = firstCrawler_;
+            QPointer<CrawlerWidget> second = secondCrawler_;
+            showDiff( diffView_, diffModel_, rows.rows,
+                      [ first, second ]( int side, LineNumber line ) {
+                          const auto& crawler = side == 0 ? first : second;
+                          const auto data
+                              = crawler ? crawler->logData() : std::shared_ptr<LogData>{};
+                          return data && line < data->getNbLine() ? data->getLineString( line )
+                                                                  : QString{};
+                      },
+                      options );
+            setMessage( diffMessage( rows, tr( "The lines are alike" ),
+                                     tr( "Lines only in %1: %L2, only in %3: %L4" )
+                                         .arg( firstName )
+                                         .arg( rows.removed )
+                                         .arg( secondName )
+                                         .arg( rows.added ) ) );
         },
         { firstData, secondData } );
+}
+
+QTreeView* AnalysisDialog::createDiffView( DiffModel* model, QWidget* parent )
+{
+    auto* view = new QTreeView( parent );
+    view->setRootIsDecorated( false );
+    view->setUniformRowHeights( true );
+    view->setItemsExpandable( false );
+    view->setModel( model );
+    model->setGapColor( view->palette().color( QPalette::PlaceholderText ) );
+    view->setItemDelegateForColumn( DiffModel::FirstText,
+                                    new DiffDelegate( RemovedPartColor, view ) );
+    view->setItemDelegateForColumn( DiffModel::SecondText,
+                                    new DiffDelegate( AddedPartColor, view ) );
+    return view;
+}
+
+void AnalysisDialog::showDiff( QTreeView* view, DiffModel* model, std::vector<DiffModel::Row> rows,
+                               DiffModel::TextReader reader, const templates::DiffOptions& options )
+{
+    // The line numbers as wide as the largest one, without reading all the rows
+    uint64_t largest = 0;
+    for ( const auto& row : rows ) {
+        if ( row.first != DiffModel::Row::None ) {
+            largest = qMax( largest, row.first );
+        }
+        if ( row.second != DiffModel::Row::None ) {
+            largest = qMax( largest, row.second );
+        }
+    }
+    model->setRows( std::move( rows ), std::move( reader ), options );
+    const auto numberWidth = qMax(
+        view->fontMetrics().horizontalAdvance( QString::number( largest + 1 ) + "00" ),
+        view->header()->sectionSizeHint( DiffModel::FirstLine ) );
+    view->setColumnWidth( DiffModel::FirstLine, numberWidth );
+    view->setColumnWidth( DiffModel::SecondLine, numberWidth );
+    // The two sides share the width
+    view->setColumnWidth( DiffModel::FirstText,
+                          qMax( 200, ( view->viewport()->width() - 2 * numberWidth ) / 2 ) );
+}
+
+//
+// Compare by text
+//
+
+QWidget* AnalysisDialog::createCompareTextPage()
+{
+    auto* page = new QWidget( this );
+    const auto fixedFont = QFontDatabase::systemFont( QFontDatabase::FixedFont );
+
+    // A box of text with its name and a button pasting the clipboard into it
+    const auto textBox = [ page, &fixedFont ]( const QString& name, const QString& placeholder,
+                                              QPlainTextEdit*& edit ) {
+        auto* box = new QWidget( page );
+        edit = new QPlainTextEdit( box );
+        edit->setLineWrapMode( QPlainTextEdit::NoWrap );
+        edit->setPlaceholderText( placeholder );
+        edit->setFont( fixedFont );
+        auto* paste = new QPushButton( tr( "Paste" ), box );
+        paste->setToolTip( tr( "Replaces the text with the one of the clipboard" ) );
+        auto* target = edit;
+        connect( paste, &QPushButton::clicked, edit, [ target ] {
+            target->setPlainText( QGuiApplication::clipboard()->text() );
+        } );
+        auto* clear = new QPushButton( tr( "Clear" ), box );
+        connect( clear, &QPushButton::clicked, edit, &QPlainTextEdit::clear );
+        auto* top = new QHBoxLayout();
+        top->addWidget( new QLabel( name, box ), 1 );
+        top->addWidget( paste );
+        top->addWidget( clear );
+        auto* layout = new QVBoxLayout( box );
+        layout->setContentsMargins( 0, 0, 0, 0 );
+        layout->addLayout( top );
+        layout->addWidget( edit, 1 );
+        return box;
+    };
+    auto* texts = new QSplitter( Qt::Horizontal, page );
+    texts->addWidget( textBox( tr( "First text" ), tr( "Paste the first text here" ), firstText_ ) );
+    texts->addWidget(
+        textBox( tr( "Second text" ), tr( "Paste the second text here" ), secondText_ ) );
+
+    textTimes_ = rememberedCheckBox( tr( "Ignore time stamps" ), TextTimesKey, page );
+    textTimes_->setToolTip( tr( "Lines that differ only by their time stamps are alike" ) );
+    textNumbers_ = rememberedCheckBox( tr( "Ignore numbers" ), TextNumbersKey, page );
+    textNumbers_->setToolTip(
+        tr( "Lines that differ only by their numbers (ids, counters, durations) are alike" ) );
+    auto* compareButton = new QPushButton( tr( "Compare" ), page );
+    runButtons_.push_back( compareButton );
+    connect( compareButton, &QPushButton::clicked, this, &AnalysisDialog::runCompareText );
+    auto* buttons = new QHBoxLayout();
+    buttons->addWidget( textTimes_ );
+    buttons->addWidget( textNumbers_ );
+    textLevel_ = levelComboBox( TextLevelKey, page );
+    buttons->addWidget( textLevel_ );
+    buttons->addStretch();
+    buttons->addWidget( compareButton );
+
+    textDiffModel_ = new DiffModel( this );
+    followLevel( textLevel_, textDiffModel_ );
+    textDiffModel_->setNames( tr( "First text" ), tr( "Second text" ) );
+    textDiffView_ = createDiffView( textDiffModel_, page );
+    textDiffView_->setToolTip( tr( "Double click a side to go to its line in its text" ) );
+    connect( textDiffView_, &QTreeView::activated, this,
+             [ this ]( const QModelIndex& index ) {
+                 const auto first = textDiffModel_->lineAt( index.row(), 0 );
+                 const auto second = textDiffModel_->lineAt( index.row(), 1 );
+                 const auto right
+                     = ( index.column() >= DiffModel::SecondLine && second ) || !first;
+                 const auto line = right ? second : first;
+                 if ( !line ) {
+                     return;
+                 }
+                 auto* edit = right ? secondText_ : firstText_;
+                 const auto block
+                     = edit->document()->findBlockByNumber( static_cast<int>( line->get() ) );
+                 if ( block.isValid() ) {
+                     QTextCursor cursor( block );
+                     cursor.movePosition( QTextCursor::EndOfBlock, QTextCursor::KeepAnchor );
+                     edit->setTextCursor( cursor );
+                     edit->centerCursor();
+                     edit->setFocus();
+                 }
+             } );
+
+    // The options and Compare under the boxes, above the results, as in Compare file
+    auto* top = new QWidget( page );
+    auto* topLayout = new QVBoxLayout( top );
+    topLayout->setContentsMargins( 0, 0, 0, 0 );
+    topLayout->addWidget( texts, 1 );
+    topLayout->addLayout( buttons );
+
+    auto* split = new QSplitter( Qt::Vertical, page );
+    split->addWidget( top );
+    split->addWidget( textDiffView_ );
+    split->setStretchFactor( 0, 1 );
+    split->setStretchFactor( 1, 2 );
+
+    setHelp( CompareText, tr( "Compare text" ),
+             tr( "<p>What differs between two texts, such as lines copied from two logs, a mail "
+                 "or a chat. Paste each text in its box (<b>Paste</b> takes the clipboard), then "
+                 "<b>Compare</b>.</p>"
+                 "<p>The lines are compared as a text comparison tool does, in two columns like a "
+                 "code review: the lines of one side only in red and green, in a line changed "
+                 "into another the characters that differ darker (<b>Character level</b>; <b>Line "
+                 "level</b> marks the whole lines only). The lines alike far from the "
+                 "changes are folded. Double click a line to go to it in its box.</p>"
+                 "<p><b>Ignore time stamps</b> leaves out the time stamps at the start of the "
+                 "lines, <b>Ignore numbers</b> the numbers (ids, counters, durations): what "
+                 "always differs between two runs. The lines</p>"
+                 "<pre>2026-11-22 09:00:58.261 WARN retry request=77 attempt=2\n"
+                 "2026-11-22 09:01:01.711 WARN retry request=78 attempt=3</pre>"
+                 "<p>are alike with both. The first %L1 lines of each text are compared.</p>" )
+                 .arg( templates::MaxDiffLines ) );
+
+    auto* layout = new QVBoxLayout( page );
+    layout->addWidget( split, 1 );
+    return page;
+}
+
+void AnalysisDialog::runCompareText()
+{
+    if ( !startsOn( CompareText ) ) {
+        return;
+    }
+    // The lines of a box, without the end of the last one
+    const auto linesOf = []( const QPlainTextEdit* edit ) {
+        auto lines = edit->toPlainText().split( QChar::LineFeed );
+        for ( auto& line : lines ) {
+            if ( line.endsWith( QChar::CarriageReturn ) ) {
+                line.chop( 1 );
+            }
+        }
+        if ( !lines.isEmpty() && lines.back().isEmpty() ) {
+            lines.removeLast();
+        }
+        return std::vector<QString>( lines.cbegin(), lines.cend() );
+    };
+    auto first = std::make_shared<const std::vector<QString>>( linesOf( firstText_ ) );
+    auto second = std::make_shared<const std::vector<QString>>( linesOf( secondText_ ) );
+    if ( first->empty() && second->empty() ) {
+        setMessage( tr( "Paste the two texts first" ), true );
+        return;
+    }
+    textDiffModel_->clear();
+    templates::DiffOptions options;
+    options.ignoreTimes = textTimes_->isChecked();
+    options.ignoreNumbers = textNumbers_->isChecked();
+    start<DiffRows>(
+        [ first, second, options ]( AtomicFlag& cancel, const analysis::Progress& ) {
+            // All the lines, none folded
+            return diffRows( templates::diff( *first, *second, options, cancel ), true );
+        },
+        [ this, first, second, options ]( const DiffRows& rows ) {
+            if ( !rows.error.isEmpty() ) {
+                setMessage( rows.error, true );
+                return;
+            }
+            if ( rows.cancelled ) {
+                setMessage( tr( "Stopped" ) );
+                return;
+            }
+            showDiff( textDiffView_, textDiffModel_, rows.rows,
+                      [ first, second ]( int side, LineNumber line ) {
+                          const auto& lines = side == 0 ? *first : *second;
+                          return line.get() < lines.size() ? lines[ line.get() ] : QString{};
+                      },
+                      options );
+            setMessage( diffMessage(
+                rows, tr( "The texts are alike" ),
+                tr( "Lines only in the first text: %L1, only in the second: %L2" )
+                    .arg( rows.removed )
+                    .arg( rows.added ) ) );
+        },
+        {} );
 }

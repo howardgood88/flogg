@@ -59,6 +59,7 @@
 #include <QMessageBox>
 #include <QSaveFile>
 #include <QApplication>
+#include <QClipboard>
 #include <QCompleter>
 #include <QInputDialog>
 #include <QJsonDocument>
@@ -286,7 +287,8 @@ std::vector<QObject*> CrawlerWidget::doGetAllSearchables() const
 void CrawlerWidget::doSendAllStateSignals()
 {
     Q_EMIT newSelection( currentLineNumber_, 0_lcount, 0_lcol, 0_length );
-    Q_EMIT selectionTimeChanged( selectionTimeText_, selectionTimeToolTip_ );
+    Q_EMIT selectionTimeChanged( selectionTimeText_, selectionTimeToolTip_,
+                                 selectionTimeFromReference_ );
     if ( !loadingInProgress_ )
         Q_EMIT loadingFinished( LoadingStatus::Successful );
 }
@@ -1380,6 +1382,11 @@ void CrawlerWidget::setup()
     connect( logMainView_, &LogMainView::removeNoteRequested, this,
              [ this ]( LineNumber line ) { setNote( line, {} ); } );
     connect( logMainView_, &LogMainView::exportNotesRequested, this, &CrawlerWidget::exportNotes );
+    connect( logMainView_, &LogMainView::copyNotesRequested, this, &CrawlerWidget::copyNotes );
+    connect( logMainView_, &LogMainView::timeReferenceRequested, this,
+             &CrawlerWidget::toggleTimeReference );
+    connect( logMainView_, &LogMainView::clearTimeReferenceRequested, this,
+             &CrawlerWidget::clearTimeReference );
 
 
     connect( logMainView_, QOverload<const QString&>::of( &LogMainView::addToSearch ), this,
@@ -1572,6 +1579,12 @@ void CrawlerWidget::connectAllFilteredViewSlots( FilteredView* view )
     connect( view, &FilteredView::removeNoteRequested, this,
              [ this ]( LineNumber line ) { setNote( line, {} ); } );
     connect( view, &FilteredView::exportNotesRequested, this, &CrawlerWidget::exportNotes );
+    connect( view, &FilteredView::copyNotesRequested, this, &CrawlerWidget::copyNotes );
+    connect( view, &FilteredView::timeReferenceRequested, this,
+             &CrawlerWidget::toggleTimeReference );
+    connect( view, &FilteredView::clearTimeReferenceRequested, this,
+             &CrawlerWidget::clearTimeReference );
+    applyTimeContext();
 
 
     connect( view, QOverload<const QString&>::of( &FilteredView::addToSearch ), this,
@@ -2868,17 +2881,56 @@ QString CrawlerWidget::firstSelectedLineText() const
 void CrawlerWidget::setTimeFormat( std::optional<timestamps::Format> format )
 {
     timeFormat_ = format;
+    applyTimeContext();
     updateSelectionTime();
+}
+
+void CrawlerWidget::toggleTimeReference( LineNumber line )
+{
+    if ( timeReference_ == line ) {
+        timeReference_ = {};
+    }
+    else {
+        timeReference_ = line;
+    }
+    applyTimeContext();
+    updateSelectionTime();
+}
+
+void CrawlerWidget::clearTimeReference()
+{
+    if ( !timeReference_ ) {
+        return;
+    }
+    timeReference_ = {};
+    applyTimeContext();
+    updateSelectionTime();
+}
+
+void CrawlerWidget::applyTimeContext()
+{
+    std::optional<timestamps::LineTimes> times;
+    if ( timeReference_ && logData_ && *timeReference_ < logData_->getNbLine() ) {
+        times = timestamps::parseLine( logData_->getLineString( *timeReference_ ) );
+        if ( times->isEmpty() ) {
+            times.reset();
+        }
+    }
+    for ( auto* view : findChildren<AbstractLogView*>() ) {
+        view->setTimeContext( timeReference_, times, timeFormat_ );
+    }
 }
 
 void CrawlerWidget::setSelectionTime( const QString& text, const QString& toolTip )
 {
-    if ( text == selectionTimeText_ && toolTip == selectionTimeToolTip_ ) {
+    if ( text == selectionTimeText_ && toolTip == selectionTimeToolTip_
+         && selectionTimeFromReference_ == selectionTimeSentFromReference_ ) {
         return;
     }
     selectionTimeText_ = text;
     selectionTimeToolTip_ = toolTip;
-    Q_EMIT selectionTimeChanged( text, toolTip );
+    selectionTimeSentFromReference_ = selectionTimeFromReference_;
+    Q_EMIT selectionTimeChanged( text, toolTip, selectionTimeFromReference_ );
 }
 
 void CrawlerWidget::updateSelectionTime()
@@ -2889,8 +2941,16 @@ void CrawlerWidget::updateSelectionTime()
         clockCheckCancelled_.reset();
     }
 
-    const auto bounds = selectionTimeView_ ? selectionTimeView_->selectedFileLineBounds()
-                                           : std::optional<std::pair<LineNumber, LineNumber>>{};
+    auto bounds = selectionTimeView_ ? selectionTimeView_->selectedFileLineBounds()
+                                     : std::optional<std::pair<LineNumber, LineNumber>>{};
+    // One line selected: its time from the reference line
+    const auto fromReference = bounds && bounds->first == bounds->second && timeReference_
+                               && logData_ && *timeReference_ < logData_->getNbLine()
+                               && *timeReference_ != bounds->first;
+    if ( fromReference ) {
+        bounds = std::make_pair( *timeReference_, bounds->first );
+    }
+    selectionTimeFromReference_ = fromReference;
     if ( !bounds || bounds->first == bounds->second || !logData_ ) {
         setSelectionTime( {}, {} );
         return;
@@ -2898,6 +2958,9 @@ void CrawlerWidget::updateSelectionTime()
 
     // Two lines read and parsed, a few microseconds
     const auto [ firstLine, lastLine ] = *bounds;
+    // The lines between, in the order of the file
+    const auto lowLine = qMin( firstLine, lastLine );
+    const auto highLine = qMax( firstLine, lastLine );
     const auto firstTimes = timestamps::parseLine( logData_->getLineString( firstLine ) );
     selectionTimeFormats_.clear();
     for ( const auto& stamp : timestamps::inOrder( firstTimes ) ) {
@@ -2907,15 +2970,20 @@ void CrawlerWidget::updateSelectionTime()
         firstTimes, timestamps::parseLine( logData_->getLineString( lastLine ) ), timeFormat_ );
 
     if ( !result.us ) {
-        setSelectionTime( tr( "Δ: %1" ).arg( result.error ),
+        setSelectionTime( ( fromReference ? tr( "Δ ref: %1" ) : tr( "Δ: %1" ) ).arg( result.error ),
                           tr( "Right click to choose the time stamp compared" ) );
         return;
     }
 
     const auto digits = qMax( result.first->fractionDigits, result.second->fractionDigits );
-    const auto text = tr( "Δ %1" ).arg( timestamps::formatDuration( *result.us, digits ) );
+    const auto text = ( fromReference ? tr( "Δ ref %1" ) : tr( "Δ %1" ) )
+                          .arg( timestamps::formatDuration( *result.us, digits ) );
 
     QStringList rows;
+    if ( fromReference ) {
+        rows.append( tr( "From the time reference line %1" )
+                         .arg( firstLine.get() + 1 ) );
+    }
     rows.append( tr( "Line %1: %2" )
                      .arg( firstLine.get() + 1 )
                      .arg( timestamps::formatTimestamp( *result.first ) ) );
@@ -2924,11 +2992,12 @@ void CrawlerWidget::updateSelectionTime()
                      .arg( timestamps::formatTimestamp( *result.second ) ) );
     rows.append( tr( "Format: %1" ).arg( timestamps::formatName( result.first->format ) ) );
     if ( *result.us < 0 ) {
-        rows.append( tr( "The last line is earlier than the first one" ) );
+        rows.append( fromReference ? tr( "The line is earlier than the reference" )
+                                   : tr( "The last line is earlier than the first one" ) );
     }
     rows.append( result.notes );
 
-    const auto linesBetween = lastLine.get() - firstLine.get() - 1;
+    const auto linesBetween = highLine.get() - lowLine.get() - 1;
     if ( linesBetween == 0 ) {
         setSelectionTime( text, rows.join( "\n" ) );
         return;
@@ -2972,7 +3041,7 @@ void CrawlerWidget::updateSelectionTime()
                      setSelectionTime( text, rows.join( "\n" ) );
                  }
              } );
-    clockCheck_ = QtConcurrent::run( [ logData, from = firstLine, to = lastLine, reference,
+    clockCheck_ = QtConcurrent::run( [ logData, from = lowLine, to = highLine, reference,
                                        cancelled, stepBack ] {
         logData->attachReader();
         std::optional<int64_t> previous;
@@ -3142,6 +3211,16 @@ void CrawlerWidget::exportNotes()
         QMessageBox::warning( this, tr( "Export bookmarks and notes" ),
                               tr( "Can not write %1" ).arg( fileName ) );
     }
+}
+
+void CrawlerWidget::copyNotes()
+{
+    if ( !logFilteredData_->hasBookmarks() ) {
+        return;
+    }
+    QGuiApplication::clipboard()->setText( bookmarksAndNotesMarkdown() );
+    searchInfoLine_->setText( tr( "Bookmarks and notes copied to the clipboard" ) );
+    searchInfoLine_->show();
 }
 
 //

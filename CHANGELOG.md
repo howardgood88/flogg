@@ -1,5 +1,37 @@
 # flogg changes
 
+## Unreleased
+
+- Compare file (was Compare), line by line: compares the text of the lines, like a text
+  diff tool, instead of their templates; the characters that differ are marked in a changed
+  line (`Character level`, or `Line level` for the whole lines only). `Ignore time stamps`
+  and `Ignore numbers` leave out what always differs
+- Line by line takes the first 1 000 000 lines of each side (was 100 000) and no longer
+  stops at 2 000 changes: parts too different to pair up in a few seconds are shown as
+  removed and added blocks, and the message tells the lines left out
+- **New: Compare text**: paste two texts and compare them line by line, with the same
+  options; the lines alike far from the changes are folded
+- **New: time reference line**: `T` or `Set as time reference` in the right click menu;
+  with one line selected the tool bar shows its time from the reference (`Δ ref ...`, in
+  the orange of the reference line). `Shift+T` or `Clear time reference` clears it
+- **New: time columns** (`View > Time columns in main view` and `... in filter view`):
+  each line's time from the
+  reference line and from the line before (of the file in the main view, of the view in a
+  filtered view); lines without a time stamp show none
+- `Copy bookmarks and notes` in the right click menu: the export as Markdown on the
+  clipboard
+- `[` and `]` go to the previous and next mark or note, in the filtered view as in the main
+  view (they were the other way round there); the jump is immediate however many lines are
+  between
+- Windows and Linux: the options could not be saved (OK and Apply disabled) with the
+  default shortcuts, as `Ctrl+D` was both "delete selection" of the filter panel and
+  "highlight with the next color"
+- Shortcuts of 1.4.0 taken back: reload is `F5` again (not `Ctrl+R`), paste from the
+  clipboard is `Ctrl+V` only (no `Ctrl+Y`), delete in the filter panel is `Delete` only (no
+  `Ctrl+D`). Shortcuts saved in the options keep their keys
+- New settings: searches are case insensitive and scrolling past the end does not turn on
+  follow by default (settings saved before keep their values)
+
 ## 1.4.3 (2026-11-23)
 
 - Analysis: the Start and End of the durations and the patterns of the rules can be plain

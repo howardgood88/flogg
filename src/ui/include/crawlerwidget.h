@@ -220,6 +220,18 @@ class CrawlerWidget : public QSplitter,
         return timeFormat_;
     }
     void setTimeFormat( std::optional<timestamps::Format> format );
+    // The line of the file the time of the selected line is measured from: set, moved to
+    // another line, or cleared when it is the same line
+    void toggleTimeReference( LineNumber line );
+    void clearTimeReference();
+    bool selectionTimeFromReference() const
+    {
+        return selectionTimeFromReference_;
+    }
+    OptionalLineNumber timeReference() const
+    {
+        return timeReference_;
+    }
     QString firstSelectedLineText() const;
     // The formats of the time stamps of the first selected line, in the order of the line
     const std::vector<timestamps::Format>& selectionTimeFormats() const
@@ -289,7 +301,8 @@ class CrawlerWidget : public QSplitter,
                        LineLength nSymbols );
     // Time between the first and the last selected lines (empty with one line selected),
     // the details and warnings in the tool tip
-    void selectionTimeChanged( QString text, QString toolTip );
+    // From the time reference line (one line selected) or between the selected lines
+    void selectionTimeChanged( QString text, QString toolTip, bool fromReference );
     // Sent up when the user wants to create a filter from a text
     void addToFilters( QString );
     // Sent up when the user wants to create a rule of known problems from a text
@@ -494,9 +507,13 @@ class CrawlerWidget : public QSplitter,
     void selectionChangedIn( AbstractLogView* view );
     void updateSelectionTime();
     void setSelectionTime( const QString& text, const QString& toolTip );
+    // The reference line and its time stamps to the views
+    void applyTimeContext();
 
     void editNote( LineNumber line );
     void exportNotes();
+    // The Markdown of the export to the clipboard
+    void copyNotes();
     // After a change of the marks, bookmarks or notes
     void refreshMarks();
     void restoreNotes();
@@ -599,6 +616,9 @@ class CrawlerWidget : public QSplitter,
     std::optional<timestamps::Format> timeFormat_;
     std::vector<timestamps::Format> selectionTimeFormats_;
     uint64_t selectionTimeGeneration_ = 0;
+    OptionalLineNumber timeReference_;
+    bool selectionTimeFromReference_ = false;
+    bool selectionTimeSentFromReference_ = false;
     std::shared_ptr<std::atomic_bool> clockCheckCancelled_;
     QFuture<void> clockCheck_;
 

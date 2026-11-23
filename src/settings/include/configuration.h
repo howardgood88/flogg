@@ -293,6 +293,16 @@ class Configuration final : public Persistable<Configuration> {
     {
         return style_;
     }
+    // The time columns of the main or the filtered views: TimeFromReference | TimeFromPrevious
+    enum TimeColumn { TimeFromReference = 1, TimeFromPrevious = 2 };
+    int timeColumns( bool filtered ) const
+    {
+        return filtered ? timeColumnsFiltered_ : timeColumnsMain_;
+    }
+    void setTimeColumns( bool filtered, int columns )
+    {
+        ( filtered ? timeColumnsFiltered_ : timeColumnsMain_ ) = columns;
+    }
     void setMainLineNumbersVisible( bool lineNumbersVisible )
     {
         lineNumbersVisibleInMain_ = lineNumbersVisible;
@@ -599,6 +609,8 @@ class Configuration final : public Persistable<Configuration> {
     // View settings
     bool overviewVisible_ = true;
     bool lineNumbersVisibleInMain_ = false;
+    int timeColumnsMain_ = 0;
+    int timeColumnsFiltered_ = 0;
     bool lineNumbersVisibleInFiltered_ = false;
     bool minimizeToTray_ = false;
     QString style_;
@@ -608,7 +620,7 @@ class Configuration final : public Persistable<Configuration> {
     bool filterModeByDefault_ = true;
     QList<FilterFileRule> filterFileRules_;
     QStringList customTimeFormats_;
-    bool searchIgnoreCase_ = false;
+    bool searchIgnoreCase_ = true;
     bool searchLogicalCombining_ = false;
     QList<int> splitterSizes_;
 
@@ -645,7 +657,7 @@ class Configuration final : public Persistable<Configuration> {
     QColor selectionBackColor_ = QColor( 0x17, 0x7f, 0xd3 );
     QColor selectionTextColor_ = Qt::white;
 
-    bool allowFollowOnScroll_ = true;
+    bool allowFollowOnScroll_ = false;
     bool autoRunSearchOnPatternChange_ = false;
 
     bool optimizeForNotLatinEncodings_ = false;

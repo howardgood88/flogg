@@ -144,6 +144,10 @@ class LogFilteredData : public AbstractLogData {
     OptionalLineNumber getMarkAfter( LineNumber line ) const;
     // Get the first mark before the line passed
     OptionalLineNumber getMarkBefore( LineNumber line ) const;
+    // The next (or previous) line after (or before) the passed line that is marked or
+    // has a note. With inView only the lines shown by this filtered data count.
+    // Takes the rank of the marks and the map of the bookmarks, not a scan of the lines.
+    OptionalLineNumber findMarkOrNote( LineNumber from, bool backward, bool inView ) const;
     // Delete the mark present on the passed line
     void deleteMark( LineNumber line );
     // Toggle presence of the mark on the passed line.

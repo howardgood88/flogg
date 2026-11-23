@@ -107,32 +107,19 @@ void FilteredView::doRegisterShortcuts()
 {
     LOG_INFO << "Registering shortcuts for filtered view";
     AbstractLogView::doRegisterShortcuts();
-    registerShortcut( ShortcutAction::LogViewNextMark, [ this ] {
-        using LineTypeFlags = LogFilteredData::LineTypeFlags;
-        auto i = getViewPosition() - 1_lcount;
-        bool foundMark = false;
-        for ( ; i != 0_lnum; --i ) {
-            if ( lineType( i ).testFlag( LineTypeFlags::Mark ) ) {
-                foundMark = true;
-                break;
-            }
+    // As in the main view: next goes down the lines, previous up, to a mark or a note.
+    // Found from the marks and the notes, so the jump does not depend on the lines between.
+    const auto jump = [ this ]( bool backward ) {
+        if ( logFilteredData_->getNbLine() == 0_lcount ) {
+            return;
         }
-
-        if ( !foundMark ) {
-            foundMark = lineType( i ).testFlag( LineTypeFlags::Mark );
+        const auto last = LineNumber( logFilteredData_->getNbLine().get() - 1 );
+        const auto from = logFilteredData_->getMatchingLineNumber( qMin( getViewPosition(), last ) );
+        const auto line = logFilteredData_->findMarkOrNote( from, backward, true );
+        if ( line.has_value() ) {
+            selectAndDisplayLine( logFilteredData_->getLineIndexNumber( *line ) );
         }
-
-        if ( foundMark ) {
-            selectAndDisplayLine( i );
-        }
-    } );
-    registerShortcut( ShortcutAction::LogViewPrevMark, [ this ] {
-        const auto nbLines = logFilteredData_->getNbLine();
-        for ( auto i = getViewPosition() + 1_lcount; i < nbLines; ++i ) {
-            if ( lineType( i ).testFlag( LogFilteredData::LineTypeFlags::Mark ) ) {
-                selectAndDisplayLine( i );
-                break;
-            }
-        }
-    } );
+    };
+    registerShortcut( ShortcutAction::LogViewNextMark, [ jump ] { jump( false ); } );
+    registerShortcut( ShortcutAction::LogViewPrevMark, [ jump ] { jump( true ); } );
 }

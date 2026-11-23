@@ -196,8 +196,8 @@ MainWindow::MainWindow( WindowSession session )
         SIGNAL( newSelection( LineNumber, LinesCount, LineColumn, LineLength ) ), this,
         SLOT( lineNumberHandler( LineNumber, LinesCount, LineColumn, LineLength ) ) );
 
-    signalMux_.connect( SIGNAL( selectionTimeChanged( QString, QString ) ), this,
-                        SLOT( updateSelectionTime( QString, QString ) ) );
+    signalMux_.connect( SIGNAL( selectionTimeChanged( QString, QString, bool ) ), this,
+                        SLOT( updateSelectionTime( QString, QString, bool ) ) );
 
     signalMux_.connect( SIGNAL( sendToScratchpad( QString ) ), this,
                         SLOT( sendToScratchpad( QString ) ) );
@@ -726,6 +726,37 @@ void MainWindow::createActions()
     connect( lineNumbersVisibleInFilteredAction, &QAction::toggled, this,
              &MainWindow::toggleFilteredLineNumbersVisibility );
 
+    // A column of each line drawn: its time from the reference line, from the line before;
+    // set apart for the main and the filtered views, for every tab and window
+    for ( const auto filtered : { false, true } ) {
+        const std::array<std::pair<QString, int>, 2> columns{ {
+            { tr( "Time from the reference line" ), Configuration::TimeFromReference },
+            { tr( "Time from the line before" ), Configuration::TimeFromPrevious },
+        } };
+        for ( auto i = 0u; i < columns.size(); ++i ) {
+            auto* action = new QAction( columns[ i ].first, this );
+            action->setCheckable( true );
+            action->setChecked( config.timeColumns( filtered ) & columns[ i ].second );
+            const auto column = columns[ i ].second;
+            connect( action, &QAction::triggered, this, [ filtered, column ]( bool checked ) {
+                auto& configuration = Configuration::get();
+                auto shown = configuration.timeColumns( filtered );
+                shown = checked ? ( shown | column ) : ( shown & ~column );
+                if ( shown == configuration.timeColumns( filtered ) ) {
+                    return;
+                }
+                configuration.setTimeColumns( filtered, shown );
+                configuration.save();
+                for ( auto* widget : QApplication::allWidgets() ) {
+                    if ( auto* view = qobject_cast<AbstractLogView*>( widget ) ) {
+                        view->refreshTimeColumns();
+                    }
+                }
+            } );
+            timeColumnActions[ filtered ? 1 : 0 ][ i ] = action;
+        }
+    }
+
     followAction = new QAction( tr( action::followText ), this );
     followAction->setCheckable( true );
     followAction->setEnabled( config.anyFileWatchEnabled() );
@@ -1000,6 +1031,21 @@ void MainWindow::createMenus()
     viewMenu->addSeparator();
     viewMenu->addAction( lineNumbersVisibleInMainAction );
     viewMenu->addAction( lineNumbersVisibleInFilteredAction );
+    viewMenu->addSeparator();
+    for ( const auto filtered : { false, true } ) {
+        auto* timeColumnsMenu = viewMenu->addMenu( filtered ? tr( "Time columns in filter view" )
+                                                            : tr( "Time columns in main view" ) );
+        const auto& actions = timeColumnActions[ filtered ? 1 : 0 ];
+        for ( auto* action : actions ) {
+            timeColumnsMenu->addAction( action );
+        }
+        // Another window may have changed them
+        connect( timeColumnsMenu, &QMenu::aboutToShow, this, [ actions, filtered ] {
+            const auto shown = Configuration::get().timeColumns( filtered );
+            actions[ 0 ]->setChecked( shown & Configuration::TimeFromReference );
+            actions[ 1 ]->setChecked( shown & Configuration::TimeFromPrevious );
+        } );
+    }
     viewMenu->addSeparator();
     viewMenu->addAction( textWrapAction );
     viewMenu->addAction( renderModeAction );
@@ -1650,9 +1696,10 @@ void MainWindow::lineNumberHandler( LineNumber startLine, LinesCount nLines, Lin
     }
 }
 
-void MainWindow::updateSelectionTime( const QString& text, const QString& toolTip )
+void MainWindow::updateSelectionTime( const QString& text, const QString& toolTip,
+                                      bool fromReference )
 {
-    selectionTimeField->setTime( text, toolTip );
+    selectionTimeField->setTime( text, toolTip, fromReference );
     selectionTimeAction->setVisible( !text.isEmpty() );
 }
 
@@ -3025,7 +3072,7 @@ void MainWindow::showInfoLabels( bool show )
         sizeField->clear();
         sizeField->setToolTip( {} );
         lineNbField->clear();
-        updateSelectionTime( {}, {} );
+        updateSelectionTime( {}, {}, false );
     }
 }
 

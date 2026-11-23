@@ -139,6 +139,37 @@ inline int countLeadingZeroes( uint64_t value )
 
 namespace {
 
+// A duration in a time column: as in the tool bar under a minute ("+1.250 s", "+750 ms"),
+// as a clock above ("+1:02:03.250")
+QString compactDuration( int64_t us, int digits )
+{
+    constexpr int64_t UsPerSecond = 1000000;
+    const auto absolute = us < 0 ? -us : us;
+    if ( absolute < 60 * UsPerSecond ) {
+        return timestamps::formatDuration( us, digits );
+    }
+    digits = qBound( 0, digits, 6 );
+    const auto seconds = absolute / UsPerSecond;
+    QString fraction;
+    if ( digits > 0 ) {
+        fraction = QStringLiteral( "." )
+                   + QString( "%1" ).arg( absolute % UsPerSecond, 6, 10, QChar( '0' ) ).left( digits );
+    }
+    const auto two = []( int64_t value ) { return QString( "%1" ).arg( value, 2, 10, QChar( '0' ) ); };
+    const auto days = seconds / 86400;
+    const auto hours = ( seconds / 3600 ) % 24;
+    const auto minutes = ( seconds / 60 ) % 60;
+    const auto sign = us < 0 ? QStringLiteral( "-" ) : QStringLiteral( "+" );
+    const auto clock = two( minutes ) + ":" + two( seconds % 60 ) + fraction;
+    if ( days > 0 ) {
+        return sign + QString( "%1d %2:" ).arg( days ).arg( two( hours ) ) + clock;
+    }
+    if ( hours > 0 ) {
+        return sign + QString::number( hours ) + ":" + clock;
+    }
+    return sign + QString::number( minutes ) + ":" + two( seconds % 60 ) + fraction;
+}
+
 int mapPullToFollowLength( int length );
 
 int intLog2( uint64_t x )
@@ -579,6 +610,11 @@ void AbstractLogView::mousePressEvent( QMouseEvent* mouseEvent )
         editNoteAction_->setText( hasNote ? tr( "Edit &note..." ) : tr( "Add &note..." ) );
         removeNoteAction_->setVisible( hasNote );
         exportNotesAction_->setEnabled( hasBookmarks() );
+        copyNotesAction_->setEnabled( hasBookmarks() );
+        const auto referenceLine = noteLine();
+        timeReferenceAction_->setEnabled( referenceLine.has_value()
+                                          && timeReference_ != referenceLine );
+        clearTimeReferenceAction_->setEnabled( timeReference_.has_value() );
 
         if ( selection_.isPortion() ) {
             findNextAction_->setEnabled( true );
@@ -877,7 +913,24 @@ void AbstractLogView::doRegisterShortcuts()
                       [ this ]() { findPreviousSelected(); } );
 
     registerShortcut( ShortcutAction::LogViewMark, [ this ]() { markSelected(); } );
-    registerShortcut( ShortcutAction::LogViewEditNote, [ this ]() { editNoteAction_->trigger(); } );
+    // Not through the actions of the context menu: those are enabled for the line of the
+    // last right click
+    registerShortcut( ShortcutAction::LogViewEditNote, [ this ]() {
+        if ( const auto line = noteLine() ) {
+            Q_EMIT editNoteRequested( *line );
+        }
+    } );
+    // On the reference line it clears it, on another line it moves it there
+    registerShortcut( ShortcutAction::LogViewTimeReference, [ this ]() {
+        if ( const auto line = noteLine() ) {
+            Q_EMIT timeReferenceRequested( *line );
+        }
+    } );
+    registerShortcut( ShortcutAction::LogViewClearTimeReference, [ this ]() {
+        if ( timeReference_ ) {
+            Q_EMIT clearTimeReferenceRequested();
+        }
+    } );
 
     registerShortcut( ShortcutAction::LogViewJumpToLineNumber, [ this ]() {
         const auto newLine = qMax( 0ull, digitsBuffer_.content() - 1ull );
@@ -928,6 +981,8 @@ void AbstractLogView::doRegisterShortcuts()
     };
     showInMenu( markAction_, ShortcutAction::LogViewMark );
     showInMenu( editNoteAction_, ShortcutAction::LogViewEditNote );
+    showInMenu( timeReferenceAction_, ShortcutAction::LogViewTimeReference );
+    showInMenu( clearTimeReferenceAction_, ShortcutAction::LogViewClearTimeReference );
     showInMenu( copyAction_, ShortcutAction::MainWindowCopy );
     showInMenu( sendToScratchpadAction_, ShortcutAction::LogViewSendSelectionToScratchpad );
     showInMenu( replaceInScratchpadAction_,
@@ -1930,6 +1985,22 @@ void AbstractLogView::jumpToLine( LineNumber line )
     verticalScrollBar()->setValue( lineNumberToVerticalScroll( newTopLine ) );
 }
 
+void AbstractLogView::setTimeContext( OptionalLineNumber line,
+                                      std::optional<timestamps::LineTimes> times,
+                                      std::optional<timestamps::Format> format )
+{
+    timeReference_ = line;
+    referenceTimes_ = times;
+    timeFormat_ = format;
+    refreshTimeColumns();
+}
+
+void AbstractLogView::refreshTimeColumns()
+{
+    textAreaCache_.invalid_ = true;
+    viewport()->update();
+}
+
 void AbstractLogView::setLineNumbersVisible( bool lineNumbersVisible )
 {
     lineNumbersVisible_ = lineNumbersVisible;
@@ -2355,6 +2426,23 @@ void AbstractLogView::createMenu()
     exportNotesAction_ = new QAction( tr( "Export bookmarks and notes..." ), this );
     connect( exportNotesAction_, &QAction::triggered, this,
              [ this ]( auto ) { Q_EMIT exportNotesRequested(); } );
+    // The same Markdown as the export, to paste in a chat or a bug report
+    copyNotesAction_ = new QAction( tr( "Copy bookmarks and notes" ), this );
+    // The times of the other lines are measured from it
+    timeReferenceAction_ = new QAction( tr( "Set as time reference" ), this );
+    connect( timeReferenceAction_, &QAction::triggered, this, [ this ]( auto ) {
+        if ( const auto line = noteLine(); line && line != timeReference_ ) {
+            Q_EMIT timeReferenceRequested( *line );
+        }
+    } );
+    clearTimeReferenceAction_ = new QAction( tr( "Clear time reference" ), this );
+    connect( clearTimeReferenceAction_, &QAction::triggered, this, [ this ]( auto ) {
+        if ( timeReference_ ) {
+            Q_EMIT clearTimeReferenceRequested();
+        }
+    } );
+    connect( copyNotesAction_, &QAction::triggered, this,
+             [ this ]( auto ) { Q_EMIT copyNotesRequested(); } );
 
     popupMenu_ = new QMenu( this );
     colorLabelsMenu_ = popupMenu_->addMenu( tr( "Color labels" ) );
@@ -2364,6 +2452,10 @@ void AbstractLogView::createMenu()
     popupMenu_->addAction( editNoteAction_ );
     popupMenu_->addAction( removeNoteAction_ );
     popupMenu_->addAction( exportNotesAction_ );
+    popupMenu_->addAction( copyNotesAction_ );
+    popupMenu_->addSeparator();
+    popupMenu_->addAction( timeReferenceAction_ );
+    popupMenu_->addAction( clearTimeReferenceAction_ );
     popupMenu_->addSeparator();
     popupMenu_->addAction( copyAction_ );
     popupMenu_->addAction( copyWithLineNumbersAction_ );
@@ -2509,6 +2601,11 @@ void AbstractLogView::drawTextArea( QPaintDevice* paintDevice )
     static constexpr int NbBookmarkSlots = static_cast<int>( LogFilteredData::NbBookmarks );
     static constexpr int NbBookmarkColumns = NbBookmarkSlots + 1;
     static const QBrush noteBrush = QBrush( QColor( 0xf5, 0xc5, 0x18 ) );
+    // Wide enough for "+12:34:56.789"
+    static constexpr int TimeColumnChars = 13;
+    // Lines looked at above the first one drawn for the time of the line before
+    static constexpr uint64_t TimeLookBackLines = 200;
+    static const QColor TimeReferenceTextColor( 0xff, 0xc0, 0x60 );
 
     // First check the lines to be drawn are within range (might not be the case if
     // the file has just changed)
@@ -2581,6 +2678,48 @@ void AbstractLogView::drawTextArea( QPaintDevice* paintDevice )
     painter->drawLine( BulletAreaWidth, 0, BulletAreaWidth, paintDeviceHeight - 1 );
 
     // This is the total width of the 'margin' (including line number if any)
+    // The time columns: the time of each line from the reference line and from the line
+    // before (the previous line of the file in the main view, of the view in a filtered
+    // one); lines without a time stamp show none. Nothing is read or parsed without them.
+    const auto timeColumns = Configuration::get().timeColumns( isFiltered() );
+    const bool showFromReference
+        = ( timeColumns & Configuration::TimeFromReference ) && referenceTimes_.has_value();
+    const bool showFromPrevious = ( timeColumns & Configuration::TimeFromPrevious ) != 0;
+    const int timeTextWidth = charWidth_ * TimeColumnChars;
+    const int timeColumnWidth = 2 * LineNumberPadding + timeTextWidth;
+    const auto addTimeColumn = [ & ]() {
+        const auto x = contentStartPosX;
+        painter->fillRect( contentStartPosX - SeparatorWidth, 0, timeColumnWidth + SeparatorWidth,
+                           paintDeviceHeight, Qt::darkGray );
+        painter->setPen( palette.color( QPalette::Text ) );
+        painter->drawLine( contentStartPosX + timeColumnWidth - SeparatorWidth, 0,
+                           contentStartPosX + timeColumnWidth - SeparatorWidth,
+                           paintDeviceHeight );
+        contentStartPosX += timeColumnWidth;
+        return x;
+    };
+    const int referenceColumnX = showFromReference ? addTimeColumn() : 0;
+    const int previousColumnX = showFromPrevious ? addTimeColumn() : 0;
+    // The time stamps of the last line with one before the first line drawn
+    std::optional<timestamps::LineTimes> previousTimes;
+    if ( showFromPrevious && firstLine_ > 0_lnum ) {
+        // Usually the line just before, more only after lines without a time stamp
+        for ( const auto lookBack : { uint64_t{ 1 }, TimeLookBackLines } ) {
+            const auto count = qMin<uint64_t>( firstLine_.get(), lookBack );
+            const auto before
+                = logData_->getLines( LineNumber( firstLine_.get() - count ), LinesCount( count ) );
+            for ( auto it = before.rbegin(); it != before.rend() && !previousTimes; ++it ) {
+                const auto times = timestamps::parseLine( *it );
+                if ( !times.isEmpty() ) {
+                    previousTimes = times;
+                }
+            }
+            if ( previousTimes || count < lookBack ) {
+                break;
+            }
+        }
+    }
+
     // used for mouse calculation etc...
     leftMarginPx_ = contentStartPosX + SeparatorWidth;
 
@@ -2706,6 +2845,10 @@ void AbstractLogView::drawTextArea( QPaintDevice* paintDevice )
         HighlightedMatchRanges allHighlights{ std::move( sortedHighlights ) };
 
         // string to print, cut to fit the length and position of the view
+        // The time stamps for the time columns, before the line is untabified
+        const auto lineTimes = ( showFromReference || showFromPrevious )
+                                   ? timestamps::parseLine( logLine )
+                                   : timestamps::LineTimes{};
         const QString& expandedLine = untabify( std::move( logLine ) );
 
         // Has the line got elements to be highlighted
@@ -2863,6 +3006,55 @@ void AbstractLogView::drawTextArea( QPaintDevice* paintDevice )
             painter->setBrush( brush );
             painter->drawEllipse( middleXLine - circleSize, middleYLine - circleSize,
                                   circleSize * 2, circleSize * 2 );
+        }
+
+        // The time reference line: framed, a constant test per line drawn and none without
+        // a reference
+        const auto isTimeReference
+            = timeReference_ && displayLineNumber( lineNumber ) - 1_lcount == *timeReference_;
+        if ( isTimeReference ) {
+            const QColor referenceColor( 0xff, 0x98, 0x00 );
+            const auto left = contentStartPosX - SeparatorWidth;
+            const auto right = viewport()->width();
+            painter->fillRect( left, yPos, right - left, finalLineHeight,
+                               QColor( 0xff, 0x98, 0x00, 0x30 ) );
+            painter->fillRect( left, yPos, right - left, 1, referenceColor );
+            painter->fillRect( left, yPos + finalLineHeight - 1, right - left, 1, referenceColor );
+            painter->fillRect( 0, yPos, 3, finalLineHeight, referenceColor );
+        }
+
+        // The time columns: one parse of the line, two differences
+        if ( showFromReference || showFromPrevious ) {
+            const auto& times = lineTimes;
+            if ( !times.isEmpty() ) {
+                const auto drawTime = [ & ]( int x, const QString& text, const QColor& color ) {
+                    painter->setPen( color );
+                    painter->drawText( QRect( x + LineNumberPadding, yPos, timeTextWidth,
+                                              fontHeight ),
+                                       Qt::AlignRight | Qt::AlignVCenter, text );
+                };
+                const auto timeText = [ this ]( const timestamps::LineTimes& from,
+                                                const timestamps::LineTimes& to ) {
+                    const auto difference = timestamps::difference( from, to, timeFormat_ );
+                    if ( !difference.us ) {
+                        return QString{};
+                    }
+                    return compactDuration( *difference.us,
+                                            qMax( difference.first->fractionDigits,
+                                                  difference.second->fractionDigits ) );
+                };
+                if ( showFromReference ) {
+                    drawTime( referenceColumnX,
+                              isTimeReference ? tr( "ref" ) : timeText( *referenceTimes_, times ),
+                              TimeReferenceTextColor );
+                }
+                if ( showFromPrevious ) {
+                    if ( previousTimes ) {
+                        drawTime( previousColumnX, timeText( *previousTimes, times ), Qt::white );
+                    }
+                    previousTimes = times;
+                }
+            }
         }
 
         // Draw the line number

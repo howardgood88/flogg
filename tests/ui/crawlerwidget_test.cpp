@@ -1366,4 +1366,56 @@ SCENARIO( "Crawler widget time between the selected lines", "[ui]" )
     CHECK( crawler.selectionTimeText() == "Δ -26.000 s ⚠" );
     CHECK( toolTip.contains( "goes back 30.000 s at line 6" ) );
     CHECK( toolTip.contains( "earlier than the first" ) );
+
+    // The time reference line: the one line selected, wherever it is, from the reference
+    click( 1, Qt::NoModifier );
+    crawler.toggleTimeReference( 1_lnum );
+    CHECK( crawler.timeReference() == 1_lnum );
+    click( 4, Qt::NoModifier );
+    REQUIRE( waitUiState( [ & ]() { return toolTip.contains( "does not go back" ); } ) );
+    CHECK( crawler.selectionTimeText() == "Δ ref +1.750 s" );
+    CHECK( toolTip.contains( "From the time reference line 2" ) );
+    click( 0, Qt::NoModifier );
+    REQUIRE( waitUiState( [ & ]() { return crawler.selectionTimeText() == "Δ ref -1.250 s"; } ) );
+    CHECK( toolTip.contains( "earlier than the reference" ) );
+    CHECK( crawler.selectionTimeFromReference() );
+
+    // The time columns of the main view: from the reference and from the line before
+    {
+        auto& config = Configuration::get();
+        const auto previousColumns = config.timeColumns( false );
+        config.setTimeColumns( false, Configuration::TimeFromReference
+                                          | Configuration::TimeFromPrevious );
+        auto* view = qobject_cast<AbstractLogView*>( viewport->parentWidget() );
+        REQUIRE( view );
+        view->refreshTimeColumns();
+        crawler.grab();
+        if ( const auto renderDir = qEnvironmentVariable( "FLOGG_RENDER_DIR" );
+             !renderDir.isEmpty() ) {
+            crawler.grab().save( renderDir + "/time_reference.png" );
+        }
+        config.setTimeColumns( false, previousColumns );
+        view->refreshTimeColumns();
+
+        // The keys: T moves the reference to the selected line, Shift+T clears it
+        view->setFocus();
+        click( 5, Qt::NoModifier );
+        QTest::keyClick( view, Qt::Key_T );
+        CHECK( crawler.timeReference() == 5_lnum );
+        QTest::keyClick( view, Qt::Key_T, Qt::ShiftModifier );
+        CHECK( !crawler.timeReference() );
+        crawler.toggleTimeReference( 1_lnum );
+    }
+    // The reference itself selected: nothing to measure
+    click( 1, Qt::NoModifier );
+    REQUIRE( waitUiState( [ & ]() { return crawler.selectionTimeText().isEmpty(); } ) );
+    // Two lines selected: the time between them, as without a reference
+    click( 2, Qt::ControlModifier );
+    REQUIRE( waitUiState( [ & ]() { return crawler.selectionTimeText() == "Δ +750 ms"; } ) );
+    CHECK( !crawler.selectionTimeFromReference() );
+    // Set again on the same line: cleared
+    crawler.toggleTimeReference( 1_lnum );
+    CHECK( !crawler.timeReference() );
+    click( 4, Qt::NoModifier );
+    REQUIRE( waitUiState( [ & ]() { return crawler.selectionTimeText().isEmpty(); } ) );
 }

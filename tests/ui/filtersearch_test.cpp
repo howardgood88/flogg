@@ -3230,3 +3230,23 @@ SCENARIO( "Tabs dragged off the bar out of every window", "[ui]" )
     source.setFiltersConfirmed( true );
     target.setFiltersConfirmed( true );
 }
+
+// The default shortcuts of each platform have no duplicates, or OK and Apply of the options
+// are disabled for a new user (v1.4.0-1.4.3 on Windows and Linux: Ctrl+D twice)
+SCENARIO( "Options can be saved with the default shortcuts", "[ui][shortcuts]" )
+{
+    auto& config = Configuration::get();
+    const auto previous = config.shortcuts();
+    config.setShortcuts( {} );
+
+    auto appSession = std::make_shared<Session>();
+    WindowSession windowSession{ appSession, "DefaultShortcuts", 0 };
+    MainWindow mainWindow( windowSession );
+    OptionsDialog dialog( &mainWindow );
+    auto* buttons = dialog.findChild<QDialogButtonBox*>( "buttonBox" );
+    REQUIRE( buttons );
+    CHECK( buttons->button( QDialogButtonBox::Ok )->isEnabled() );
+    CHECK( buttons->button( QDialogButtonBox::Apply )->isEnabled() );
+
+    config.setShortcuts( previous );
+}

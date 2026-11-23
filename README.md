@@ -56,7 +56,7 @@ Emoji: highlights
 - The split between the main and filtered views is remembered: the last position you drag it to is used by every tab opened after, also for files opened before.
 - `[TAT]` `Ctrl+H` (macOS: `Control+H`) hides the main view and shows the filtered view only.
 - 📝 **Notes**: `Add note...` (`Shift+M`) in the right click menu of a line. The line is marked, a note sign shows beside the bookmarks, the note leads its tool tip.
-    - `Export bookmarks and notes...` writes the file name and, in one code block, the bookmarked and noted lines with their numbers, each note above its line as `//` comments, ready to use as a bug report.
+    - `Export bookmarks and notes...` writes the file name and, in one code block, the bookmarked and noted lines with their numbers, each note above its line as `//` comments, ready to use as a bug report. `Copy bookmarks and notes` puts the same text on the clipboard.
 
 ### ✏️ Edit mode: edit the file in place
 
@@ -79,16 +79,21 @@ Emoji: highlights
     - Read by default: ISO 8601 (with a zone), Android logcat, syslog, web server logs, time of day, Unix time, `[seconds since boot]`.
     - By default the first time stamp of the line that can be read is compared. For a line with several, choose another in `Tools > Time Formats...` or by right clicking the time > `Time stamps compared`; your own formats can be added there too. Lines of different formats are not compared, a line without a time stamp is told.
     - The right click copies the time (`+1.234 s`) or it with the times of both lines.
+    - **Time reference line**: `T` (or `Set as time reference` in the right click menu) on a line makes it the reference: it is framed in orange, and with one line selected the tool bar shows its time from the reference (`Δ ref +1.234 s`), wherever you go with bookmarks, searches or clicks. `T` on the reference clears it, on another line moves it; `Shift+T` (`Clear time reference`) clears it from anywhere.
+        - The time from the reference is shown in its orange, the time between selected lines in the colours of the checked buttons.
+        - `View > Time columns in main view` and `View > Time columns in filter view` add a column of each line's time from the reference line and one of its time from the line before (the line before in the file in the main view, in the view in a filtered view). Lines without a time stamp show none. Set apart for the main and the filtered views.
 - 🔬 **`Tools > Analyze Log...`** or the analysis button right of the scratchpad in the tool bar:
     - **Durations**: finds a start and an end pattern and the time between them, e.g. `begin request id=(\d+)` / `end request id=(\d+)`.
         - Groups in parentheses pair the lines of one id. An end goes with the latest start. The results give the mean, median, 90 and 99 percentiles, the slowest pairs and the starts never ended.
         - A double click on the start or the end line column jumps to that line; elsewhere it selects every line from the start to the end.
     - **Rules** of known problems: check the log against rules to find known problems quickly.
         - Kinds: `match` (a line), `sequence` (lines in this order), `absence` (a line not followed by another within a time), `count` (a line repeated within a time).
-    - **Compare**: the differences between two files.
+    - **Compare file**: the differences between two files.
+        - **Line by line**: compares the text of the lines like a text diff tool (the first 1 000 000 lines of each side; the message tells when lines were left out), in two columns like a code review; in a changed line the characters that differ are marked (`Character level`; `Line level` marks the whole lines only). `Ignore time stamps` and `Ignore numbers` leave out what always differs between two runs.
         - **Templates**: each line is turned into a template (time stamps out, numbers, ids, quoted text and `key=value` values replaced) and the templates are counted; best for files that differ a lot.
             - With `Group lines that differ by one word`, templates that were apart only because of one word (a user, a host) count as one.
-        - **Line by line**: compares line by line (up to 100 000 lines a side), in two columns like a code review.
+        - Files larger than that: compare the templates. Parts too different to pair up in a few seconds are shown as a block removed and a block added, and the message tells how many lines.
+    - **Compare text**: paste two texts (`Paste` takes the clipboard) and compare them line by line, with the same options.
 
 ### ⚡️ Fast filtering: searching and filtering as fast as klogg
 
@@ -179,7 +184,7 @@ These work while the filter panel has the focus.
 | Add filter | `Insert` | `+ Filter` button, context menu |
 | Add group | | `+ Group` button, context menu |
 | Edit filter or rename group | `F2`, `Enter` | Double click |
-| Delete selection | `Delete`, `Ctrl+D` (macOS: `Control+D`) | Context menu |
+| Delete selection | `Delete` | Context menu |
 | Move up / down (also in and out of groups) | `Alt+Up` / `Alt+Down` | Arrow buttons, drag and drop |
 | Enable / disable a filter | | Check box |
 | Enable / disable (in group), enable all, disable all | | Context menu |
@@ -209,9 +214,12 @@ These work while the filter panel has the focus.
 | Set/remove bookmark N (1-5) on the selected lines | `Ctrl+1` ... `Ctrl+5` | |
 | Next line with bookmark N | `1` ... `5` | |
 | Previous line with bookmark N | `Shift+1` ... `Shift+5` (`!` ... `%`) | |
+| Next / previous mark or note | `]` / `[` | |
 | Highlight the selection with color N (1-9) | `Alt+1` ... `Alt+9` | |
 | Add or edit the note of the line | `Shift+M` | `Add note...` in the right click menu |
 | Time between the first and last selected lines | | Select with `Ctrl+click` or `Shift+click`, shown in the tool bar |
+| Set, move or clear the time reference line | `T` | Context menu |
+| Clear the time reference line | `Shift+T` | `Clear time reference` in the context menu |
 | Add selection (or the whole line) as filter | `Shift+F` | `Add as filter...` in the log view context menu |
 | Add search text as filter | | `Add as filter...` in the search box context menu |
 

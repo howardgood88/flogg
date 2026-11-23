@@ -56,7 +56,7 @@ Emoji：亮點功能
 - 會記住主視窗與過濾視窗的比例：最後一次拖動分隔線的位置會套用到之後開啟的所有分頁，包括以前開過的檔案。
 - `[TAT]` `Ctrl+H`（macOS：`Control+H`）可隱藏主視窗，只顯示過濾視窗。
 - 📝 **備註**：在行的右鍵選單選 `Add note...`（`Shift+M`）。該行會被標記，書籤旁顯示備註圖示，滑鼠停在該行時 tooltip 最上方顯示備註。
-    - `Export bookmarks and notes...` 匯出：檔名、放在同一個 code block 裡帶行號的各行 bookmark 與 note，備註以 `//` 註解標在該行上方，可直接作為 bug report。
+    - `Export bookmarks and notes...` 匯出：檔名、放在同一個 code block 裡帶行號的各行 bookmark 與 note，備註以 `//` 註解標在該行上方，可直接作為 bug report。`Copy bookmarks and notes` 則把同樣的內容複製到剪貼簿。
 
 ### ✏️ Edit mode：直接編輯檔案
 
@@ -79,16 +79,21 @@ Emoji：亮點功能
     - 預設支援 ISO 8601（含時區）、Android logcat、syslog、web server log、時刻、Unix time、`[開機後秒數]`。
     - 預設比較該行第一個可解析的時間戳。一行有多個時間戳可在 `Tools > Time Formats...`，或在時間差上按右鍵 > `Time stamps compared` 進行切換，也可以加入自己的格式。兩行格式不同時不計算，沒有時間戳的行會提示。
     - 右鍵可以複製時間差文字（`+1.234 s`）或連同兩行的時間一起複製。
+    - **時間基準行**：在某行按 `T`（或右鍵 `Set as time reference`）設為基準行，該行會以橘色框標示；之後只選取一行時，工具列顯示它與基準行的時間差（`Δ ref +1.234 s`），不論是用 bookmark、搜尋或點擊跳過去的。在基準行再按 `T` 清除，在其他行按則移到該行；`Shift+T`（`Clear time reference`）在任何地方都能清除。
+        - 與基準行的時間差以基準行的橘色顯示，選取多行的時間差維持原本按鈕選取色。
+        - `View > Time columns in main view` 與 `View > Time columns in filter view` 可加上兩欄：每行與基準行的時間差、與上一行的時間差（主視窗是檔案的上一行，過濾視窗是過濾結果的上一行）。沒有時間戳的行不顯示。主視窗與過濾視窗分開設定。
 - 🔬 **`Tools > Analyze Log...`** 或工具列 scratchpad 右邊的分析按鈕：
     - **Durations（成對事件耗時）**：檢測開始與結束的 pattern 與費時，例如 `begin request id=(\d+)` / `end request id=(\d+)`。
         - 支援括號群組配對特定 id。結束會配對最近一次的開始。結果會統計平均、中位數、90 與 99 百分位、最慢的幾筆，以及沒有結束的開始。
         - 雙擊開始或結束行的欄位會跳到該行，雙擊其他欄位則選取首尾兩行中間的所有行。
     - **Rules（問題特徵規則庫）**：照特定 rule 分析 log，快速檢查是否有特定問題。
         - 支援 `match`（某一行）、`sequence`（依序出現）、`absence`（某行之後一段時間內沒出現另一行）、`count`（一段時間內重複出現）。
-    - **Compare（比較）**：比較兩個檔案的差異。
+    - **Compare file（比較檔案）**：比較兩個檔案的差異。
+        - **Line by line**：像文字比對工具一樣直接比較每行文字（每邊比較前 100 萬行，有行沒被比較時訊息會提示），以類似 code review 的雙欄顯示，有變更的行會標出不同的字元（`Character level`；選 `Line level` 只標整行）。`Ignore time stamps`、`Ignore numbers` 可忽略兩次執行一定不同的時間戳與數字。
         - **Templates**：每行轉成模板（去掉時間戳，數字、ID、引號內文字與 `key=value` 的值換成佔位符）後計數，差異過大的檔案建議用這個。
             - 勾選 `Group lines that differ by one word` 時，原本因一個字詞不同（例如使用者名稱、主機名稱）而分開的模板會合併成一種。
-        - **line by line**：，以類似 code review 的雙欄顯示逐行比較（每邊最多 10 萬行）。
+        - 檔案更大時改用 templates 比較。差異大到幾秒內無法逐行配對的部分，會整段顯示為刪除與新增，訊息會提示行數。
+    - **Compare text（比較文字）**：貼上兩段文字（`Paste` 會貼上剪貼簿內容）後逐行比較，選項同上。
 
 ### ⚡️ 快速過濾：與 klogg 同樣高效的搜尋與過濾
 
@@ -179,7 +184,7 @@ Predefined filters、highlighter sets、常駐搜尋結果高亮(highlight match
 | 新增 filter | `Insert` | `+ Filter` 按鈕、右鍵選單 |
 | 新增群組 | | `+ Group` 按鈕、右鍵選單 |
 | 編輯 filter／重新命名群組 | `F2`、`Enter` | 雙擊 |
-| 刪除選取項目 | `Delete`、`Ctrl+D`（macOS：`Control+D`） | 右鍵選單 |
+| 刪除選取項目 | `Delete` | 右鍵選單 |
 | 上移／下移（也可移入、移出群組） | `Alt+Up`／`Alt+Down` | 箭頭按鈕、拖放 |
 | 啟用／停用單一 filter | | 勾選框 |
 | 啟用／停用（群組內）、全部啟用、全部停用 | | 右鍵選單 |
@@ -209,9 +214,12 @@ Predefined filters、highlighter sets、常駐搜尋結果高亮(highlight match
 | 在選取的行設定／移除書籤 N（1-5） | `Ctrl+1` … `Ctrl+5` | |
 | 跳到下一個有書籤 N 的行 | `1` … `5` | |
 | 跳到上一個有書籤 N 的行 | `Shift+1` … `Shift+5`（`!` … `%`） | |
+| 跳到下一個／上一個 mark 或備註 | `]`／`[` | |
 | 以顏色 N（1-9）標示選取文字 | `Alt+1` … `Alt+9` | |
 | 新增或編輯該行的備註 | `Shift+M` | 右鍵選單的 `Add note...` |
 | 選取的第一行與最後一行的時間差 | | 用 `Ctrl+左鍵` 或 `Shift+左鍵` 選取，顯示在工具列 |
+| 設定、移動或清除時間基準行 | `T` | 右鍵選單 |
+| 清除時間基準行 | `Shift+T` | 右鍵 `Clear time reference` |
 | 將選取文字（未選取時為整行）加為 filter | `Shift+F` | Log 檢視右鍵選單的 `Add as filter...` |
 | 將搜尋文字加為 filter | | 搜尋框右鍵選單的 `Add as filter...` |
 
